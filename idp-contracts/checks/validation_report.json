@@ -12,17 +12,17 @@
       "definitions": 12
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.0.0",
-      "version": "1.0.0",
-      "definitions": 9
+      "id": "urn:idp:telos:host:1.1.0",
+      "version": "1.1.0",
+      "definitions": 13
     }
   },
-  "positive_cases": 24,
-  "negative_cases": 56,
-  "passed": 80,
-  "total": 80,
-  "invariants_passed": 16,
-  "invariants_total": 16,
+  "positive_cases": 26,
+  "negative_cases": 62,
+  "passed": 88,
+  "total": 88,
+  "invariants_passed": 17,
+  "invariants_total": 17,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -47,6 +47,9 @@
       "passed": true
     },
     "host_definitions_are_closed": {
+      "passed": true
+    },
+    "idp_telos_host_1_1_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -148,7 +151,15 @@
       "errors": []
     },
     {
-      "case": "example:Envelope#2",
+      "case": "example:SkillRelease#2",
+      "namespace": "idp.telos.host",
+      "definition": "SkillRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Envelope#3",
       "namespace": "idp.telos.host",
       "definition": "Envelope",
       "expected_valid": true,
@@ -156,23 +167,31 @@
       "errors": []
     },
     {
-      "case": "example:AgentRun#3",
+      "case": "example:Envelope#4",
       "namespace": "idp.telos.host",
-      "definition": "AgentRun",
-      "expected_valid": true,
-      "passed": true,
-      "errors": []
-    },
-    {
-      "case": "example:AgentRun#4",
-      "namespace": "idp.telos.host",
-      "definition": "AgentRun",
+      "definition": "Envelope",
       "expected_valid": true,
       "passed": true,
       "errors": []
     },
     {
       "case": "example:AgentRun#5",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AgentRun#6",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AgentRun#7",
       "namespace": "idp.telos.host",
       "definition": "AgentRun",
       "expected_valid": true,
@@ -745,6 +764,66 @@
       "passed": true,
       "errors": [
         "definition: Additional properties are not allowed ('extra' was unexpected)"
+      ]
+    },
+    {
+      "case": "host_skill_digest_malformed",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "skills/0/digest: 'sha256:zz' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "host_skill_bad_tool",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "skills/0/definition/tools/0: 'bad name' does not match '^[A-Za-z0-9_.-]{1,128}$'"
+      ]
+    },
+    {
+      "case": "host_skill_ref_bad_name",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/skills/0/name: 'Customs' does not match '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'"
+      ]
+    },
+    {
+      "case": "host_skill_release_wrong_schema",
+      "namespace": "idp.telos.host",
+      "definition": "SkillRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "schemaVersion: 'idp.host.skill/v1' was expected"
+      ]
+    },
+    {
+      "case": "host_skill_release_empty_instructions",
+      "namespace": "idp.telos.host",
+      "definition": "SkillRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/instructions: '' should be non-empty"
+      ]
+    },
+    {
+      "case": "host_skill_release_bad_confirmation",
+      "namespace": "idp.telos.host",
+      "definition": "SkillRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/confirmation/x: 'maybe' is not one of ['auto', 'confirm']"
       ]
     },
     {

@@ -197,6 +197,12 @@ if HOST in schemas:
         ('host_steps_out_of_range', HOST, 'AgentRelease', 0, P('definition.limits.maxSteps', 1000)),
         ('host_unknown_top_level_field', HOST, 'AgentRelease', 0, S(extra=True)),
         ('host_unknown_definition_field', HOST, 'AgentRelease', 0, P('definition.extra', True)),
+        ('host_skill_digest_malformed', HOST, 'AgentRelease', 0, P('skills.0.digest', 'sha256:zz')),
+        ('host_skill_bad_tool', HOST, 'AgentRelease', 0, P('skills.0.definition.tools.0', 'bad name')),
+        ('host_skill_ref_bad_name', HOST, 'AgentRelease', 0, P('definition.skills.0.name', 'Customs')),
+        ('host_skill_release_wrong_schema', HOST, 'SkillRelease', 0, S(schemaVersion='idp.host.skill/v2')),
+        ('host_skill_release_empty_instructions', HOST, 'SkillRelease', 0, P('definition.instructions', '')),
+        ('host_skill_release_bad_confirmation', HOST, 'SkillRelease', 0, P('definition.confirmation', {'x': 'maybe'})),
         ('host_envelope_bad_digest', HOST, 'Envelope', 0, S(digest='sha256:short')),
         ('host_run_unknown_status', HOST, 'AgentRun', 0, S(status='DONE')),
         ('host_run_bad_id', HOST, 'AgentRun', 0, S(runId='run 1')),
@@ -256,9 +262,35 @@ mcp_open = {n for n, d in schemas[MCP]['$defs'].items() if d.get('additionalProp
 invariant('mcp_only_pinned_mcp_objects_are_open', mcp_open == {'Tool', 'Prompt', 'Resource', 'ResourceTemplate'}, sorted(mcp_open))
 invariant('mcp_root_documents', roots[MCP] == {'Release', 'Envelope', 'InvocationRecord'}, sorted(roots[MCP]))
 if HOST in schemas:
-    invariant('host_root_documents', roots[HOST] == {'AgentRelease', 'Envelope', 'AgentRun'}, sorted(roots[HOST]))
+    invariant('host_root_documents', roots[HOST] == {'AgentRelease', 'SkillRelease', 'Envelope', 'AgentRun'}, sorted(roots[HOST]))
     host_open = [n for n, d in schemas[HOST]['$defs'].items() if d.get('additionalProperties') is not False]
     invariant('host_definitions_are_closed', not host_open, host_open)
+
+# 3b. Minor versions only add: against every previous version whose files are still in the tree,
+#     the current schema keeps every definition, never adds a required property to one, never
+#     removes a property, and never drops a root document.
+for ns, n in NAMESPACES.items():
+    for prev in n.get('previous', []):
+        if not prev.get('schema') or not (ROOT / prev['schema']).exists():
+            continue
+        if prev['version'].split('.')[0] != n['version'].split('.')[0]:
+            continue  # a major version may break compatibility
+        old = load(prev['schema'])
+        new = schemas[ns]
+        not_additive = []
+        for name, od in old['$defs'].items():
+            nd = new['$defs'].get(name)
+            if nd is None:
+                not_additive.append(f'{name}: removed')
+                continue
+            if not set(nd.get('required', [])) <= set(od.get('required', [])):
+                not_additive.append(f'{name}: required property added')
+            if not set(od.get('properties', {})) <= set(nd.get('properties', {})):
+                not_additive.append(f'{name}: property removed')
+        old_roots = {r['$ref'].split('/')[-1] for r in old.get('oneOf', [])}
+        if not old_roots <= roots[ns]:
+            not_additive.append('root document removed')
+        invariant(f'{ns.replace(".", "_")}_{n["version"].replace(".", "_")}_is_additive_over_{prev["version"].replace(".", "_")}', not not_additive, not_additive)
 
 # 4. Registry
 entries = {}

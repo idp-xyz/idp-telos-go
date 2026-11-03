@@ -17,19 +17,28 @@
       "note": "MCP 基础设施（idp-mcp）的 Release（idp.mcp.release/v1）、Envelope 与 InvocationRecord。权威副本在 idp-mcp/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。"
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.0.0",
-      "version": "1.0.0",
+      "id": "urn:idp:telos:host:1.1.0",
+      "version": "1.1.0",
       "status": "PUBLISHED",
       "published": "2026-11-03",
-      "schema": "idp.telos.host/1.0.0/schema.json",
-      "examples": "idp.telos.host/1.0.0/examples.json",
+      "schema": "idp.telos.host/1.1.0/schema.json",
+      "examples": "idp.telos.host/1.1.0/examples.json",
       "producer": {
         "repository": "idp-host",
         "path": "api/contracts",
         "consistency_test": "go test ./internal/run -run TestContract",
         "regenerate_examples": "go test ./internal/run -run TestContract -update"
       },
-      "note": "Agent Hosting & Coordination（idp-host）的 AgentRelease（idp.host.agent/v1）、Envelope 与 AgentRun。权威副本在 idp-host/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。"
+      "note": "Agent Hosting & Coordination（idp-host）的 AgentRelease（idp.host.agent/v1，可嵌入 Skill）、SkillRelease（idp.host.skill/v1）、Envelope 与 AgentRun。权威副本在 idp-host/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。",
+      "previous": [
+        {
+          "version": "1.0.0",
+          "status": "SUPERSEDED",
+          "schema": "idp.telos.host/1.0.0/schema.json",
+          "published": "2026-11-03",
+          "note": "文件保留；1.1.0 对其只有向后兼容的新增（validate.py 检查）"
+        }
+      ]
     }
   },
   "objects": [
@@ -132,74 +141,106 @@
     {
       "name": "AgentRelease",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
+    },
+    {
+      "name": "SkillRelease",
+      "owner": "idp.telos.host",
+      "version": "1.1.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.1.0/schema.json"
     },
     {
       "name": "Envelope",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
     },
     {
       "name": "AgentRun",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
     },
     {
       "name": "Definition",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
     },
     {
       "name": "ModelProfile",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
     },
     {
       "name": "ModelRef",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
     },
     {
       "name": "ToolPolicy",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
     },
     {
       "name": "ConfirmationPolicy",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
     },
     {
       "name": "Limits",
       "owner": "idp.telos.host",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.0.0/schema.json"
+      "file": "idp.telos.host/1.1.0/schema.json"
+    },
+    {
+      "name": "SkillRef",
+      "owner": "idp.telos.host",
+      "version": "1.1.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.1.0/schema.json"
+    },
+    {
+      "name": "SkillDefinition",
+      "owner": "idp.telos.host",
+      "version": "1.1.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.1.0/schema.json"
+    },
+    {
+      "name": "EmbeddedSkill",
+      "owner": "idp.telos.host",
+      "version": "1.1.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.1.0/schema.json"
     }
   ]
 }

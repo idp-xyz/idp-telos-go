@@ -5,7 +5,7 @@
 | 命名空间 | 版本 | `$id` | 内容 | 生产者 | 状态 |
 |---|---|---|---|---|---|
 | `idp.telos.mcp` | 1.0.0 | `urn:idp:telos:mcp:1.0.0` | Release、Envelope、InvocationRecord（MCP 基础设施 idp-mcp） | `idp-mcp/api/contracts`，`go test ./internal/release -run TestContract` | 已发布（2026-11-03） |
-| `idp.telos.host` | 1.0.0 | `urn:idp:telos:host:1.0.0` | AgentRelease、Envelope、AgentRun（Agent Hosting & Coordination idp-host） | `idp-host/api/contracts`，`go test ./internal/run -run TestContract` | 已发布（2026-11-03） |
+| `idp.telos.host` | 1.1.0 | `urn:idp:telos:host:1.1.0` | AgentRelease（可嵌入 Skill）、SkillRelease、Envelope、AgentRun（Agent Hosting & Coordination idp-host） | `idp-host/api/contracts`，`go test ./internal/run -run TestContract` | 已发布（2026-11-03）；1.0.0 SUPERSEDED，文件保留，`tools/validate.py` 检查 1.1.0 只做了向后兼容的新增 |
 
 其他模块在其生产者发布契约并带上一致性测试时登记。
 
