@@ -176,6 +176,37 @@ NEGATIVE = [
     ('record_with_arguments', MCP, 'InvocationRecord', 0, S(arguments={'recipient': 'x'})),
 ]
 
+#    idp.telos.host: mirrors idp-host's TestContractRejectsWhatOpenRejects
+HOST = 'idp.telos.host'
+if HOST in schemas:
+    POSITIVE += [
+        ('release_wildcard_tools', HOST, 'AgentRelease', 0, P('definition.tools.allow', ['*'])),
+        ('release_without_fallbacks', HOST, 'AgentRelease', 0, P('definition.model', {'provider': 'local', 'model': 'qwen3.8-flash'})),
+        ('run_with_execution_ref', HOST, 'AgentRun', 0, S(executionRef='eer:execution:1')),
+    ]
+    NEGATIVE += [
+        ('host_wrong_schema_version', HOST, 'AgentRelease', 0, S(schemaVersion='idp.host.agent/v2')),
+        ('host_version_zero', HOST, 'AgentRelease', 0, S(version=0)),
+        ('host_bad_agent_name', HOST, 'AgentRelease', 0, S(agentName='Parcel Assistant')),
+        ('host_empty_instructions', HOST, 'AgentRelease', 0, P('definition.instructions', '')),
+        ('host_bad_provider', HOST, 'AgentRelease', 0, P('definition.model.provider', 'Local Provider')),
+        ('host_temperature_out_of_range', HOST, 'AgentRelease', 0, P('definition.model.temperature', 3)),
+        ('host_bad_tool_name', HOST, 'AgentRelease', 0, P('definition.tools.allow', ['bad name'])),
+        ('host_bad_confirmation_default', HOST, 'AgentRelease', 0, P('definition.confirmation.default', 'ask')),
+        ('host_bad_confirmation_override', HOST, 'AgentRelease', 0, P('definition.confirmation.tools', {'x': 'maybe'})),
+        ('host_steps_out_of_range', HOST, 'AgentRelease', 0, P('definition.limits.maxSteps', 1000)),
+        ('host_unknown_top_level_field', HOST, 'AgentRelease', 0, S(extra=True)),
+        ('host_unknown_definition_field', HOST, 'AgentRelease', 0, P('definition.extra', True)),
+        ('host_envelope_bad_digest', HOST, 'Envelope', 0, S(digest='sha256:short')),
+        ('host_run_unknown_status', HOST, 'AgentRun', 0, S(status='DONE')),
+        ('host_run_bad_id', HOST, 'AgentRun', 0, S(runId='run 1')),
+        ('host_run_bad_digest', HOST, 'AgentRun', 0, S(releaseDigest='sha256:zz')),
+        ('host_run_negative_steps', HOST, 'AgentRun', 0, S(stepCount=-1)),
+        ('host_run_bad_trace_id', HOST, 'AgentRun', 0, S(traceId='xyz')),
+        ('host_run_unknown_field', HOST, 'AgentRun', 0, S(arguments='x')),
+        ('host_run_empty_owner', HOST, 'AgentRun', 0, S(owner='')),
+    ]
+
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
     for name, ns, definition, index, *mutations in cases:
         x = pick(ns, definition, index)
@@ -224,6 +255,10 @@ invariant('every_root_document_has_an_example', not no_example, no_example)
 mcp_open = {n for n, d in schemas[MCP]['$defs'].items() if d.get('additionalProperties') is not False}
 invariant('mcp_only_pinned_mcp_objects_are_open', mcp_open == {'Tool', 'Prompt', 'Resource', 'ResourceTemplate'}, sorted(mcp_open))
 invariant('mcp_root_documents', roots[MCP] == {'Release', 'Envelope', 'InvocationRecord'}, sorted(roots[MCP]))
+if HOST in schemas:
+    invariant('host_root_documents', roots[HOST] == {'AgentRelease', 'Envelope', 'AgentRun'}, sorted(roots[HOST]))
+    host_open = [n for n, d in schemas[HOST]['$defs'].items() if d.get('additionalProperties') is not False]
+    invariant('host_definitions_are_closed', not host_open, host_open)
 
 # 4. Registry
 entries = {}

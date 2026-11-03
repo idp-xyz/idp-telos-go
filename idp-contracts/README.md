@@ -5,12 +5,13 @@
 | 命名空间 | 版本 | `$id` | 内容 | 生产者 | 状态 |
 |---|---|---|---|---|---|
 | `idp.telos.mcp` | 1.0.0 | `urn:idp:telos:mcp:1.0.0` | Release、Envelope、InvocationRecord（MCP 基础设施 idp-mcp） | `idp-mcp/api/contracts`，`go test ./internal/release -run TestContract` | 已发布（2026-11-03） |
+| `idp.telos.host` | 1.0.0 | `urn:idp:telos:host:1.0.0` | AgentRelease、Envelope、AgentRun（Agent Hosting & Coordination idp-host） | `idp-host/api/contracts`，`go test ./internal/run -run TestContract` | 已发布（2026-11-03） |
 
 其他模块在其生产者发布契约并带上一致性测试时登记。
 
 ## 四条规则
 
-1. **契约由生产者拥有并生成。** 权威副本在生产者仓库里（`idp.telos.mcp`：`idp-mcp/api/contracts/`）；这里只放发布副本，必须与权威副本逐字节相同。改契约先改生产者，再把副本搬过来。
+1. **契约由生产者拥有并生成。** 权威副本在生产者仓库里（`idp.telos.mcp`：`idp-mcp/api/contracts/`；`idp.telos.host`：`idp-host/api/contracts/`）；这里只放发布副本，必须与权威副本逐字节相同。改契约先改生产者，再把副本搬过来。
 2. **登记的前提是实现侧的一致性测试。** 生产者仓库必须有测试证明：实现产出的文档满足 schema、发布的示例是实现真实产出、实现拒绝的 schema 也拒绝。没有这样的测试，就不登记。
 3. **兼容性由工具检查。** 次版本只做向后兼容的新增（可选字段、新对象）；主版本可以不兼容，但要在 CHANGELOG 中写明有无迁移路径。
 4. **消费者只用这里发布的版本。** 不从生产者的工作副本取契约；跨命名空间用 URN 引用（`urn:idp:telos:<模块>:<版本>#/$defs/<对象>`）。

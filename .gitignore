@@ -1,5 +1,6 @@
-# idp-mcp is its own repository
+# idp-mcp and idp-host are their own repositories
 /idp-mcp/
+/idp-host/
 # Windows download markers
 *:Zone.Identifier
 # local

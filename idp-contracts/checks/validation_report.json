@@ -10,14 +10,19 @@
       "id": "urn:idp:telos:mcp:1.0.0",
       "version": "1.0.0",
       "definitions": 12
+    },
+    "idp.telos.host": {
+      "id": "urn:idp:telos:host:1.0.0",
+      "version": "1.0.0",
+      "definitions": 9
     }
   },
-  "positive_cases": 15,
-  "negative_cases": 36,
-  "passed": 51,
-  "total": 51,
-  "invariants_passed": 13,
-  "invariants_total": 13,
+  "positive_cases": 24,
+  "negative_cases": 56,
+  "passed": 80,
+  "total": 80,
+  "invariants_passed": 16,
+  "invariants_total": 16,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -36,6 +41,12 @@
       "passed": true
     },
     "mcp_root_documents": {
+      "passed": true
+    },
+    "host_root_documents": {
+      "passed": true
+    },
+    "host_definitions_are_closed": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -57,6 +68,9 @@
       "passed": true
     },
     "idp_telos_mcp_published_matches_producer": {
+      "passed": true
+    },
+    "idp_telos_host_published_matches_producer": {
       "passed": true
     }
   },
@@ -113,6 +127,54 @@
       "case": "example:InvocationRecord#6",
       "namespace": "idp.telos.mcp",
       "definition": "InvocationRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AgentRelease#0",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AgentRelease#1",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Envelope#2",
+      "namespace": "idp.telos.host",
+      "definition": "Envelope",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AgentRun#3",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AgentRun#4",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AgentRun#5",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -177,6 +239,30 @@
       "case": "record_invalid_arguments",
       "namespace": "idp.telos.mcp",
       "definition": "InvocationRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_wildcard_tools",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_without_fallbacks",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "run_with_execution_ref",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -539,6 +625,206 @@
       "passed": true,
       "errors": [
         "<root>: Additional properties are not allowed ('arguments' was unexpected)"
+      ]
+    },
+    {
+      "case": "host_wrong_schema_version",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "schemaVersion: 'idp.host.agent/v1' was expected"
+      ]
+    },
+    {
+      "case": "host_version_zero",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "version: 0 is less than the minimum of 1"
+      ]
+    },
+    {
+      "case": "host_bad_agent_name",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "agentName: 'Parcel Assistant' does not match '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'"
+      ]
+    },
+    {
+      "case": "host_empty_instructions",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/instructions: '' should be non-empty"
+      ]
+    },
+    {
+      "case": "host_bad_provider",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/model/provider: 'Local Provider' does not match '^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$'"
+      ]
+    },
+    {
+      "case": "host_temperature_out_of_range",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/model/temperature: 3 is greater than the maximum of 2"
+      ]
+    },
+    {
+      "case": "host_bad_tool_name",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/tools/allow/0: 'bad name' does not match '^([A-Za-z0-9_.-]{1,128}|\\\\*)$'"
+      ]
+    },
+    {
+      "case": "host_bad_confirmation_default",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/confirmation/default: 'ask' is not one of ['auto', 'confirm']"
+      ]
+    },
+    {
+      "case": "host_bad_confirmation_override",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/confirmation/tools/x: 'maybe' is not one of ['auto', 'confirm']"
+      ]
+    },
+    {
+      "case": "host_steps_out_of_range",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/limits/maxSteps: 1000 is greater than the maximum of 200"
+      ]
+    },
+    {
+      "case": "host_unknown_top_level_field",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: Additional properties are not allowed ('extra' was unexpected)"
+      ]
+    },
+    {
+      "case": "host_unknown_definition_field",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition: Additional properties are not allowed ('extra' was unexpected)"
+      ]
+    },
+    {
+      "case": "host_envelope_bad_digest",
+      "namespace": "idp.telos.host",
+      "definition": "Envelope",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "digest: 'sha256:short' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "host_run_unknown_status",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "status: 'DONE' is not one of ['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'COMPLETED', 'FAILED', 'CANCELED']"
+      ]
+    },
+    {
+      "case": "host_run_bad_id",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "runId: 'run 1' does not match '^[A-Za-z0-9_.:-]{1,128}$'"
+      ]
+    },
+    {
+      "case": "host_run_bad_digest",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "releaseDigest: 'sha256:zz' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "host_run_negative_steps",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "stepCount: -1 is less than the minimum of 0"
+      ]
+    },
+    {
+      "case": "host_run_bad_trace_id",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "traceId: 'xyz' does not match '^[0-9a-f]{32}$'"
+      ]
+    },
+    {
+      "case": "host_run_unknown_field",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: Additional properties are not allowed ('arguments' was unexpected)"
+      ]
+    },
+    {
+      "case": "host_run_empty_owner",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "owner: '' should be non-empty"
       ]
     }
   ]

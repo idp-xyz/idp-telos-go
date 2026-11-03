@@ -15,20 +15,191 @@
         "regenerate_examples": "go test ./internal/release -run TestContract -update"
       },
       "note": "MCP 基础设施（idp-mcp）的 Release（idp.mcp.release/v1）、Envelope 与 InvocationRecord。权威副本在 idp-mcp/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。"
+    },
+    "idp.telos.host": {
+      "id": "urn:idp:telos:host:1.0.0",
+      "version": "1.0.0",
+      "status": "PUBLISHED",
+      "published": "2026-11-03",
+      "schema": "idp.telos.host/1.0.0/schema.json",
+      "examples": "idp.telos.host/1.0.0/examples.json",
+      "producer": {
+        "repository": "idp-host",
+        "path": "api/contracts",
+        "consistency_test": "go test ./internal/run -run TestContract",
+        "regenerate_examples": "go test ./internal/run -run TestContract -update"
+      },
+      "note": "Agent Hosting & Coordination（idp-host）的 AgentRelease（idp.host.agent/v1）、Envelope 与 AgentRun。权威副本在 idp-host/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。"
     }
   },
   "objects": [
-    {"name": "Release", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "CONTRACT", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "Envelope", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "CONTRACT", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "InvocationRecord", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "CONTRACT", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "Target", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "Tool", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "Prompt", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "Resource", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "ResourceTemplate", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "Grant", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "Auth", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "APIKey", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"},
-    {"name": "JWT", "owner": "idp.telos.mcp", "version": "1.0.0", "role": "HELPER", "status": "PUBLISHED", "file": "idp.telos.mcp/1.0.0/schema.json"}
+    {
+      "name": "Release",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "Envelope",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "InvocationRecord",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "Target",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "Tool",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "Prompt",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "Resource",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "ResourceTemplate",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "Grant",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "Auth",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "APIKey",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "JWT",
+      "owner": "idp.telos.mcp",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.mcp/1.0.0/schema.json"
+    },
+    {
+      "name": "AgentRelease",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    },
+    {
+      "name": "Envelope",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    },
+    {
+      "name": "AgentRun",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    },
+    {
+      "name": "Definition",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    },
+    {
+      "name": "ModelProfile",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    },
+    {
+      "name": "ModelRef",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    },
+    {
+      "name": "ToolPolicy",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    },
+    {
+      "name": "ConfirmationPolicy",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    },
+    {
+      "name": "Limits",
+      "owner": "idp.telos.host",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.0.0/schema.json"
+    }
   ]
 }
