@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="topologySvg" class="diagram-svg" viewBox="0 0 1320 680" role="img" aria-labelledby="topologyTitle topologyDesc" width="1320" height="680">
+   <title id="topologyTitle">IDP TELOS 七仓库工程拓扑图</title><desc id="topologyDesc">平台总仓库和契约仓库作为支撑，五个子系统独立管理。</desc>
+   <style type="text/css">
+   .dtext{font:600 18px Inter,Arial,sans-serif;fill:#e8f5ff}
+   .small{font:400 12px Inter,Arial,sans-serif;fill:#a6bed9}
+   .tag{font:700 10px Inter,Arial,sans-serif;letter-spacing:1.8px;fill:#a2d7ef}
+   </style>
+   <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1b4262"/><stop offset="1" stop-color="#0e233d"/></linearGradient><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#16364f"/><stop offset="1" stop-color="#0d2536"/></linearGradient><pattern id="gridDots" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".8" fill="#4c7ea2" opacity=".35"/></pattern></defs>
+   <rect width="1320" height="680" fill="#0b1a2f"/><rect width="1320" height="680" fill="url(#gridDots)"/>
+   <text x="54" y="36" class="tag">PRODUCT &amp; INTEGRATION CONTROL</text>
+   <path d="M660 148 V198 M139 319 V364 M400 319 V364 M660 319 V364 M920 319 V364 M1180 319 V364" stroke="#659bc2" opacity=".5" stroke-width="2" stroke-dasharray="7 8"/>
+   <path d="M139 364 V340 H1180 V364" stroke="#659bc2" opacity=".48" stroke-width="2" fill="none"/>
+   <rect x="405" y="55" width="510" height="113" rx="15" fill="url(#g1)" stroke="#8bcde8" stroke-width="1.8"/>
+   <rect x="405" y="55" width="6" height="113" rx="2" fill="#8bcde8"/>
+   <text x="432" y="84" class="tag">ROOT PRODUCT REPOSITORY</text>
+   <text x="432" y="116" class="dtext" style="font-size:28px">idp-telos</text>
+   <text x="432" y="143" class="small">Architecture / Docs / E2E / Deployment / Platform BOM</text>
+   <text x="55" y="223" class="tag">FIVE AUTONOMOUS RUNTIME REPOSITORIES</text>
+   <rect x="53" y="250" width="1214" height="95" rx="15" fill="#0d223b" stroke="#325371"/>
+   <g fill="#132c47" stroke-width="1.5"><rect x="69" y="265" width="221" height="65" rx="9" stroke="#73bce7"/><rect x="312" y="265" width="221" height="65" rx="9" stroke="#b2a7ef"/><rect x="555" y="265" width="210" height="65" rx="9" stroke="#e1bb7e"/><rect x="788" y="265" width="217" height="65" rx="9" stroke="#65d5b7"/><rect x="1024" y="265" width="227" height="65" rx="9" stroke="#94b8ea"/></g>
+   <text x="90" y="291" class="dtext" style="font-size:16px">idp-workspace</text><text x="90" y="310" class="small">UI / Experience</text>
+   <text x="333" y="291" class="dtext" style="font-size:16px">idp-host</text><text x="333" y="310" class="small">Agent / Harness</text>
+   <text x="576" y="291" class="dtext" style="font-size:16px">idp-eer</text><text x="576" y="310" class="small">Reliable Execution</text>
+   <text x="808" y="291" class="dtext" style="font-size:16px">idp-cmi</text><text x="808" y="310" class="small">Context / Memory</text>
+   <text x="1042" y="291" class="dtext" style="font-size:15px">idp-mcp-infrastructure</text><text x="1042" y="310" class="small">Connectivity / Policy</text>
+   <path d="M660 168 V249" stroke="#8cbadb" stroke-width="2.5" stroke-dasharray="7 7"/>
+   <path d="M660 345 V433" stroke="#e2bd7e" stroke-width="2.5" stroke-dasharray="7 7"/>
+   <path d="M179 345 V387 H1140 V433" fill="none" stroke="#6595b3" stroke-width="1.7" opacity=".65" stroke-dasharray="6 7"/>
+   <rect x="362" y="434" width="595" height="114" rx="16" fill="url(#g2)" stroke="#e3bb7b" stroke-width="1.9"/>
+   <rect x="362" y="434" width="6" height="114" rx="2" fill="#e3bb7b"/>
+   <text x="391" y="461" class="tag" style="fill:#e6bc85">PUBLIC CONTRACT GOVERNANCE</text>
+   <text x="391" y="493" class="dtext" style="font-size:27px">idp-contracts</text>
+   <text x="391" y="522" class="small">Protobuf / OpenAPI / Events / SDK / Breaking Changes</text>
+   <rect x="53" y="580" width="1214" height="58" rx="12" fill="#132742" stroke="#395774"/>
+   <text x="75" y="605" class="tag">INDEPENDENT RELEASE &amp; VERSION</text>
+   <text x="75" y="626" class="small">Component CI + Releases / No internal/ cross-imports / BOM pins image digests + contract versions</text>
+  </svg>

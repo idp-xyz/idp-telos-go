@@ -1,0 +1,5 @@
+/* TELOS brand integration - geometry comes only from locked SVG files. */
+:root { --telos-midnight:#010415; --telos-white:#FAFCFF; --telos-cyan:#22CFFF; --telos-ink:#02051D; }
+.telos-logo { display:block; width:auto; height:var(--telos-logo-height,44px); max-width:100%; object-fit:contain; }
+.telos-logo--brand { --telos-logo-height:64px; }
+@media (prefers-reduced-motion:reduce){ .telos-logo--motion { display:none; } .telos-logo--still { display:block; } }

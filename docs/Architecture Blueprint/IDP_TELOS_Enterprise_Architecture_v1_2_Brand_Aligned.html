@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07152e"><meta name="description" content="IDP TELOS AI-Native Enterprise Execution Platform：Workspace、HOST、EER、CMI、MCP Infrastructure 的职责、执行路径与数据权威。"><title>IDP TELOS | Enterprise AI-Native Architecture · v1.2 品牌同步</title>
+<style>
+:root{--bg:#070f23;--panel:#0d1b36;--panel2:#111f3c;--border:#29436a;--text:#ebf4ff;--muted:#9db2d0;--blue:#65cafa;--gold:#f1c77e}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,"Noto Sans CJK SC","Microsoft Yahei",system-ui,sans-serif;line-height:1.65}button{font:inherit;cursor:pointer}a{color:#91d9ff}.shell{max-width:1760px;margin:auto;padding:0 28px}.topbar{height:76px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #243657;gap:16px}.brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.08em}.mark{width:38px;height:38px;display:grid;place-items:center;border:1px solid #61baf5;border-radius:12px;color:#7be8ff;background:#10284d}.subbrand{font-size:12px;color:var(--muted);letter-spacing:normal;font-weight:400}.status{padding:5px 12px;border:1px solid #315778;border-radius:99px;color:#a5cee8;font-size:12px}.hero{padding:64px 0 34px;max-width:1200px}.eyebrow{text-transform:uppercase;letter-spacing:.2em;color:#81cced;font-weight:700;font-size:12px}h1{font-size:clamp(33px,3.4vw,61px);line-height:1.19;letter-spacing:-.045em;margin:16px 0 18px}h1 span{color:#69d3f7}.hero p{font-size:17px;color:var(--muted);max-width:1050px;margin:0}.stats{display:flex;flex-wrap:wrap;gap:10px;margin:28px 0 0}.stat{font-size:13px;color:#cbdcf1;padding:8px 12px;border:1px solid #2b4468;border-radius:9px;background:#0b1c37}.stat strong{color:#75ddfb}.diagram-wrap{background:linear-gradient(155deg,#0c1b36,#09162e);border:1px solid #2e4e7a;border-radius:22px;overflow:hidden;box-shadow:0 20px 90px #0006}.diagram-header{padding:18px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:15px;border-bottom:1px solid #26436a}h2{font-size:22px;letter-spacing:-.02em;margin:0}.diagram-header p{margin:2px 0 0;color:var(--muted);font-size:13px}.controls{display:flex;gap:8px;flex-wrap:wrap}.btn{background:#132747;border:1px solid #365b82;border-radius:9px;padding:9px 13px;color:#dbeeff;font-size:13px}.btn:hover,.btn:focus-visible{border-color:#75d8fa;background:#1a3b63}.btn.primary{background:#216192;color:white;border-color:#429ee1}.filters{display:flex;gap:8px;padding:16px 20px;overflow-x:auto;scrollbar-width:thin}.filter-btn{border:1px solid #274465;border-radius:99px;background:#0b1b35;color:#99b9d4;padding:9px 14px;white-space:nowrap;font-size:13px}.filter-btn.active{border-color:#58cced;color:#effcff;background:#153d5b}.canvas-scroll{overflow:auto;scrollbar-color:#3a6a94 #0b1730;scrollbar-width:thin}.canvas-inner{margin:auto;width:100%;min-width:900px;line-height:0;transition:width .2s}.canvas-inner svg{width:100%;height:auto;display:block}.flow-summary{border-top:1px solid #263e62;padding:16px 24px;background:#0a1932;display:flex;gap:22px;align-items:center;justify-content:space-between}.flow-summary p{margin:2px 0;color:#adbfda;font-size:13px}.flow-summary strong{color:#eefaff}.clickhint{color:#80a4c5;white-space:nowrap;font-size:12px}.content-grid{display:grid;grid-template-columns:1.35fr .85fr;gap:24px;margin:24px 0 42px}.section{border:1px solid #284266;background:#0d1a32;border-radius:17px;padding:24px}.section h2{margin-bottom:14px}.lead{color:var(--muted);font-size:14px}.modules{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:18px}.quick-module{background:#10223f;border:1px solid #314d71;border-radius:12px;display:flex;gap:10px;flex-direction:column;align-items:flex-start;padding:15px;text-align:left;color:#f0f6ff}.quick-module:hover{border-color:var(--accent)}.quick-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}.quick-note{color:#95adc9;font-size:12px}.inspector-header{display:flex;gap:8px;justify-content:space-between;align-items:center}.token{color:#72d9ff;font-size:12px;text-transform:uppercase;letter-spacing:.12em}.inspector-title{font-size:23px;font-weight:750;margin:7px 0}.detail-col{margin-top:20px}.detail-col h3{color:#9cd7ef;font-size:14px;margin:0 0 9px}.detail-col ul{padding-left:20px;color:#cedcf0;font-size:13px;margin:0}.detail-col li{margin:5px 0}.warning h3{color:#f5c88c}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px;min-width:700px}th,td{text-align:left;padding:13px 14px;border-bottom:1px solid #2a3f60;vertical-align:top}th{color:#86cbed;background:#0f2543}td{color:#c8daef}.section-wide{margin:25px 0}.flows{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}.step{padding:17px;border:1px solid #2c4a69;background:#0e213f;border-radius:12px}.step span{color:#7bd7ef;font-size:12px;letter-spacing:.08em}.step strong{display:block;margin:5px 0;color:#f2f8ff}.step p{margin:0;color:#9bb3d1;font-size:13px}.footer{border-top:1px solid #263e5b;margin-top:45px;padding:26px 0 50px;color:#8da7c5;font-size:12px}.notice{background:#132d46;border-left:3px solid #68cffa;color:#c5ddf0;padding:14px 17px;border-radius:8px;margin-top:16px;font-size:13px}.module-node:hover>rect:first-child{stroke-width:4}:focus-visible{outline:2px solid #6dd7f7;outline-offset:2px}@media(max-width:900px){.shell{padding:0 15px}.topbar{height:70px}.brand small{display:none}.hero{padding-top:40px}.content-grid{grid-template-columns:1fr}.flows{grid-template-columns:1fr}.flow-summary{display:block}.clickhint{display:none}.modules{grid-template-columns:1fr}.diagram-header{padding:15px}.diagram-header h2{font-size:17px}.canvas-inner{min-width:1050px}}@media print{body{background:white;color:black}.topbar,.controls,.filters,.clickhint{display:none}.shell{max-width:100%;padding:0 12px}.diagram-wrap,.section{break-inside:avoid;border-color:#ccc}.canvas-inner{min-width:0!important;width:100%!important}.canvas-scroll{overflow:visible}.section{background:white;color:black}.section *,table *, .lead{color:#222!important}.content-grid{grid-template-columns:1fr 1fr}}
+.brand-wordmark{width:117px;height:auto;max-height:40px;display:block;flex:none}.brand-caption{line-height:1.3;letter-spacing:0}.brand-caption strong{font-size:14px;letter-spacing:.08em}.brand-guidance{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:12px;margin:24px 0}.brand-guidance>div{padding:17px 18px;background:#10243f;border:1px solid #2a4569;border-radius:13px;display:flex;flex-direction:column;gap:4px}.brand-guidance strong{font-size:13px;color:#eef8ff}.brand-guidance span{font-size:12px;color:#adc3df}.brand{letter-spacing:0}.brand .subbrand{font-size:11px}.hero h1{font-size:clamp(32px,3.3vw,58px)}@media(max-width:900px){.brand-guidance{grid-template-columns:1fr}.brand-wordmark{width:95px}.brand-caption strong{font-size:12px}.status{font-size:10px;padding:4px 8px}.brand-caption .subbrand{font-size:10px}}@media(max-width:480px){.topbar{gap:8px}.brand-wordmark{width:84px}.brand{gap:7px}.brand-caption strong{font-size:11px}.brand-caption .subbrand{display:none}.status{font-size:10px;max-width:123px;text-align:center}}@media print{.brand-guidance>div{background:white;border-color:#ccc}.brand-guidance *{color:#111!important}}
+</style></head><body>
+<header class="shell topbar"><div class="brand"><svg class="brand-wordmark" viewBox="0 0 1690 432" aria-label="TELOS 字标" role="img" xmlns="http://www.w3.org/2000/svg"><g xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="TELOS-wordmark" fill="#FFFFFF" transform="translate(-241 -166)">
+    <path id="glyph-T" d="M261 197 H544 V273 H448 V563 H355 V273 H261 Z" fill-rule="evenodd"/>
+    <path id="glyph-E" d="M587 197 H866 V273 H587 Z M587 335 H866 V415 H587 Z M587 484 H866 V564 H587 Z" fill-rule="evenodd"/>
+    <path id="glyph-L" d="M913 197 H1002 V486 H1165 V564 H913 Z" fill-rule="evenodd"/>
+    <path id="glyph-O" d="M1375 186 C1488 186 1575 270 1575 382 C1575 490 1487 578 1375 578 C1262 578 1175 491 1175 382 C1175 274 1260 186 1375 186 Z M1375 266 C1439 266 1487 317 1487 383 C1487 448 1438 500 1375 500 C1310 500 1262 448 1262 383 C1262 317 1311 266 1375 266 Z" fill-rule="evenodd"/>
+    <path id="glyph-S" d="M1860 201 C1815 183 1762 178 1714 190 C1644 205 1603 254 1607 294 C1599 363 1642 398 1700 410 L1796 435 C1820 444 1819 475 1788 489 C1755 508 1675 492 1609 460 Q1603 459 1603 466 L1603 533 Q1603 540 1609 541 C1694 594 1811 586 1865 541 C1903 509 1918 472 1910 434 C1906 385 1876 371 1836 358 L1722 330 C1694 321 1680 294 1705 273 C1739 246 1815 254 1885 290 Q1898 297 1898 284 L1898 226 Q1898 214 1860 201 Z" fill-rule="evenodd"/>
+  </g>
+</svg><div class="brand-caption"><strong>IDP TELOS</strong><div class="subbrand">AI-Native Enterprise Execution Platform</div></div></div><div class="status">Brand-aligned architecture · v1.2</div></header>
+<main class="shell"><section class="hero"><div class="eyebrow">IDP TELOS / Enterprise Architecture Blueprint</div><h1><span>IDP TELOS</span><br>企业智能体体系统一架构蓝图</h1><p>采用统一的 TELOS 品牌视觉，严格遵循 IDP TELOS 的既定架构：四大子系统与独立 EER 执行内核。通过清晰的状态权威、协议分层与业务执行闭环，避免把 Agent Harness、任务编排、Context & Memory 和 MCP 工具治理混成一个系统。</p><div class="stats"><span class="stat"><strong>4</strong> 大子系统</span><span class="stat"><strong>1</strong> 个独立执行内核</span><span class="stat"><strong>5</strong> 个 EER 逻辑执行角色</span><span class="stat"><strong>3</strong> 类开放交互协议</span><span class="stat">2560 × 1440 原生矢量画布</span></div></section>
+<section class="diagram-wrap" id="diagram"><div class="diagram-header"><div><h2>Architecture Master Map</h2><p>单击架构模块查看权威边界，切换路径查看逻辑连接。</p></div><div class="controls"><button class="btn" id="zoomOut" type="button" aria-label="缩小图表">− 缩小</button><button class="btn" id="zoomIn" type="button" aria-label="放大图表">＋ 放大</button><button class="btn" id="resetZoom" type="button">重置视图</button><button class="btn primary" id="exportSvg" type="button">下载 SVG</button><button class="btn primary" id="exportPng" type="button">下载 4K PNG</button><button class="btn" id="print" type="button">打印</button></div></div>
+<div class="filters" role="group" aria-label="显示架构路径"><button class="filter-btn active" data-filter="all" type="button" aria-pressed="true">总架构视图</button><button class="filter-btn" data-filter="interaction" type="button" aria-pressed="false">用户交互路径</button><button class="filter-btn" data-filter="execution" type="button" aria-pressed="false">企业任务执行路径</button><button class="filter-btn" data-filter="context" type="button" aria-pressed="false">上下文解析路径</button><button class="filter-btn" data-filter="tool" type="button" aria-pressed="false">工具治理路径</button><button class="filter-btn" data-filter="model" type="button" aria-pressed="false">模型推理路径</button><button class="filter-btn" data-filter="business" type="button" aria-pressed="false">领域业务提交路径</button></div>
+<div class="canvas-scroll" id="canvasScroll"><div class="canvas-inner" id="canvasInner"><svg id="architectureSvg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="2560" height="1440" viewBox="0 0 2560 1440" role="group" aria-labelledby="diagramTitle diagramDesc">
+<title id="diagramTitle">IDP TELOS — AI-Native Enterprise Architecture 总架构图</title>
+<desc id="diagramDesc">IDP TELOS 企业智能执行平台总图。以 TELOS 品牌字标标识总产品；四大子系统 Workspace、HOST、CMI、MCP Infrastructure，以及独立 EER 执行运行时。展示 Agent 能力、企业任务执行、可信上下文、工具治理和领域数据权威。</desc>
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#040F29"/><stop offset=".52" stop-color="#071B39"/><stop offset="1" stop-color="#08132F"/></linearGradient>
+  <radialGradient id="rad" cx=".53" cy=".43" r=".5"><stop stop-color="#133C76" stop-opacity=".66"/><stop offset="1" stop-color="#0B183A" stop-opacity="0"/></radialGradient>
+  <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101F46"/><stop offset="1" stop-color="#0B1734"/></linearGradient>
+  <linearGradient id="eerbg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#12305A"/><stop offset="1" stop-color="#0A1838"/></linearGradient>
+  <linearGradient id="active" x1="0" x2="1"><stop stop-color="#5DE6ED"/><stop offset="1" stop-color="#4D8FFF"/></linearGradient>
+  <filter id="blur"><feGaussianBlur stdDeviation="65"/></filter>
+  <filter id="softglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <pattern id="dots" width="38" height="38" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#639CD5" opacity=".18"/></pattern>
+  <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9Z" fill="#64B8F7"/></marker>
+  <marker id="arrowGreen" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9Z" fill="#52E1CA"/></marker>
+  <marker id="arrowGold" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9Z" fill="#F1C274"/></marker>
+  <style><![CDATA[
+    text {font-family: Inter,"Noto Sans CJK SC","Microsoft YaHei",Arial,sans-serif;paint-order:stroke fill}
+    .module-node {cursor:pointer;outline:none;transition:opacity .2s}
+    .module-node:focus-visible rect:first-child{stroke-width:4}
+    .link {transition:opacity .22s,stroke-width .22s}
+    .links-filtered .link {opacity:.10}
+    .links-filtered .link.flow-active{opacity:1;stroke-width:5;filter:url(#softglow)}
+    .module-node.selected>rect:first-child{stroke-width:4;filter:url(#softglow)}
+  ]]></style>
+</defs>
+<rect width="2560" height="1440" fill="url(#bg)"/>
+<ellipse cx="1410" cy="650" rx="900" ry="600" fill="url(#rad)"/>
+<rect width="2560" height="1440" fill="url(#dots)" opacity=".6"/>
+<path d="M62 166 H2498" stroke="#345681" stroke-opacity=".6"/>
+<svg x="68" y="65" width="212" height="55" viewBox="0 0 1690 432" aria-label="TELOS Logo" role="img" xmlns="http://www.w3.org/2000/svg"><g xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="TELOS-wordmark" fill="#FFFFFF" transform="translate(-241 -166)">
+    <path id="glyph-T" d="M261 197 H544 V273 H448 V563 H355 V273 H261 Z" fill-rule="evenodd"/>
+    <path id="glyph-E" d="M587 197 H866 V273 H587 Z M587 335 H866 V415 H587 Z M587 484 H866 V564 H587 Z" fill-rule="evenodd"/>
+    <path id="glyph-L" d="M913 197 H1002 V486 H1165 V564 H913 Z" fill-rule="evenodd"/>
+    <path id="glyph-O" d="M1375 186 C1488 186 1575 270 1575 382 C1575 490 1487 578 1375 578 C1262 578 1175 491 1175 382 C1175 274 1260 186 1375 186 Z M1375 266 C1439 266 1487 317 1487 383 C1487 448 1438 500 1375 500 C1310 500 1262 448 1262 383 C1262 317 1311 266 1375 266 Z" fill-rule="evenodd"/>
+    <path id="glyph-S" d="M1860 201 C1815 183 1762 178 1714 190 C1644 205 1603 254 1607 294 C1599 363 1642 398 1700 410 L1796 435 C1820 444 1819 475 1788 489 C1755 508 1675 492 1609 460 Q1603 459 1603 466 L1603 533 Q1603 540 1609 541 C1694 594 1811 586 1865 541 C1903 509 1918 472 1910 434 C1906 385 1876 371 1836 358 L1722 330 C1694 321 1680 294 1705 273 C1739 246 1815 254 1885 290 Q1898 297 1898 284 L1898 226 Q1898 214 1860 201 Z" fill-rule="evenodd"/>
+  </g>
+</svg>
+
+<text x="316" y="88" font-size="27" fill="#F3F9FF" font-weight="750" text-anchor="start" letter-spacing="1.5" opacity="1" >IDP TELOS  /  AI-NATIVE ENTERPRISE ARCHITECTURE</text>
+<text x="317" y="122" font-size="20" fill="#A7C4E7" font-weight="450" text-anchor="start" letter-spacing="0" opacity="1" >企业智能体体系 · 统一架构总图</text>
+<rect x="1990" y="75" width="194.48000000000002" height="27" rx="9" fill="#0A1C38" stroke="#73D9F8" stroke-width="0.9" opacity="0.95" />
+<text x="2087.24" y="93" font-size="14" fill="#73D9F8" font-weight="600" text-anchor="middle" letter-spacing="0" opacity="1" >ARCHITECTURE BLUEPRINT</text>
+<rect x="2257" y="75" width="108.24000000000001" height="27" rx="9" fill="#0A1C38" stroke="#87C7FF" stroke-width="0.9" opacity="0.95" />
+<text x="2311.12" y="93" font-size="14" fill="#87C7FF" font-weight="600" text-anchor="middle" letter-spacing="0" opacity="1" >BRAND v1.2</text>
+<text x="2398" y="139" font-size="14" fill="#8AA5CA" font-weight="500" text-anchor="end" letter-spacing="1.6" opacity="1" >ARCHITECTURE BASELINE v1.1  ·  2026.11</text>
+<g id="interface-links">
+<path class="link" data-flow="interaction" d="M410 259 H445" fill="none" stroke="#64B8F7" stroke-width="3.1" stroke-linecap="round" opacity=".85" marker-end="url(#arrow)"/>
+<path class="link" data-flow="interaction execution" d="M746 328 V374" fill="none" stroke="#64B8F7" stroke-width="3.1" stroke-linecap="round" opacity=".85" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path class="link" data-flow="execution" d="M1050 635 H1092" fill="none" stroke="#64B8F7" stroke-width="3.1" stroke-linecap="round" opacity=".85" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path class="link" data-flow="context" d="M1807 529 H1849" fill="none" stroke="#52E1CA" stroke-width="3.1" stroke-linecap="round" opacity=".85" marker-start="url(#arrowGreen)" marker-end="url(#arrowGreen)"/>
+<path class="link" data-flow="tool" d="M1807 800 H1849" fill="none" stroke="#64B8F7" stroke-width="3.1" stroke-linecap="round" opacity=".85" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path class="link" data-flow="model" d="M410 781 H445" fill="none" stroke="#F1C274" stroke-width="3.1" stroke-linecap="round" opacity=".85" marker-start="url(#arrowGold)" marker-end="url(#arrowGold)"/>
+<path class="link" data-flow="execution business" d="M1400 925 V975" fill="none" stroke="#F1C274" stroke-width="3.1" stroke-linecap="round" opacity=".85" marker-start="url(#arrowGold)" marker-end="url(#arrowGold)"/>
+<path class="link" data-flow="tool business" d="M2124 925 V975" fill="none" stroke="#64B8F7" stroke-width="3.1" stroke-linecap="round" opacity=".85" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<path d="M1003 398 V351 H1940 V374" fill="none" stroke="#52E1CA" stroke-width="2" opacity="0.6" stroke-dasharray="7 10" class="link" data-flow="context" marker-start="url(#arrowGreen)" marker-end="url(#arrowGreen)"/>
+<path d="M986 906 V950 H1914 V925" fill="none" stroke="#64B8F7" stroke-width="2" opacity="0.55" stroke-dasharray="7 10" class="link" data-flow="tool" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+</g>
+<rect x="75" y="190" width="335" height="355" rx="20" fill="url(#panel)" stroke="#3F659D" stroke-width="1.4" opacity="1" />
+<text x="101" y="227" font-size="15" fill="#6AD3FB" font-weight="700" text-anchor="start" letter-spacing="2.4" opacity="1" >BUSINESS ENTRY</text>
+<text x="101" y="261" font-size="27" fill="#F0F6FF" font-weight="680" text-anchor="start" letter-spacing="0" opacity="1" >用户与业务入口</text>
+<text x="101" y="289" font-size="15" fill="#98AECD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >面向人、应用与业务事件</text>
+<rect x="100" y="316" width="286" height="45" rx="10" fill="#0C2246" stroke="#24496F" stroke-width="1" opacity="1" />
+<circle cx="118" cy="338" r="5" fill="#5BC8F5"/>
+<text x="134" y="335" font-size="16" fill="#EBF5FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Web / Mobile</text>
+<text x="134" y="351" font-size="12" fill="#8EACCB" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >业务工作台与交互入口</text>
+<rect x="100" y="371" width="286" height="45" rx="10" fill="#0C2246" stroke="#24496F" stroke-width="1" opacity="1" />
+<circle cx="118" cy="393" r="5" fill="#5BC8F5"/>
+<text x="134" y="390" font-size="16" fill="#EBF5FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >API / Webhook</text>
+<text x="134" y="406" font-size="12" fill="#8EACCB" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >外部调用与系统集成</text>
+<rect x="100" y="426" width="286" height="45" rx="10" fill="#0C2246" stroke="#24496F" stroke-width="1" opacity="1" />
+<circle cx="118" cy="448" r="5" fill="#5BC8F5"/>
+<text x="134" y="445" font-size="16" fill="#EBF5FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Enterprise Events</text>
+<text x="134" y="461" font-size="12" fill="#8EACCB" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >订单、库存与物流事件</text>
+<rect x="100" y="481" width="286" height="45" rx="10" fill="#0C2246" stroke="#24496F" stroke-width="1" opacity="1" />
+<circle cx="118" cy="503" r="5" fill="#5BC8F5"/>
+<text x="134" y="500" font-size="16" fill="#EBF5FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Human Approval</text>
+<text x="134" y="516" font-size="12" fill="#8EACCB" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >授权审批与决策反馈</text>
+<rect x="75" y="574" width="335" height="351" rx="20" fill="url(#panel)" stroke="#B394F9" stroke-width="1.4" opacity="1" />
+<text x="100" y="612" font-size="15" fill="#BBA1FF" font-weight="700" text-anchor="start" letter-spacing="2.4" opacity="1" >MODEL &amp; INFERENCE</text>
+<text x="100" y="648" font-size="27" fill="#F2F6FF" font-weight="680" text-anchor="start" letter-spacing="0" opacity="1" >模型与推理服务</text>
+<text x="100" y="677" font-size="15" fill="#9DAFCE" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >通过 HOST 统一选择与治理</text>
+<rect x="100" y="699" width="286" height="43" rx="10" fill="#152143" stroke="#34466F" stroke-width="1" opacity="1" />
+<text x="117" y="718" font-size="16" fill="#F0F6FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >OpenAI / Anthropic</text>
+<text x="117" y="733" font-size="12" fill="#ACBBDD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >云端大模型和 Agent SDK</text>
+<rect x="100" y="751" width="286" height="43" rx="10" fill="#152143" stroke="#34466F" stroke-width="1" opacity="1" />
+<text x="117" y="770" font-size="16" fill="#F0F6FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Gemini / Qwen</text>
+<text x="117" y="785" font-size="12" fill="#ACBBDD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >多模型与本地推理</text>
+<rect x="100" y="803" width="286" height="43" rx="10" fill="#152143" stroke="#34466F" stroke-width="1" opacity="1" />
+<text x="117" y="822" font-size="16" fill="#F0F6FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Self-Hosted Inference</text>
+<text x="117" y="837" font-size="12" fill="#ACBBDD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >sglang / vLLM 推理接口</text>
+<rect x="100" y="855" width="286" height="43" rx="10" fill="#152143" stroke="#34466F" stroke-width="1" opacity="1" />
+<text x="117" y="874" font-size="16" fill="#F0F6FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Inference Endpoints</text>
+<text x="117" y="889" font-size="12" fill="#ACBBDD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >模型调用服务端点</text>
+<g class="module-node" data-module="workspace" tabindex="0" role="button" aria-label="查看IDP Workspace架构职责">
+<rect x="445" y="190" width="1965" height="138" rx="20" fill="url(#panel)" stroke="#64CBFF" stroke-width="1.55" opacity="1" />
+<rect x="446" y="191" width="5" height="136" rx="2" fill="#64CBFF" stroke="#64CBFF" stroke-width="0" opacity="1" />
+<path d="M463 192 H2385" stroke="#64CBFF" opacity=".4" stroke-width="1.3"/>
+<text x="474" y="232" font-size="14" fill="#64CBFF" font-weight="700" text-anchor="start" letter-spacing="2.4" opacity="1" >01 / EXPERIENCE</text>
+<text x="474" y="273" font-size="30" fill="#F3FAFF" font-weight="700" text-anchor="start" letter-spacing="0.1" opacity="1" >IDP Workspace</text>
+<text x="474" y="301" font-size="16" fill="#A3B6D5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >AI 工作空间 · 任务与审批入口 · 可视化控制台</text>
+<rect x="1006" y="219" width="321" height="89" rx="12" fill="#0C2248" stroke="#33547D" stroke-width="1" opacity="1" />
+<text x="1023" y="250" font-size="16" fill="#DCF5FF" font-weight="680" text-anchor="start" letter-spacing="0" opacity="1" >USER EXPERIENCE</text>
+<text x="1023" y="275" font-size="14" fill="#9EB9D5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >对话 / 文件 / 任务</text>
+<rect x="1350" y="219" width="321" height="89" rx="12" fill="#0C2248" stroke="#33547D" stroke-width="1" opacity="1" />
+<text x="1367" y="250" font-size="16" fill="#DCF5FF" font-weight="680" text-anchor="start" letter-spacing="0" opacity="1" >TASK CENTER</text>
+<text x="1367" y="275" font-size="14" fill="#9EB9D5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >进度与可追踪结果</text>
+<rect x="1694" y="219" width="321" height="89" rx="12" fill="#0C2248" stroke="#33547D" stroke-width="1" opacity="1" />
+<text x="1711" y="250" font-size="16" fill="#DCF5FF" font-weight="680" text-anchor="start" letter-spacing="0" opacity="1" >APPROVAL CENTER</text>
+<text x="1711" y="275" font-size="14" fill="#9EB9D5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >审批呈现与决策提交</text>
+<rect x="2038" y="219" width="321" height="89" rx="12" fill="#0C2248" stroke="#33547D" stroke-width="1" opacity="1" />
+<text x="2055" y="250" font-size="16" fill="#DCF5FF" font-weight="680" text-anchor="start" letter-spacing="0" opacity="1" >ADMIN CONSOLE</text>
+<text x="2055" y="275" font-size="14" fill="#9EB9D5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Agent / Skill 管理界面</text>
+</g>
+<g class="module-node" data-module="host" tabindex="0" role="button" aria-label="查看IDP HOST架构职责">
+<rect x="445" y="374" width="605" height="551" rx="20" fill="url(#panel)" stroke="#AF91FE" stroke-width="1.55" opacity="1" />
+<rect x="446" y="375" width="5" height="549" rx="2" fill="#AF91FE" stroke="#AF91FE" stroke-width="0" opacity="1" />
+<path d="M463 376 H1025" stroke="#AF91FE" opacity=".4" stroke-width="1.3"/>
+<text x="474" y="416" font-size="14" fill="#AF91FE" font-weight="700" text-anchor="start" letter-spacing="2.4" opacity="1" >02 / AGENT CAPABILITIES</text>
+<text x="474" y="457" font-size="30" fill="#F3FAFF" font-weight="700" text-anchor="start" letter-spacing="0.1" opacity="1" >IDP HOST</text>
+<text x="474" y="485" font-size="16" fill="#A3B6D5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Agent Hosting &amp; Coordination Platform</text>
+<g opacity=".84">
+<path d="M 709 536 L664 578" fill="none" stroke="#B493FF" stroke-width="2" opacity="0.8" />
+<path d="M 709 536 L760 583" fill="none" stroke="#B493FF" stroke-width="2" opacity="0.8" />
+<path d="M 664 578 L710 623" fill="none" stroke="#B493FF" stroke-width="2" opacity="0.8" />
+<path d="M 760 583 L710 623" fill="none" stroke="#B493FF" stroke-width="2" opacity="0.8" />
+<circle cx="709" cy="536" r="16" fill="#172A5B" stroke="#AC90FA" stroke-width="2"/>
+<circle cx="664" cy="578" r="13" fill="#172A5B" stroke="#AC90FA" stroke-width="2"/>
+<circle cx="760" cy="583" r="13" fill="#172A5B" stroke="#AC90FA" stroke-width="2"/>
+<circle cx="710" cy="623" r="18" fill="#172A5B" stroke="#AC90FA" stroke-width="2"/>
+</g>
+<text x="925" y="547" font-size="18" fill="#D8CBFF" font-weight="650" text-anchor="end" letter-spacing="0" opacity="1" >Agent / Skill</text>
+<text x="925" y="571" font-size="15" fill="#A5B7DB" font-weight="400" text-anchor="end" letter-spacing="0" opacity="1" >Model / Session</text>
+<text x="925" y="595" font-size="15" fill="#A5B7DB" font-weight="400" text-anchor="end" letter-spacing="0" opacity="1" >A2A Federation</text>
+<text x="925" y="618" font-size="15" fill="#A5B7DB" font-weight="400" text-anchor="end" letter-spacing="0" opacity="1" >Harness &amp; Tools</text>
+<rect x="470" y="676" width="266" height="82" rx="12" fill="#0D2246" stroke="#27466E" stroke-width="1" opacity="1" />
+<text x="486" y="702" font-size="18" fill="#F1F7FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Agent Registry</text>
+<text x="486" y="730" font-size="15" fill="#B8A2FF" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >定义 / 版本 / 发布</text>
+<rect x="751" y="676" width="266" height="82" rx="12" fill="#0D2246" stroke="#27466E" stroke-width="1" opacity="1" />
+<text x="767" y="702" font-size="18" fill="#F1F7FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Instance &amp; Session</text>
+<text x="767" y="730" font-size="15" fill="#B8A2FF" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >运行实例与会话状态</text>
+<rect x="470" y="774" width="266" height="82" rx="12" fill="#0D2246" stroke="#27466E" stroke-width="1" opacity="1" />
+<text x="486" y="800" font-size="18" fill="#F1F7FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Harness &amp; Router</text>
+<text x="486" y="828" font-size="15" fill="#B8A2FF" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >推理循环 / 模型路由</text>
+<rect x="751" y="774" width="266" height="82" rx="12" fill="#0D2246" stroke="#27466E" stroke-width="1" opacity="1" />
+<text x="767" y="800" font-size="18" fill="#F1F7FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Skill / A2A Adapters</text>
+<text x="767" y="828" font-size="15" fill="#B8A2FF" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >能力包 / 跨 Agent 委派</text>
+<text x="482" y="896" font-size="14" fill="#99ABD1" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >权威状态：AgentDefinition / AgentRun / Session</text>
+</g>
+<g class="module-node" data-module="eer" role="button" tabindex="0" aria-label="查看 IDP EER 架构职责">
+<rect x="1092" y="374" width="715" height="551" rx="21" fill="url(#eerbg)" stroke="#4EBAFF" stroke-width="2.1" opacity="1" />
+<rect x="1094" y="376" width="6" height="547" rx="3" fill="#48BBF2" stroke="#48BBF2" stroke-width="0" opacity="1" />
+<path d="M1112 376 H1781" stroke="#69CAFF" stroke-width="1.8" opacity=".58"/>
+<text x="1123" y="418" font-size="16" fill="#76E3FB" font-weight="700" text-anchor="start" letter-spacing="2.0" opacity="1" >EXECUTION RUNTIME  /  CORE</text>
+<text x="1123" y="456" font-size="34" fill="#F3FCFF" font-weight="800" text-anchor="start" letter-spacing="0" opacity="1" >IDP EER</text>
+<text x="1123" y="481" font-size="16" fill="#ABC6E5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Event-Native Enterprise Execution Runtime</text>
+<circle cx="1450" cy="700" r="174" fill="none" stroke="#274878" stroke-width="17" opacity=".75"/>
+<circle cx="1450" cy="700" r="170" fill="none" stroke="#367BB1" stroke-width="1.5" stroke-dasharray="5 10" opacity=".9"/>
+<circle cx="1450" cy="700" r="143" fill="#0A2953" stroke="#4897D6" stroke-width="2"/>
+<circle cx="1450" cy="700" r="124" fill="#102D5A" stroke="#4095E6" stroke-width="3" opacity=".8"/>
+<circle cx="1450" cy="700" r="110" fill="none" stroke="#58C8F7" stroke-width="1" opacity=".3"/>
+<path d="M 1326 583 L1567 583" fill="none" stroke="#55CBFB" stroke-width="1.6" opacity="0.4" stroke-dasharray="4 7"/>
+<path d="M 1577 603 L1643 732" fill="none" stroke="#55CBFB" stroke-width="1.6" opacity="0.4" stroke-dasharray="4 7"/>
+<path d="M 1634 767 L1518 847" fill="none" stroke="#55CBFB" stroke-width="1.6" opacity="0.4" stroke-dasharray="4 7"/>
+<path d="M 1434 870 L1296 818" fill="none" stroke="#55CBFB" stroke-width="1.6" opacity="0.4" stroke-dasharray="4 7"/>
+<path d="M 1254 783 L1269 626" fill="none" stroke="#55CBFB" stroke-width="1.6" opacity="0.4" stroke-dasharray="4 7"/>
+<circle cx="1450" cy="647" r="8" fill="#62DDFB" filter="url(#softglow)"/>
+<path d="M 1450 659 L1450 680" fill="none" stroke="#73DBFB" stroke-width="2" opacity="0.85" />
+<text x="1450" y="699" font-size="34" fill="#F5FCFF" font-weight="800" text-anchor="middle" letter-spacing="2" opacity="1" >IDP EER</text>
+<text x="1450" y="735" font-size="15" fill="#C7E9FF" font-weight="700" text-anchor="middle" letter-spacing="0.6" opacity="1" >GOAL → VERIFIED RESULT</text>
+<text x="1450" y="763" font-size="14" fill="#82C5EF" font-weight="450" text-anchor="middle" letter-spacing="0" opacity="1" >Event Fabric  ·  Durable State</text>
+<rect x="1195" y="523" width="138" height="58" rx="12" fill="#102B57" stroke="#62C4FE" stroke-width="1.3" opacity="1" />
+<text x="1264" y="545" font-size="15" fill="#EDF9FF" font-weight="750" text-anchor="middle" letter-spacing="0.2" opacity="1" >ACTOR</text>
+<text x="1264" y="567" font-size="13" fill="#A9CFE7" font-weight="500" text-anchor="middle" letter-spacing="0" opacity="1" >目标主体</text>
+<rect x="1528" y="523" width="138" height="58" rx="12" fill="#102B57" stroke="#62C4FE" stroke-width="1.3" opacity="1" />
+<text x="1597" y="545" font-size="15" fill="#EDF9FF" font-weight="750" text-anchor="middle" letter-spacing="0.2" opacity="1" >VALIDATOR</text>
+<text x="1597" y="567" font-size="13" fill="#A9CFE7" font-weight="500" text-anchor="middle" letter-spacing="0" opacity="1" >约束校验</text>
+<rect x="1614" y="663" width="138" height="58" rx="12" fill="#102B57" stroke="#62C4FE" stroke-width="1.3" opacity="1" />
+<text x="1683" y="685" font-size="15" fill="#EDF9FF" font-weight="750" text-anchor="middle" letter-spacing="0.2" opacity="1" >PLANNER</text>
+<text x="1683" y="707" font-size="13" fill="#A9CFE7" font-weight="500" text-anchor="middle" letter-spacing="0" opacity="1" >计划生成</text>
+<rect x="1514" y="824" width="138" height="58" rx="12" fill="#102B57" stroke="#62C4FE" stroke-width="1.3" opacity="1" />
+<text x="1583" y="846" font-size="15" fill="#EDF9FF" font-weight="750" text-anchor="middle" letter-spacing="0.2" opacity="1" >EXECUTOR</text>
+<text x="1583" y="868" font-size="13" fill="#A9CFE7" font-weight="500" text-anchor="middle" letter-spacing="0" opacity="1" >可靠执行</text>
+<rect x="1224" y="824" width="138" height="58" rx="12" fill="#102B57" stroke="#62C4FE" stroke-width="1.3" opacity="1" />
+<text x="1293" y="846" font-size="15" fill="#EDF9FF" font-weight="750" text-anchor="middle" letter-spacing="0.2" opacity="1" >VERIFIER</text>
+<text x="1293" y="868" font-size="13" fill="#A9CFE7" font-weight="500" text-anchor="middle" letter-spacing="0" opacity="1" >结果验收</text>
+<text x="1450" y="903" font-size="14" fill="#9BC7E9" font-weight="500" text-anchor="middle" letter-spacing="0" opacity="1" >Goal · Task · Plan · Execution · Checkpoint · Approval · Verification</text>
+</g>
+<g class="module-node" data-module="cmi" tabindex="0" role="button" aria-label="查看IDP CMI架构职责">
+<rect x="1849" y="374" width="561" height="261" rx="20" fill="url(#panel)" stroke="#58E1CE" stroke-width="1.55" opacity="1" />
+<rect x="1850" y="375" width="5" height="259" rx="2" fill="#58E1CE" stroke="#58E1CE" stroke-width="0" opacity="1" />
+<path d="M1867 376 H2385" stroke="#58E1CE" opacity=".4" stroke-width="1.3"/>
+<text x="1878" y="416" font-size="14" fill="#58E1CE" font-weight="700" text-anchor="start" letter-spacing="2.4" opacity="1" >03 / CONTEXT &amp; MEMORY</text>
+<text x="1878" y="457" font-size="30" fill="#F3FAFF" font-weight="700" text-anchor="start" letter-spacing="0.1" opacity="1" >IDP CMI</text>
+<text x="1878" y="485" font-size="16" fill="#A3B6D5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Enterprise Context, Memory &amp; Knowledge</text>
+<rect x="1874" y="493" width="249" height="56" rx="10" fill="#102F43" stroke="#286B79" stroke-width="1" opacity="1" />
+<text x="1888" y="517" font-size="16" fill="#E8FFF9" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Context Resolver</text>
+<text x="1888" y="537" font-size="12" fill="#9BCBBF" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >按任务 / 权限解析</text>
+<rect x="2137" y="493" width="249" height="56" rx="10" fill="#102F43" stroke="#286B79" stroke-width="1" opacity="1" />
+<text x="2151" y="517" font-size="16" fill="#E8FFF9" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Context Package</text>
+<text x="2151" y="537" font-size="12" fill="#9BCBBF" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >来源 / 版本 / 时效</text>
+<rect x="1874" y="558" width="249" height="56" rx="10" fill="#102F43" stroke="#286B79" stroke-width="1" opacity="1" />
+<text x="1888" y="582" font-size="16" fill="#E8FFF9" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Memory Lifecycle</text>
+<text x="1888" y="602" font-size="12" fill="#9BCBBF" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >提取 / 失效 / 撤销</text>
+<rect x="2137" y="558" width="249" height="56" rx="10" fill="#102F43" stroke="#286B79" stroke-width="1" opacity="1" />
+<text x="2151" y="582" font-size="16" fill="#E8FFF9" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Knowledge Index</text>
+<text x="2151" y="602" font-size="12" fill="#9BCBBF" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >知识 / 实体 / 证据</text>
+</g>
+<g class="module-node" data-module="mcp" tabindex="0" role="button" aria-label="查看IDP MCP Infrastructure架构职责">
+<rect x="1849" y="661" width="561" height="264" rx="20" fill="url(#panel)" stroke="#71B5FF" stroke-width="1.55" opacity="1" />
+<rect x="1850" y="662" width="5" height="262" rx="2" fill="#71B5FF" stroke="#71B5FF" stroke-width="0" opacity="1" />
+<path d="M1867 663 H2385" stroke="#71B5FF" opacity=".4" stroke-width="1.3"/>
+<text x="1878" y="703" font-size="14" fill="#71B5FF" font-weight="700" text-anchor="start" letter-spacing="2.4" opacity="1" >04 / TOOL GOVERNANCE</text>
+<text x="1878" y="744" font-size="30" fill="#F3FAFF" font-weight="700" text-anchor="start" letter-spacing="0.1" opacity="1" >IDP MCP Infrastructure</text>
+<text x="1878" y="772" font-size="16" fill="#A3B6D5" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Enterprise MCP Connectivity &amp; Governance</text>
+<rect x="1874" y="778" width="249" height="57" rx="10" fill="#0D2748" stroke="#355E90" stroke-width="1" opacity="1" />
+<text x="1888" y="802" font-size="16" fill="#E9F5FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Dual-role Gateway</text>
+<text x="1888" y="822" font-size="12" fill="#A4BCD9" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >北向 Server / 南向 Client</text>
+<rect x="2137" y="778" width="249" height="57" rx="10" fill="#0D2748" stroke="#355E90" stroke-width="1" opacity="1" />
+<text x="2151" y="802" font-size="16" fill="#E9F5FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Tool / Server Registry</text>
+<text x="2151" y="822" font-size="12" fill="#A4BCD9" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >注册 / 发现 / 联邦</text>
+<rect x="1874" y="844" width="249" height="57" rx="10" fill="#0D2748" stroke="#355E90" stroke-width="1" opacity="1" />
+<text x="1888" y="868" font-size="16" fill="#E9F5FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Identity &amp; Policy</text>
+<text x="1888" y="888" font-size="12" fill="#A4BCD9" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >授权 / 策略执行</text>
+<rect x="2137" y="844" width="249" height="57" rx="10" fill="#0D2748" stroke="#355E90" stroke-width="1" opacity="1" />
+<text x="2151" y="868" font-size="16" fill="#E9F5FF" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Audit &amp; Routing</text>
+<text x="2151" y="888" font-size="12" fill="#A4BCD9" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >路由 / 错误 / 审计</text>
+</g>
+<rect x="445" y="975" width="1965" height="153" rx="20" fill="url(#panel)" stroke="#F2C677" stroke-width="1.4" opacity="1" />
+<text x="474" y="1014" font-size="15" fill="#F2D48D" font-weight="750" text-anchor="start" letter-spacing="2" opacity="1" >DOMAIN SYSTEMS  /  BUSINESS STATE AUTHORITY</text>
+<text x="473" y="1045" font-size="19" fill="#F7F2E8" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >业务事实、事务与领域规则的最终权威</text>
+<rect x="1116" y="997" width="293" height="106" rx="14" fill="#17243C" stroke="#6D6684" stroke-width="1" opacity="1" />
+<text x="1132" y="1030" font-size="19" fill="#FFF4E3" font-weight="720" text-anchor="start" letter-spacing="0" opacity="1" >IDP Brant</text>
+<text x="1132" y="1056" font-size="14" fill="#C5C1D1" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >贸易订单 / 财务 / 结算</text>
+<text x="1132" y="1080" font-size="12" fill="#E7C17D" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Domain API · Authoritative Commit</text>
+<rect x="1424" y="997" width="293" height="106" rx="14" fill="#17243C" stroke="#6D6684" stroke-width="1" opacity="1" />
+<text x="1440" y="1030" font-size="19" fill="#FFF4E3" font-weight="720" text-anchor="start" letter-spacing="0" opacity="1" >PRISM</text>
+<text x="1440" y="1056" font-size="14" fill="#C5C1D1" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >WMS / WES / 库存账本</text>
+<text x="1440" y="1080" font-size="12" fill="#E7C17D" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Domain API · Authoritative Commit</text>
+<rect x="1732" y="997" width="293" height="106" rx="14" fill="#17243C" stroke="#6D6684" stroke-width="1" opacity="1" />
+<text x="1748" y="1030" font-size="19" fill="#FFF4E3" font-weight="720" text-anchor="start" letter-spacing="0" opacity="1" >IDP Parcel</text>
+<text x="1748" y="1056" font-size="14" fill="#C5C1D1" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >运单 / 轨迹 / 清关</text>
+<text x="1748" y="1080" font-size="12" fill="#E7C17D" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Domain API · Authoritative Commit</text>
+<rect x="2040" y="997" width="293" height="106" rx="14" fill="#17243C" stroke="#6D6684" stroke-width="1" opacity="1" />
+<text x="2056" y="1030" font-size="19" fill="#FFF4E3" font-weight="720" text-anchor="start" letter-spacing="0" opacity="1" >External Systems</text>
+<text x="2056" y="1056" font-size="14" fill="#C5C1D1" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >ERP / TMS / SaaS / APIs</text>
+<text x="2056" y="1080" font-size="12" fill="#E7C17D" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Domain API · Authoritative Commit</text>
+<rect x="448" y="343" width="129.52" height="27" rx="9" fill="#0A1C38" stroke="#64CBFF" stroke-width="0.9" opacity="0.95" />
+<text x="512.76" y="361" font-size="12" fill="#64CBFF" font-weight="600" text-anchor="middle" letter-spacing="0" opacity="1" >AG-UI / HOST API</text>
+<rect x="1038" y="361" width="169.84" height="27" rx="9" fill="#0A1C38" stroke="#8BCCFF" stroke-width="0.9" opacity="0.95" />
+<text x="1122.92" y="379" font-size="12" fill="#8BCCFF" font-weight="600" text-anchor="middle" letter-spacing="0" opacity="1" >Execution API / Events</text>
+<rect x="1770" y="345" width="95.92" height="27" rx="9" fill="#0A1C38" stroke="#61E1CE" stroke-width="0.9" opacity="0.95" />
+<text x="1817.96" y="363" font-size="12" fill="#61E1CE" font-weight="600" text-anchor="middle" letter-spacing="0" opacity="1" >Context API</text>
+<rect x="1800" y="937" width="129.52" height="27" rx="9" fill="#0A1C38" stroke="#75C4FF" stroke-width="0.9" opacity="0.95" />
+<text x="1864.76" y="955" font-size="12" fill="#75C4FF" font-weight="600" text-anchor="middle" letter-spacing="0" opacity="1" >MCP / Domain API</text>
+<rect x="724" y="939" width="109.36000000000001" height="27" rx="9" fill="#0A1C38" stroke="#F2C677" stroke-width="0.9" opacity="0.95" />
+<text x="778.6800000000001" y="957" font-size="12" fill="#F2C677" font-weight="600" text-anchor="middle" letter-spacing="0" opacity="1" >业务提交须领域系统再次授权</text>
+<rect x="75" y="1160" width="2335" height="126" rx="19" fill="#0D2041" stroke="#375B87" stroke-width="1.3" opacity="1" />
+<text x="101" y="1198" font-size="16" fill="#A9CDF5" font-weight="700" text-anchor="start" letter-spacing="2" opacity="1" >CROSS-CUTTING GOVERNANCE  ·  横切治理</text>
+<rect x="100" y="1214" width="443" height="53" rx="10" fill="#132D51" stroke="#375374" stroke-width="1" opacity="1" />
+<text x="115" y="1236" font-size="16" fill="#E0EAF7" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Identity &amp; Access</text>
+<text x="115" y="1255" font-size="12" fill="#9CB5CD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >源身份 / 委派 / 隔离</text>
+<rect x="561" y="1214" width="443" height="53" rx="10" fill="#132D51" stroke="#375374" stroke-width="1" opacity="1" />
+<text x="576" y="1236" font-size="16" fill="#E0EAF7" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Security &amp; Policy</text>
+<text x="576" y="1255" font-size="12" fill="#9CB5CD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >最小权限 / 防注入</text>
+<rect x="1022" y="1214" width="443" height="53" rx="10" fill="#132D51" stroke="#375374" stroke-width="1" opacity="1" />
+<text x="1037" y="1236" font-size="16" fill="#E0EAF7" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Audit &amp; Evidence</text>
+<text x="1037" y="1255" font-size="12" fill="#9CB5CD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Trace / 证据与审计</text>
+<rect x="1483" y="1214" width="443" height="53" rx="10" fill="#132D51" stroke="#375374" stroke-width="1" opacity="1" />
+<text x="1498" y="1236" font-size="16" fill="#E0EAF7" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Evaluation &amp; SLO</text>
+<text x="1498" y="1255" font-size="12" fill="#9CB5CD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >任务成功率 / 恢复率</text>
+<rect x="1944" y="1214" width="443" height="53" rx="10" fill="#132D51" stroke="#375374" stroke-width="1" opacity="1" />
+<text x="1959" y="1236" font-size="16" fill="#E0EAF7" font-weight="650" text-anchor="start" letter-spacing="0" opacity="1" >Privacy &amp; Compliance</text>
+<text x="1959" y="1255" font-size="12" fill="#9CB5CD" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >数据驻留 / 脱敏 / 过期</text>
+<rect x="75" y="1306" width="2335" height="79" rx="16" fill="#0A1C39" stroke="#315072" stroke-width="1.2" opacity="1" />
+<text x="99" y="1335" font-size="15" fill="#8EBBE8" font-weight="700" text-anchor="start" letter-spacing="2.1" opacity="1" >INFRASTRUCTURE FOUNDATION</text>
+<text x="99" y="1358" font-size="17" fill="#C2D2E6" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >Cloud / Hybrid / On-prem  ·  Container &amp; Scheduler  ·  CPU/GPU  ·  Network  ·  PostgreSQL / Object Storage / Cache  ·  Backup &amp; DR</text>
+<text x="75" y="1414" font-size="16" fill="#8DAAC8" font-weight="400" text-anchor="start" letter-spacing="0" opacity="1" >架构表达：4 个子系统 + 独立 EER 核心；实线为典型路径，虚线为 HOST 对横向服务的直接调用；业务提交由领域系统最终校验。</text>
+<text x="2409" y="1414" font-size="13" fill="#7290B7" font-weight="500" text-anchor="end" letter-spacing="1.2" opacity="1" >IDP TELOS  •  CONCEPTUAL REFERENCE  •  NOT A DEPLOYMENT TOPOLOGY</text>
+</svg></div></div>
+<div class="flow-summary"><div><strong id="flowTitle">总架构视图</strong><p id="flowSubtitle">节点与接口表示逻辑职责关系；不是必须串行经过所有子系统的调用链。</p><p id="flowText">四大子系统与独立 EER 执行内核；领域系统拥有业务事实的最终权威。</p></div><span class="clickhint">点击图中 Workspace / HOST / EER / CMI / MCP 获取详细说明</span></div></section>
+<section class="brand-guidance" aria-label="品牌及架构命名规范"><div><strong>品牌基线：IDP TELOS</strong><span>正式产品名称；架构图及技术白皮书统一使用。</span></div><div><strong>视觉字标：TELOS</strong><span>纯文字字标，不附加图腾、IDP 字母或口号。</span></div><div><strong>架构模块命名保持原样</strong><span>IDP Workspace · IDP HOST · IDP EER · IDP CMI · IDP MCP Infrastructure</span></div></section>
+<div class="content-grid"><section class="section" id="ownership"><h2>五大架构单元</h2><p class="lead">其中 Workspace、HOST、CMI、MCP Infrastructure 为四大独立子系统；EER 是独立核心运行时，不应与 HOST 混合。</p><div class="modules"><button type="button" class="quick-module" data-target="workspace" style="--accent:#64CBFF"><span class="quick-dot"></span><span>01 · IDP Workspace</span><span class="quick-note">Experience Layer</span></button><button type="button" class="quick-module" data-target="host" style="--accent:#AF91FE"><span class="quick-dot"></span><span>02 · IDP HOST</span><span class="quick-note">Agent Hosting & Coordination</span></button><button type="button" class="quick-module" data-target="eer" style="--accent:#4EBAFF"><span class="quick-dot"></span><span>Core · IDP EER</span><span class="quick-note">Event-Native Execution Runtime</span></button><button type="button" class="quick-module" data-target="cmi" style="--accent:#58E1CE"><span class="quick-dot"></span><span>03 · IDP CMI</span><span class="quick-note">Context & Memory Infrastructure</span></button><button type="button" class="quick-module" data-target="mcp" style="--accent:#71B5FF"><span class="quick-dot"></span><span>04 · IDP MCP Infrastructure</span><span class="quick-note">Tool Connectivity & Governance</span></button></div><div class="notice">设计原则：权威归属唯一；数据可以通过受控接口访问，但其他系统不能私自复制或改变源系统的权威状态。</div></section><aside class="section" id="inspector"><div class="inspector-header"><span class="token" id="detailPill">Event-Native Execution Runtime</span><span class="status">责任边界</span></div><div class="inspector-title" id="detailTitle">Core · IDP EER</div><p class="lead" id="detailPurpose"></p><div class="detail-col"><h3>权威所有权 / Owns</h3><ul id="detailOwns"></ul></div><div class="detail-col warning"><h3>不承担 / Excludes</h3><ul id="detailExcludes"></ul></div></aside></div>
+<section class="section section-wide"><h2>系统状态与数据权威矩阵</h2><p class="lead">架构定义的关键不在于把组件画在一起，而在于定义每个对象由谁创建、持久化和验收。</p><div class="table-scroll"><table><thead><tr><th>权威对象 / 状态</th><th>唯一权威拥有者</th><th>跨系统使用原则</th></tr></thead><tbody><tr><td>UI View / Task Display / Approval Input</td><td>Workspace</td><td>展示和提交，不保存 EER 执行事实</td></tr><tr><td>AgentDefinition / AgentRun / Session / Skill</td><td>HOST</td><td>EER 引用版本、通过 Harness 请求能力</td></tr><tr><td>Goal / Task / Plan / Execution / Checkpoint</td><td>EER</td><td>HOST 可以生成候选计划，但 EER 验证并生效</td></tr><tr><td>ContextPackage / MemoryRecord / Knowledge Index</td><td>CMI</td><td>附来源、版本、时效、授权范围与撤销规则</td></tr><tr><td>MCP Server / Tool Registry / Invocation Policy</td><td>MCP Infrastructure</td><td>统一工具协议与访问策略，领域 API 仍归领域</td></tr><tr><td>Order / Inventory / Shipment / Declaration / Ledger</td><td>Brant / PRISM / Parcel 等领域系统</td><td>最终授权、幂等、事务和业务规则均由领域系统执行</td></tr></tbody></table></div></section>
+<section class="section section-wide" id="scenarios"><h2>三种核心场景的执行语义</h2><div class="flows"><div class="step"><span>SCENARIO 01</span><strong>普通问答 / 知识检索</strong><p>Workspace → HOST ↔ CMI → 用户。无需强制进入 EER 长任务，遵循受控只读权限。</p></div><div class="step"><span>SCENARIO 02</span><strong>企业级可靠执行</strong><p>Workspace → HOST → EER；EER 按需调用 HOST / CMI / MCP，领域系统执行最终业务提交，Verifier 验收。</p></div><div class="step"><span>SCENARIO 03</span><strong>跨 Agent 协作</strong><p>HOST 使用 A2A 委派跨运行时 Agent。EER 对企业任务委派关系、执行状态和结果负责。</p></div></div></section>
+<section class="section section-wide"><h2>协议与可靠执行边界</h2><div class="table-scroll"><table><thead><tr><th>协议 / 机制</th><th>主要归属</th><th>作用</th><th>禁止混淆</th></tr></thead><tbody><tr><td>AG-UI / Host API</td><td>Workspace ↔ HOST</td><td>用户交互、消息及运行状态呈现</td><td>不代替企业执行状态机</td></tr><tr><td>A2A</td><td>HOST Federation Adapter</td><td>Agent 能力发现和任务委派</td><td>不共享内部记忆权威</td></tr><tr><td>MCP 2026-07-28 Modern Stateless</td><td>MCP Infrastructure</td><td>标准连接、工具调用治理与发现</td><td>Stateless 不等于 EER 无状态</td></tr><tr><td>Execution API / Event Fabric</td><td>EER</td><td>计划、幂等、Outbox / Inbox、重试与补偿</td><td>不得交由 HOST Session 代管</td></tr><tr><td>Context API</td><td>CMI</td><td>授权上下文解析、知识与记忆治理</td><td>记忆不能覆盖实时业务事实</td></tr></tbody></table></div><div class="notice">安全横切要求：身份原始权威由 Enterprise IAM / IdP 提供；各边界独立执行身份校验与最小权限；防止 Prompt Injection、记忆污染、Skill 供应链与跨租户越权。</div></section>
+</main><footer class="shell footer">IDP TELOS · AI-Native Enterprise Architecture · 2026-11-02 · v1.2 品牌同步 · 目标架构图（设计审查参考），不代表 EER / HOST / CMI / MCP 工程集成或生产验收已经完成。<br/>品牌标识采用纯 TELOS 字标；产品总名称 IDP TELOS。原 v1.1 架构职责与技术边界保持不变。<br/>本 HTML 为离线自包含版本，可直接在 Chrome / Edge 打开，点击模块、切换线路并下载图形。</footer>
+<script>
+const MODULES={"workspace": {"name": "01 · IDP Workspace", "pill": "Experience Layer", "color": "#64CBFF", "purpose": "统一用户工作空间与管理入口；负责呈现 Agent 输出、任务、审批和治理可视化。", "owns": ["用户 UI 状态", "Task / Approval 展示与操作入口", "Agent 管理与配置界面", "执行结果可视化"], "excludes": ["不保存 EER 权威执行状态", "不直接修改业务数据库", "不担当 Agent Harness 或 MCP Gateway"]}, "host": {"name": "02 · IDP HOST", "pill": "Agent Hosting & Coordination", "color": "#AF91FE", "purpose": "注册并运行 Agent，管理 Agent Definition、Instance、Session、Harness、模型调用与 Skills。", "owns": ["AgentDefinition / AgentRun / Session", "Agent / Skill Registry 与版本", "Harness、Model Router 与沙箱适配", "A2A 联邦与 Agent 临时协作"], "excludes": ["不持有企业业务任务的权威 Checkpoint", "不代替 EER 的 Durable Execution", "不管理业务事实与账务事务"]}, "eer": {"name": "Core · IDP EER", "pill": "Event-Native Execution Runtime", "color": "#4EBAFF", "purpose": "把业务目标转化为经过验证、可恢复、可追踪的执行结果。控制 Goal → Task → Plan → Action → Verified Result 闭环。", "owns": ["Goal / Task / Plan / Execution 权威状态", "Actor、Validator、Planner、Executor、Verifier 逻辑角色", "Checkpoint、Outbox、Inbox、Retry、Compensation", "审批节点、运行历史、验证与验收证据"], "excludes": ["不再实现一套 Agent Registry / Model SDK", "不存储企业通用记忆", "不绕过领域系统的事务校验"]}, "cmi": {"name": "03 · IDP CMI", "pill": "Context & Memory Infrastructure", "color": "#58E1CE", "purpose": "跨模型、跨 Agent、跨业务应用，解析并交付可信、授权、带版本证据的上下文。", "owns": ["ContextResolver / ContextPackage", "Episodic / Semantic Memory 生命周期", "Enterprise Knowledge Index / Entity Relations", "来源、时效、撤销、访问控制与质量评估"], "excludes": ["不拥有实时业务事实", "不等同于 HOST Session 历史", "不运行企业任务调度"]}, "mcp": {"name": "04 · IDP MCP Infrastructure", "pill": "Tool Connectivity & Governance", "color": "#71B5FF", "purpose": "独立、通用的 MCP 连接与治理底座，支持任意标准 Client/Host 与 Server。", "owns": ["北向 Server / 南向 Client 双角色 Gateway", "MCP Server / Tool 注册与发现", "身份、权限与调用策略执行", "联邦路由、调用审计及协议一致性"], "excludes": ["不生成 Agent 计划", "不拥有 Domain API 的业务语义及最终事务", "不替代 EER 的长期执行状态"]}}; const PATHS={"all": {"title": "总架构视图", "subtitle": "节点与接口表示逻辑职责关系；不是必须串行经过所有子系统的调用链。", "text": "四大子系统：Workspace、HOST、CMI、MCP Infrastructure；EER 作为独立核心执行运行时。领域系统拥有业务事实的最终权威。"}, "interaction": {"title": "用户交互路径", "subtitle": "Workspace ↔ HOST（AG-UI / Host API）", "text": "普通会话由 HOST 管理 Agent、Session 和推理响应；只读问答可按需调用 CMI，不必创建 EER 长任务。"}, "execution": {"title": "企业任务执行路径", "subtitle": "Workspace ↔ HOST ↔ EER ↔ Domain Verified Commit", "text": "EER 管理 Goal、Plan、Task、Durable State、审批与 Verifier；HOST 可为 EER 提供推理与规划候选能力。"}, "context": {"title": "上下文解析路径", "subtitle": "HOST / EER ↔ CMI（Context API）", "text": "CMI 按身份、任务、业务实体和来源有效期生成 ContextPackage。历史记忆不覆盖领域权威事实。"}, "tool": {"title": "工具治理路径", "subtitle": "HOST / EER ↔ MCP Infrastructure（MCP / Tool API）", "text": "MCP Infrastructure 拥有协议暴露、发现与权限治理；领域系统独立校验业务 API 和最终事务。"}, "model": {"title": "模型推理路径", "subtitle": "HOST ↔ Model / Inference Providers", "text": "HOST 拥有 Harness、Model Router、配额与调用治理；模型服务商或自托管推理服务只提供可替换推理端点。"}, "business": {"title": "领域业务提交路径", "subtitle": "EER → Domain API 或 经 MCP 治理的 Tool → Domain", "text": "业务系统实施最终授权、幂等与事务提交；EER 持久化操作状态并通过 Verifier 验收结果。"}};
+const svg=document.getElementById('architectureSvg');
+const wrap=document.getElementById('canvasInner');
+const links=document.getElementById('interface-links');
+const canvasScroll=document.getElementById('canvasScroll');
+let zoom=1;
+function setZoom(z){zoom=Math.min(2.6,Math.max(.7,z));const base=Math.max(window.innerWidth<=900?1050:0,canvasScroll.clientWidth);wrap.style.minWidth='0';wrap.style.width=(base*zoom)+'px';}
+window.addEventListener('resize',()=>setZoom(zoom));
+document.getElementById('zoomIn').addEventListener('click',()=>setZoom(zoom+.25));
+document.getElementById('zoomOut').addEventListener('click',()=>setZoom(zoom-.25));
+document.getElementById('resetZoom').addEventListener('click',()=>setZoom(1));
+function selectModule(key){const m=MODULES[key];if(!m)return;document.getElementById('detailTitle').textContent=m.name;document.getElementById('detailPill').textContent=m.pill;document.getElementById('detailPill').style.color=m.color;document.getElementById('detailPurpose').textContent=m.purpose;for(const [field,items] of [['detailOwns',m.owns],['detailExcludes',m.excludes]]){const el=document.getElementById(field);el.replaceChildren(...items.map(i=>{let li=document.createElement('li');li.textContent=i;return li;}));}svg.querySelectorAll('.module-node').forEach(n=>{const on=n.dataset.module===key;n.classList.toggle('selected',on);n.setAttribute('aria-pressed',String(on));});}
+svg.querySelectorAll('.module-node').forEach(n=>{n.addEventListener('click',()=>{selectModule(n.dataset.module);document.getElementById('inspector').scrollIntoView({behavior:'smooth',block:'nearest'});});n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();n.dispatchEvent(new Event('click'));}});});
+document.querySelectorAll('.quick-module').forEach(n=>n.addEventListener('click',()=>{selectModule(n.dataset.target);document.getElementById('inspector').scrollIntoView({behavior:'smooth',block:'nearest'});}));
+function setPath(key){const p=PATHS[key];if(!p)return;document.getElementById('flowTitle').textContent=p.title;document.getElementById('flowSubtitle').textContent=p.subtitle;document.getElementById('flowText').textContent=p.text;links.classList.toggle('links-filtered',key!=='all');links.querySelectorAll('.link').forEach(l=>l.classList.toggle('flow-active',key==='all'||(l.dataset.flow||'').split(' ').includes(key)));document.querySelectorAll('.filter-btn').forEach(n=>{const on=n.dataset.filter===key;n.classList.toggle('active',on);n.setAttribute('aria-pressed',String(on));});}
+document.querySelectorAll('.filter-btn').forEach(n=>n.addEventListener('click',()=>setPath(n.dataset.filter)));
+function download(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}
+function svgText(){const clone=svg.cloneNode(true);clone.removeAttribute('id');clone.querySelectorAll('.selected').forEach(el=>el.classList.remove('selected'));const linkEl=clone.querySelector('#interface-links');linkEl.classList.remove('links-filtered');linkEl.querySelectorAll('.flow-active').forEach(el=>el.classList.remove('flow-active'));return new XMLSerializer().serializeToString(clone);}
+document.getElementById('exportSvg').addEventListener('click',()=>download(new Blob([svgText()],{type:'image/svg+xml;charset=utf-8'}),'IDP_TELOS_Enterprise_Architecture_v1_2.svg'));
+document.getElementById('exportPng').addEventListener('click',async()=>{const btn=document.getElementById('exportPng');const old=btn.textContent;btn.disabled=true;btn.textContent='正在生成 4K PNG…';try{const url=URL.createObjectURL(new Blob([svgText()],{type:'image/svg+xml;charset=utf-8'}));const image=new Image();await new Promise((res,rej)=>{image.onload=res;image.onerror=rej;image.src=url;});const cvs=document.createElement('canvas');cvs.width=5120;cvs.height=2880;const ctx=cvs.getContext('2d');ctx.drawImage(image,0,0,cvs.width,cvs.height);URL.revokeObjectURL(url);const blob=await new Promise(r=>cvs.toBlob(r,'image/png'));if(!blob)throw new Error('PNG 导出失败');download(blob,'IDP_TELOS_Enterprise_Architecture_v1_2_4K.png');}catch(err){alert('导出失败：'+err.message);}finally{btn.disabled=false;btn.textContent=old;}});
+document.getElementById('print').addEventListener('click',()=>window.print());selectModule('eer');setPath('all');setZoom(1);
+</script></body></html>

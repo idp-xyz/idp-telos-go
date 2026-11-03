@@ -1,0 +1,215 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>IDP TELOS · 系统架构与组成 v1.0</title><meta name="description" content="IDP TELOS 五大独立子系统架构、组成、协作路径和数据权威边界"/><style>
+:root{color-scheme:dark;--bg:#050b1b;--panel:#0d1931;--line:#223a5a;--text:#f1f6ff;--muted:#9aadc9;--accent:#22cfff}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:linear-gradient(155deg,#051026,#050b1b 55%,#070c1b);color:var(--text);font-family:Inter,"Noto Sans CJK SC","Microsoft YaHei",system-ui,sans-serif}
+a{color:#59dfff;text-decoration:none}header{position:sticky;top:0;z-index:8;background:rgba(5,11,27,.9);backdrop-filter:blur(18px);border-bottom:1px solid #16304c}.head{max-width:1510px;margin:auto;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:14px}.brand{font-weight:800;letter-spacing:.08em}.brand span{color:#22cfff}.nav{display:flex;gap:16px;flex-wrap:wrap;font-size:13px}.nav a{color:#abc1df}.wrapper{max-width:1510px;margin:0 auto;padding:22px 24px 80px}.hero{padding:34px 0 16px}.eyebrow{font-size:12px;letter-spacing:.16em;color:var(--accent);font-weight:700}.hero h1{font-size:clamp(28px,3.4vw,49px);margin:12px 0}.hero p{color:var(--muted);font-size:16px;line-height:1.95;max-width:1000px}.stats{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}.stat{padding:10px 18px;border:1px solid #274465;border-radius:9px;background:#0b1932;color:#d4e5fb;font-size:14px}.stat strong{color:var(--accent)}.section{margin-top:32px}.section h2{font-size:24px;margin:5px 0 12px}.section > p{color:var(--muted);line-height:1.9}.frame{border:1px solid #264362;border-radius:19px;overflow:hidden;background:#051026;box-shadow:0 22px 55px #0006}.frame img,.frame svg{display:block;width:100%;height:auto}.tools{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid #183354;background:#0c1933}.tools a,.tools button{font:inherit;font-size:13px;color:#c9dafa;background:#152b49;border:1px solid #345575;padding:8px 12px;border-radius:8px;cursor:pointer}.tools a:hover,.tools button:hover{color:white;border-color:#22cfff}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.card{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:22px}.card h3{margin:0 0 7px;font-size:18px}.card .sub{color:#22cfff;font-weight:600;font-size:13px}.card p,.card li{color:#b8c9de;line-height:1.85;font-size:14px}.card ul{padding-left:21px}.authority{margin-top:11px;padding:11px 13px;border-radius:9px;background:#0a2740;color:#b7eefa;font-size:13px}.note{padding:14px 19px;border-left:3px solid #22cfff;background:#0b1e35;color:#ccdaf0;line-height:1.8;border-radius:0 9px 9px 0}.table-wrap{overflow:auto;border:1px solid #284261;border-radius:13px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:14px 17px;vertical-align:top;border-bottom:1px solid #203b5a;font-size:13px;line-height:1.7}th{color:#d7ecff;background:#122440}td{color:#b6c8df}td:first-child{color:#eff6ff;font-weight:650}tr:last-child td{border-bottom:none}.flow{padding:14px 0}.repo{font:14px/1.8 ui-monospace,monospace;white-space:pre-wrap;color:#bfe7ff;background:#081b32;border:1px solid #294662;border-radius:13px;padding:19px;overflow:auto}.footer{margin-top:60px;padding-top:25px;border-top:1px solid #203b59;color:#89a3c1;font-size:12px;display:flex;gap:18px;justify-content:space-between;flex-wrap:wrap}.small{color:#92a8c3;font-size:12px}.zoom{width:100%;overflow:auto;max-height:78vh}.zoom svg{width:1600px!important;max-width:none;height:auto}.break{color:#22cfff}button:focus-visible,a:focus-visible{outline:2px solid #22cfff;outline-offset:2px}@media(max-width:760px){.grid{grid-template-columns:1fr}.head{align-items:flex-start}.nav{display:none}.wrapper{padding:14px 14px 50px}.card{padding:17px}.hero{padding-top:18px}.section h2{font-size:21px}.hero p{font-size:14px}.tools{justify-content:flex-start}}
+</style></head><body>
+<header><div class="head"><div class="brand">IDP <span>TELOS</span><div class="small">SYSTEM ARCHITECTURE</div></div><nav class="nav"><a href="#diagram">总架构图</a><a href="#modules">五大模块</a><a href="#flows">协作路径</a><a href="#authority">状态权威</a><a href="#repos">工程组成</a></nav></div></header>
+<main class="wrapper"><div class="hero"><div class="eyebrow">ARCHITECTURE REFERENCE / v1.0 / 2026-11-03</div><h1>TELOS 系统架构与组成</h1><p>AI-Native Enterprise Execution Platform。<strong>五个自主运行系统 + 公开协作契约 + 外部权威业务系统</strong>。架构设计强调模块独立、按需组合、可验证执行与企业数据主权；不把所有模块硬连成一条串行管线。</p><div class="stats"><div class="stat"><strong>05</strong> 独立运行子系统</div><div class="stat"><strong>07</strong> 独立工程仓库</div><div class="stat"><strong>01</strong> 执行状态权威：EER</div><div class="stat"><strong>Open</strong> Contracts / APIs / Events</div></div></div>
+<section id="diagram" class="section"><h2>01 · 五大子系统总体架构</h2><p>图示的是产品责任边界与可选连接点，不意味着每一个请求都要经过全部五个系统。各模块有自己的存储、身份授权边界、生命周期和独立发布流程。</p><div class="frame"><div id="archview"><svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 1600 900" role="img" aria-labelledby="t d">
+<title id="t">IDP TELOS 五大独立子系统总体架构</title><desc id="d">Workspace、HOST、EER、CMI、MCP Infrastructure 五个自治子系统，通过公开契约可选协作，领域系统掌握业务事实。</desc>
+<defs><radialGradient id="bg" cx=".58" cy=".2" r=".95"><stop offset="0" stop-color="#0C2650"/><stop offset=".55" stop-color="#07132D"/><stop offset="1" stop-color="#030818"/></radialGradient><linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#22CFFF"/><stop offset=".52" stop-color="#4F8DFF"/><stop offset="1" stop-color="#9C93FF"/></linearGradient><filter id="glow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="8"/></filter></defs>
+<rect width="1600" height="900" fill="url(#bg)"/>
+<path d="M-100 10 Q800 160 1700 5" fill="none" stroke="#0C3263" opacity=".3" stroke-width="2"/>
+<path d="M0 855 Q600 760 1600 880" fill="none" stroke="#22CFFF" opacity=".17" stroke-width="2"/>
+<g transform="translate(64 20) scale(.34) translate(-510 -172)"><path id="glyph-T" fill="#FAFCFF" fill-rule="evenodd" d="M 535.5 199.5 H 624 V 218 H 590 V 293.5 H 571 V 218 H 535.5 Z"/>
+<path id="glyph-E" fill="#FAFCFF" fill-rule="evenodd" d="M 642 199.5 H 719 V 218 H 642 Z M 642 237 H 719 V 256 H 642 Z M 642 275 H 719 V 294 H 642 Z"/>
+<path id="glyph-L" fill="#FAFCFF" fill-rule="evenodd" d="M 741 199.5 H 760 V 275.5 H 806.5 V 294 H 741 Z"/>
+<path id="glyph-O" fill="#FAFCFF" fill-rule="evenodd" d="M 867.5 197 C 896 197 918 218.4 918 245.8 C 918 273.2 896 294.8 867.5 294.8 C 839 294.8 817.5 273.2 817.5 245.8 C 817.5 218.4 839 197 867.5 197 Z M 867.5 216 C 849 216 837 229 837 245.8 C 837 262.8 849 275.5 867.5 275.5 C 886 275.5 899 262.8 899 245.8 C 899 229 886 216 867.5 216 Z"/>
+<path id="glyph-S" fill="#FAFCFF" fill-rule="evenodd" d="M 1009 199.5 L 955.5 199.5 C 940.5 199.5 931.5 211.7 931.5 226.5 C 931.5 242 942 254.5 959 254.5 L 987.5 254.5 C 999 254.5 999 275 987.5 275 L 933.5 275 L 933.5 294 L 984 294 C 1002 294 1014 283.5 1014 264.8 C 1014 246 1004 236 984 236 L 956 236 C 944.5 236 944.5 218.1 956 218.1 L 1009 218.1 Z"/></g>
+<text x="277" y="55" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="19" font-weight="700" fill="#F3F7FF">IDP TELOS</text>
+<text x="277" y="77" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="450" fill="#9FB4D0" letter-spacing=".6">AI-Native Enterprise Execution Platform</text>
+<rect x="1305" y="31" width="243" height="27" rx="13.5" fill="#22CFFF" fill-opacity=".11" stroke="#22CFFF" stroke-opacity=".5"/><text x="1426.5" y="49" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="600" fill="#22CFFF" text-anchor="middle">ARCHITECTURE · BASELINE v1.0</text>
+<text x="64" y="138" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="37" font-weight="700" fill="#F3F7FF">五大独立子系统 · 统一协作架构</text>
+<text x="65" y="169" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="18" font-weight="400" fill="#9FB4D0">自主运行  /  标准契约  /  按需组合  /  可信执行</text>
+<text x="65" y="208" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="700" fill="#22CFFF" letter-spacing="1.6">01  BUSINESS ENTRY</text>
+<rect x="64" y="225" width="482" height="62" rx="13" fill="#0C1A34" stroke="#27456B" stroke-width="1.3"/>
+<circle cx="91" cy="256" r="10" fill="#22CFFF" fill-opacity=".18" stroke="#22CFFF"/>
+<text x="112" y="250" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="18" font-weight="650" fill="#F3F7FF">企业员工 / 团队</text>
+<text x="112" y="272" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">Web · Mobile · 审批与协作</text>
+<rect x="570" y="225" width="482" height="62" rx="13" fill="#0C1A34" stroke="#27456B" stroke-width="1.3"/>
+<circle cx="597" cy="256" r="10" fill="#22CFFF" fill-opacity=".18" stroke="#22CFFF"/>
+<text x="618" y="250" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="18" font-weight="650" fill="#F3F7FF">应用与外部服务</text>
+<text x="618" y="272" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">API · Webhook · Integration</text>
+<rect x="1076" y="225" width="482" height="62" rx="13" fill="#0C1A34" stroke="#27456B" stroke-width="1.3"/>
+<circle cx="1103" cy="256" r="10" fill="#22CFFF" fill-opacity=".18" stroke="#22CFFF"/>
+<text x="1124" y="250" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="18" font-weight="650" fill="#F3F7FF">业务事件与触发</text>
+<text x="1124" y="272" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">Orders · Inventory · Events</text>
+<text x="64" y="323" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="700" fill="#22CFFF" letter-spacing="1.4">02  FIVE AUTONOMOUS RUNTIME SYSTEMS</text>
+<text x="1539" y="323" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="450" fill="#9FB4D0" text-anchor="end">非强制调用链 · 无跨系统运行时强依赖</text>
+<rect x="64" y="343" width="275" height="271" rx="19" fill="#0B1730" stroke="#22CFFF" stroke-width="1.3"/>
+<rect x="65" y="344" width="273" height="5" rx="2" fill="#22CFFF" fill-opacity=".85"/>
+<circle cx="96" cy="381" r="17" fill="#22CFFF" fill-opacity=".13" stroke="#22CFFF"/>
+<text x="96" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="16" font-weight="700" fill="#22CFFF" text-anchor="middle">01</text>
+<text x="121" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="21" font-weight="700" fill="#F3F7FF">IDP Workspace</text>
+<text x="84" y="434" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="630" fill="#22CFFF">企业应用与工作空间</text>
+<line x1="84" y1="453" x2="319" y2="453" stroke="#22CFFF" stroke-width="1.3" opacity="0.35"/>
+<circle cx="90" cy="477" r="3" fill="#22CFFF"/>
+<text x="101" y="482" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">App Registry · H5 Runtime</text>
+<circle cx="90" cy="508" r="3" fill="#22CFFF"/>
+<text x="101" y="513" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Work Context · Work Inbox</text>
+<circle cx="90" cy="539" r="3" fill="#22CFFF"/>
+<text x="101" y="544" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Action Contract · Approvals</text>
+<rect x="78" y="582" width="247" height="25" rx="6" fill="#09162A" stroke="#263E60" stroke-width="1"/>
+<text x="201.5" y="599" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="550" fill="#9FB4D0" text-anchor="middle">工作界面 · 协作 · 应用状态</text>
+<rect x="364" y="343" width="275" height="271" rx="19" fill="#0B1730" stroke="#4F8DFF" stroke-width="1.3"/>
+<rect x="365" y="344" width="273" height="5" rx="2" fill="#4F8DFF" fill-opacity=".85"/>
+<circle cx="396" cy="381" r="17" fill="#4F8DFF" fill-opacity=".13" stroke="#4F8DFF"/>
+<text x="396" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="16" font-weight="700" fill="#4F8DFF" text-anchor="middle">02</text>
+<text x="421" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="21" font-weight="700" fill="#F3F7FF">IDP HOST</text>
+<text x="384" y="434" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="630" fill="#4F8DFF">智能体托管与运行</text>
+<line x1="384" y1="453" x2="619" y2="453" stroke="#4F8DFF" stroke-width="1.3" opacity="0.35"/>
+<circle cx="390" cy="477" r="3" fill="#4F8DFF"/>
+<text x="401" y="482" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Agent / Skill Registry</text>
+<circle cx="390" cy="508" r="3" fill="#4F8DFF"/>
+<text x="401" y="513" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">AgentRun · Session · Harness</text>
+<circle cx="390" cy="539" r="3" fill="#4F8DFF"/>
+<text x="401" y="544" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Model Router · Tools · A2A</text>
+<rect x="378" y="582" width="247" height="25" rx="6" fill="#09162A" stroke="#263E60" stroke-width="1"/>
+<text x="501.5" y="599" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="550" fill="#9FB4D0" text-anchor="middle">Agent 运行 · 会话状态</text>
+<rect x="664" y="343" width="275" height="271" rx="19" fill="#101C35" stroke="#FFD58B" stroke-width="2"/>
+<rect x="665" y="344" width="273" height="5" rx="2" fill="#FFD58B" fill-opacity=".85"/>
+<circle cx="696" cy="381" r="17" fill="#FFD58B" fill-opacity=".13" stroke="#FFD58B"/>
+<text x="696" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="16" font-weight="700" fill="#FFD58B" text-anchor="middle">03</text>
+<text x="721" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="21" font-weight="700" fill="#F3F7FF">IDP EER</text>
+<text x="684" y="434" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="630" fill="#FFD58B">可靠执行与验证内核</text>
+<line x1="684" y1="453" x2="919" y2="453" stroke="#FFD58B" stroke-width="1.3" opacity="0.35"/>
+<circle cx="690" cy="477" r="3" fill="#FFD58B"/>
+<text x="701" y="482" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Goal · Task · Plan · Action</text>
+<circle cx="690" cy="508" r="3" fill="#FFD58B"/>
+<text x="701" y="513" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Checkpoint · Retry · Compensate</text>
+<circle cx="690" cy="539" r="3" fill="#FFD58B"/>
+<text x="701" y="544" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Approval · Verify · Evidence</text>
+<rect x="678" y="582" width="247" height="25" rx="6" fill="#09162A" stroke="#263E60" stroke-width="1"/>
+<text x="801.5" y="599" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="550" fill="#9FB4D0" text-anchor="middle">企业任务的权威执行状态</text>
+<rect x="964" y="343" width="275" height="271" rx="19" fill="#0B1730" stroke="#9C93FF" stroke-width="1.3"/>
+<rect x="965" y="344" width="273" height="5" rx="2" fill="#9C93FF" fill-opacity=".85"/>
+<circle cx="996" cy="381" r="17" fill="#9C93FF" fill-opacity=".13" stroke="#9C93FF"/>
+<text x="996" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="16" font-weight="700" fill="#9C93FF" text-anchor="middle">04</text>
+<text x="1021" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="21" font-weight="700" fill="#F3F7FF">IDP CMI</text>
+<text x="984" y="434" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="630" fill="#9C93FF">上下文、记忆与知识</text>
+<line x1="984" y1="453" x2="1219" y2="453" stroke="#9C93FF" stroke-width="1.3" opacity="0.35"/>
+<circle cx="990" cy="477" r="3" fill="#9C93FF"/>
+<text x="1001" y="482" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">ContextResolver · Packages</text>
+<circle cx="990" cy="508" r="3" fill="#9C93FF"/>
+<text x="1001" y="513" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Memory · Retrieval · Index</text>
+<circle cx="990" cy="539" r="3" fill="#9C93FF"/>
+<text x="1001" y="544" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">ACL · Provenance · Lifecycle</text>
+<rect x="978" y="582" width="247" height="25" rx="6" fill="#09162A" stroke="#263E60" stroke-width="1"/>
+<text x="1101.5" y="599" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="550" fill="#9FB4D0" text-anchor="middle">上下文 · 记忆 · 知识索引</text>
+<rect x="1264" y="343" width="275" height="271" rx="19" fill="#0B1730" stroke="#6FE8C0" stroke-width="1.3"/>
+<rect x="1265" y="344" width="273" height="5" rx="2" fill="#6FE8C0" fill-opacity=".85"/>
+<circle cx="1296" cy="381" r="17" fill="#6FE8C0" fill-opacity=".13" stroke="#6FE8C0"/>
+<text x="1296" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="16" font-weight="700" fill="#6FE8C0" text-anchor="middle">05</text>
+<text x="1321" y="387" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="17" font-weight="700" fill="#F3F7FF">IDP MCP Infrastructure</text>
+<text x="1284" y="434" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="630" fill="#6FE8C0">标准 MCP 连接与治理</text>
+<line x1="1284" y1="453" x2="1519" y2="453" stroke="#6FE8C0" stroke-width="1.3" opacity="0.35"/>
+<circle cx="1290" cy="477" r="3" fill="#6FE8C0"/>
+<text x="1301" y="482" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">MCP Client / Server Interface</text>
+<circle cx="1290" cy="508" r="3" fill="#6FE8C0"/>
+<text x="1301" y="513" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Registry · Discovery · Route</text>
+<circle cx="1290" cy="539" r="3" fill="#6FE8C0"/>
+<text x="1301" y="544" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="15" font-weight="440" fill="#F3F7FF">Identity · Policy · Audit</text>
+<rect x="1278" y="582" width="247" height="25" rx="6" fill="#09162A" stroke="#263E60" stroke-width="1"/>
+<text x="1401.5" y="599" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="550" fill="#9FB4D0" text-anchor="middle">MCP 连接 · 注册 · 治理状态</text>
+<line x1="201.5" y1="614" x2="201.5" y2="642" stroke="#9FB4D0" stroke-width="1.2" opacity="0.7" stroke-dasharray="4 6"/>
+<line x1="501.5" y1="614" x2="501.5" y2="642" stroke="#9FB4D0" stroke-width="1.2" opacity="0.7" stroke-dasharray="4 6"/>
+<line x1="801.5" y1="614" x2="801.5" y2="642" stroke="#9FB4D0" stroke-width="1.2" opacity="0.7" stroke-dasharray="4 6"/>
+<line x1="1101.5" y1="614" x2="1101.5" y2="642" stroke="#9FB4D0" stroke-width="1.2" opacity="0.7" stroke-dasharray="4 6"/>
+<line x1="1401.5" y1="614" x2="1401.5" y2="642" stroke="#9FB4D0" stroke-width="1.2" opacity="0.7" stroke-dasharray="4 6"/>
+<rect x="64" y="642" width="1472" height="67" rx="15" fill="#0A2441" stroke="#245983" stroke-width="1.3"/>
+<text x="89" y="670" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#22CFFF">跨系统交互契约</text>
+<text x="89" y="695" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="400" fill="#9FB4D0">公开 API / Schema / Events</text>
+<rect x="408" y="663" width="174" height="27" rx="13.5" fill="#22CFFF" fill-opacity=".11" stroke="#22CFFF" stroke-opacity=".5"/><text x="495.0" y="681" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="600" fill="#22CFFF" text-anchor="middle">OpenAPI · gRPC</text>
+<rect x="597" y="663" width="164" height="27" rx="13.5" fill="#22CFFF" fill-opacity=".11" stroke="#22CFFF" stroke-opacity=".5"/><text x="679.0" y="681" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="600" fill="#22CFFF" text-anchor="middle">Async Events</text>
+<rect x="776" y="663" width="178" height="27" rx="13.5" fill="#22CFFF" fill-opacity=".11" stroke="#22CFFF" stroke-opacity=".5"/><text x="865.0" y="681" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="600" fill="#22CFFF" text-anchor="middle">MCP Tools</text>
+<rect x="969" y="663" width="140" height="27" rx="13.5" fill="#4F8DFF" fill-opacity=".11" stroke="#4F8DFF" stroke-opacity=".5"/><text x="1039.0" y="681" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="600" fill="#4F8DFF" text-anchor="middle">A2A</text>
+<rect x="1124" y="663" width="165" height="27" rx="13.5" fill="#4F8DFF" fill-opacity=".11" stroke="#4F8DFF" stroke-opacity=".5"/><text x="1206.5" y="681" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="600" fill="#4F8DFF" text-anchor="middle">AG-UI</text>
+<rect x="1305" y="663" width="220" height="27" rx="13.5" fill="#4F8DFF" fill-opacity=".11" stroke="#4F8DFF" stroke-opacity=".5"/><text x="1415.0" y="681" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="600" fill="#4F8DFF" text-anchor="middle">授权 · 审计 · Trace</text>
+<text x="64" y="753" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="700" fill="#22CFFF" letter-spacing="1.1">03  BUSINESS DOMAIN SYSTEMS  /  业务事实权威</text>
+<rect x="64" y="770" width="352" height="67" rx="12" fill="#0B1730" stroke="#324763" stroke-width="1.3"/>
+<text x="81" y="798" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="19" font-weight="650" fill="#F3F7FF">IDP Brant</text>
+<text x="81" y="821" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="400" fill="#9FB4D0">贸易 · 订单 · 财务</text>
+<rect x="446" y="770" width="352" height="67" rx="12" fill="#0B1730" stroke="#324763" stroke-width="1.3"/>
+<text x="463" y="798" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="19" font-weight="650" fill="#F3F7FF">PRISM</text>
+<text x="463" y="821" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="400" fill="#9FB4D0">WMS · WES · 库存</text>
+<rect x="828" y="770" width="352" height="67" rx="12" fill="#0B1730" stroke="#324763" stroke-width="1.3"/>
+<text x="845" y="798" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="19" font-weight="650" fill="#F3F7FF">IDP Parcel</text>
+<text x="845" y="821" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="400" fill="#9FB4D0">运单 · 轨迹 · 清关</text>
+<rect x="1210" y="770" width="352" height="67" rx="12" fill="#0B1730" stroke="#324763" stroke-width="1.3"/>
+<text x="1227" y="798" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="19" font-weight="650" fill="#F3F7FF">第三方企业系统</text>
+<text x="1227" y="821" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="400" fill="#9FB4D0">ERP · CRM · TMS · SCM</text>
+<text x="64" y="864" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="700" fill="#22CFFF" letter-spacing="1.4">CROSS-CUTTING</text>
+<text x="221" y="864" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="14" font-weight="450" fill="#9FB4D0">身份与租户隔离    ·    权限策略    ·    全链路审计    ·    可观测性    ·    部署与版本治理</text>
+<text x="1537" y="867" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="650" fill="#9FB4D0" text-anchor="end" letter-spacing=".8">INTENT. EXECUTION. VERIFIED.</text>
+</svg></div><div class="tools"><div><button type="button" id="zoomBtn" aria-pressed="false">放大查看</button> <button type="button" id="resetBtn">适应页面</button></div><div><a href="IDP_TELOS_System_Architecture_4K.svg" download>独立 SVG 文件</a>　<a href="IDP_TELOS_System_Architecture_3840x2160.png" download>4K PNG</a></div></div></div></section>
+<section id="modules" class="section"><h2>02 · 核心模块与内部组成</h2><p>这五个模块是平级独立的运行单元，EER 因职责不同承担企业任务的持久执行权威，但不是其他模块的启动前置条件。</p><div class="grid"><article class="card"><h3>IDP Workspace</h3><div class="sub">独立企业应用平台，不是简单 AI 聊天 UI</div><p>App Shell、App Registry、H5 App Runtime、App Bridge SDK、Work Context、Work Inbox、Action Contract、审批与人机协作。</p><div class="authority"><b>状态与权威：</b>工作空间、应用安装配置、界面与协作状态；不直接作为订单或库存最终权威。</div></article>
+<article class="card"><h3>IDP HOST</h3><div class="sub">独立 Agent Hosting &amp; Coordination</div><p>Agent Definition/Run、Session、Agent/Skill Registry、Model Router、Harness、工具协调、A2A；可独立接模型与本地存储。</p><div class="authority"><b>状态与权威：</b>Agent 会话、推理与运行状态；不接管 EER 的任务 Checkpoint。</div></article>
+<article class="card"><h3>IDP EER</h3><div class="sub">独立可靠执行引擎 / Execution Runtime</div><p>Goal/Task/Plan/Action、Actor / Validator / Planner / Executor / Verifier、Checkpoint、恢复、幂等、Outbox/Inbox、补偿、审批、核验与证据。</p><div class="authority"><b>状态与权威：</b>企业执行流程与 Checkpoint 的权威状态；业务事务最终仍由领域系统提交。</div></article>
+<article class="card"><h3>IDP CMI</h3><div class="sub">独立 Context, Memory &amp; Knowledge Infrastructure</div><p>ContextResolver、ContextPackage、记忆生命周期、知识检索、语义索引、企业 ACL、来源追溯与治理。</p><div class="authority"><b>状态与权威：</b>上下文与记忆资产；不替代事实库、执行状态或 Agent Session。</div></article>
+<article class="card"><h3>IDP MCP Infrastructure</h3><div class="sub">独立标准 MCP 接入与治理产品</div><p>MCP Server/Client 双向角色接口、Server/Tool Registry、发现、授权、协议路由、策略与审计。</p><div class="authority"><b>状态与权威：</b>MCP 连接与治理元数据；不是通用跨协议 API Gateway 或任务编排引擎。</div></article></div></section>
+<section id="flows" class="section"><h2>03 · 典型协作路径</h2><p>轻量 Agent 场景与企业级可靠执行场景采用不同的集成深度。调用方可以是 Workspace、外部 API 或业务事件，不强制由 Workspace 发起；可靠执行任务可以跳过 HOST 直接进入 EER，MCP Infrastructure 也是可选的协议接入路径。</p><div class="frame"><svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1200" viewBox="0 0 1200 600" role="img"><title>TELOS 协作路径：轻量智能交互与可靠业务执行</title>
+<rect width="1200" height="600" fill="#051127"/>
+<text x="45" y="62" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="32" font-weight="700" fill="#F3F7FF">按需组合 · 两类典型运行路径</text>
+<text x="45" y="92" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="16" font-weight="400" fill="#9FB4D0">示意箭头代表某类场景中的逻辑调用，不代表全平台的固定依赖。</text>
+<text x="45" y="151" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="17" font-weight="700" fill="#22CFFF">PATH A  /  普通问答、辅助决策</text>
+<rect x="45" y="169" width="250" height="108" rx="16" fill="#11213C" stroke="#22CFFF" stroke-width="1.3"/>
+<text x="61" y="211" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#F3F7FF">Workspace</text>
+<text x="61" y="240" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">业务交互</text>
+<rect x="360" y="169" width="250" height="108" rx="16" fill="#11213C" stroke="#22CFFF" stroke-width="1.3"/>
+<text x="376" y="211" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#F3F7FF">HOST</text>
+<text x="376" y="240" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">Agent 推理</text>
+<rect x="675" y="169" width="250" height="108" rx="16" fill="#11213C" stroke="#22CFFF" stroke-width="1.3"/>
+<text x="691" y="211" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#F3F7FF">CMI</text>
+<text x="691" y="240" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">可选检索 · 记忆</text>
+<line x1="297" y1="222" x2="355" y2="222" stroke="#22CFFF" stroke-width="2" opacity="1"/>
+<path d="M345 215 L355 222 L345 229" fill="none" stroke="#22CFFF" stroke-width="1.8"/>
+<line x1="612" y1="222" x2="670" y2="222" stroke="#22CFFF" stroke-width="2" opacity="1"/>
+<path d="M660 215 L670 222 L660 229" fill="none" stroke="#22CFFF" stroke-width="1.8"/>
+<rect x="967" y="212" width="181" height="27" rx="13.5" fill="#6FE8C0" fill-opacity=".11" stroke="#6FE8C0" stroke-opacity=".5"/><text x="1057.5" y="230" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="12" font-weight="600" fill="#6FE8C0" text-anchor="middle">不经过 EER</text>
+<text x="45" y="346" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="17" font-weight="700" fill="#FFD58B">PATH B  /  高可靠企业执行</text>
+<rect x="45" y="370" width="199" height="108" rx="16" fill="#11213C" stroke="#22CFFF" stroke-width="1.3"/>
+<text x="61" y="412" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#F3F7FF">Workspace / API</text>
+<text x="61" y="441" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">任务发起</text>
+<rect x="288" y="370" width="199" height="108" rx="16" fill="#11213C" stroke="#4F8DFF" stroke-width="1.3"/>
+<text x="304" y="412" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#F3F7FF">HOST（可选）</text>
+<text x="304" y="441" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">推理 / 规划</text>
+<rect x="530" y="370" width="199" height="108" rx="16" fill="#11213C" stroke="#FFD58B" stroke-width="1.3"/>
+<text x="546" y="412" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#F3F7FF">EER</text>
+<text x="546" y="441" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">执行状态与验证</text>
+<rect x="772" y="370" width="199" height="108" rx="16" fill="#11213C" stroke="#6FE8C0" stroke-width="1.3"/>
+<text x="788" y="412" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#F3F7FF">MCP / APIs</text>
+<text x="788" y="441" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">可选连接</text>
+<rect x="1015" y="370" width="140" height="108" rx="16" fill="#11213C" stroke="#9C93FF" stroke-width="1.3"/>
+<text x="1031" y="412" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="20" font-weight="700" fill="#F3F7FF">业务系统</text>
+<text x="1031" y="441" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="13" font-weight="400" fill="#9FB4D0">事务提交</text>
+<line x1="245" y1="423" x2="282" y2="423" stroke="#22CFFF" stroke-width="2" opacity="1"/>
+<path d="M272 416 L282 423 L272 430" fill="none" stroke="#22CFFF" stroke-width="1.8"/>
+<line x1="489" y1="423" x2="524" y2="423" stroke="#22CFFF" stroke-width="2" opacity="1"/>
+<path d="M514 416 L524 423 L514 430" fill="none" stroke="#22CFFF" stroke-width="1.8"/>
+<line x1="730" y1="423" x2="766" y2="423" stroke="#22CFFF" stroke-width="2" opacity="1"/>
+<path d="M756 416 L766 423 L756 430" fill="none" stroke="#22CFFF" stroke-width="1.8"/>
+<line x1="971" y1="423" x2="1009" y2="423" stroke="#22CFFF" stroke-width="2" opacity="1"/>
+<path d="M999 416 L1009 423 L999 430" fill="none" stroke="#22CFFF" stroke-width="1.8"/>
+<text x="46" y="541" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="16" font-weight="400" fill="#9FB4D0">CMI 可向 HOST / EER 提供授权 ContextPackage；执行审批、重试、恢复与证据由 EER 负责。</text>
+<text x="46" y="570" font-family="Noto Sans CJK SC, Microsoft YaHei, PingFang SC, sans-serif" font-size="16" font-weight="400" fill="#9FB4D0">已绑定的 EER 任务不可在故障后绕过 EER 重放写操作。领域系统保留最终业务事实。</text>
+</svg><div class="tools"><span class="small">两条路径仅用于解释边界，不代表唯一调用顺序。</span><a href="IDP_TELOS_Execution_Paths.svg" download>下载流程 SVG</a></div></div></section>
+<section id="authority" class="section"><h2>04 · 数据与状态权威边界</h2><div class="table-wrap"><table><thead><tr><th>系统</th><th>具有权威的数据 / 状态</th><th>不得替代的部分</th></tr></thead><tbody>
+<tr><td>Workspace</td><td>工作对象视图、应用安装与协作、工作 Inbox</td><td>业务领域事务、Agent Harness、EER Checkpoint</td></tr>
+<tr><td>HOST</td><td>AgentRun、Session、模型/工具调用与执行协调状态</td><td>正式企业业务任务的可靠执行状态</td></tr>
+<tr><td>EER</td><td>Goal/Task/Plan/Execution、Checkpoint、审批、证据、验证</td><td>订单、财务账本、库存等领域主数据的最终提交</td></tr>
+<tr><td>CMI</td><td>ContextPackage、记忆索引、检索来源与生命周期</td><td>业务事实系统、AgentRun、EER Checkpoint</td></tr>
+<tr><td>MCP Infrastructure</td><td>MCP 服务注册、能力发现、连接、授权与审计</td><td>通用 AI Gateway、Agent Runtime、业务工作流</td></tr>
+<tr><td>企业业务系统</td><td>订单、库存、运单、会计账本、客户数据等</td><td>不应被 CMI 记忆或 Agent 文本写入绕过事务规则</td></tr>
+</tbody></table></div>
+<p class="note">特别说明：MCP Infrastructure 可以包含标准 MCP Client / Server 的双向协议接口及内部治理路由，但<strong>不等于另行规划的通用 IDP Gateway</strong>。后者不属于当前已锁定的五大核心系统，也不是 MCP 的强制依赖。</p></section>
+<section id="repos" class="section"><h2>05 · 工程交付与部署组成</h2><p>采用 Polyrepo：五个可独立交付的运行仓库，另有一个产品集成仓和一个公开契约仓。它们不是七个必须同时运行的微服务。</p><div class="repo">idp-telos/                  # 产品架构、品牌、集成部署、端到端验证与 BOM
+idp-contracts/              # 跨服务 API / Event / Schema 契约与兼容验证
+
+idp-workspace/              # 独立企业应用与工作空间
+idp-host/                   # 独立 Agent Hosting
+idp-eer/                    # 独立 Reliable Execution Runtime
+idp-cmi/                    # 独立 Context / Memory / Knowledge
+idp-mcp-infrastructure/     # 独立 MCP 连接与治理</div><div class="grid"><article class="card"><h3>部署原则</h3><p>独立构建、升级、回滚、状态存储和发布版本；客户可根据场景选择单模块或联合部署。不得通过跨库直连、跨仓内部代码引用或共享私有数据库表制造隐性强依赖。</p></article><article class="card"><h3>技术路线（工程方向）</h3><p>总体优先 Go 服务端、TypeScript/React 客户端；Python 按需用于 AI Harness 与记忆处理 Worker。具体语言仍以各独立仓库已经确认的技术基线及实测结果为准，不因为平台整合而重写既有可用代码。</p></article></div></section>
+<section class="section"><h2>06 · 架构审查结论</h2><p class="note">既定产品基线已经清晰：<strong>Workspace 是企业工作入口；HOST 是智能体运行中枢；EER 是可靠执行权威；CMI 是上下文与记忆基础设施；MCP Infrastructure 是标准工具连接与治理基础设施。</strong> 在它们之上形成统一企业体验，在它们之外保持领域系统的业务事实权威。</p><p class="small">本图是依据当前确认的 TELOS 架构方向整理的说明性设计制品，不代表五个子系统已完成生产部署或跨系统联调验收。品牌图形沿用已有锁定 TELOS 矢量字形。</p></section>
+<div class="footer"><span>IDP TELOS · 智能驱动商业未来</span><span>Intelligence Drives the Future of Business.</span><span>Brand Philosophy · Intent. Execution. Verified.</span></div></main>
+<script>const frame=document.querySelector('#archview');const z=document.querySelector('#zoomBtn');z.addEventListener('click',()=>{let is=frame.classList.toggle('zoom');z.setAttribute('aria-pressed',is?'true':'false');z.textContent=is?'退出放大':'放大查看'});document.querySelector('#resetBtn').addEventListener('click',()=>{frame.classList.remove('zoom');z.setAttribute('aria-pressed','false');z.textContent='放大查看'});</script></body></html>

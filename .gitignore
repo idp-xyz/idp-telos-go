@@ -1,0 +1,7 @@
+# idp-mcp is its own repository
+/idp-mcp/
+# Windows download markers
+*:Zone.Identifier
+# local
+.local/
+__pycache__/

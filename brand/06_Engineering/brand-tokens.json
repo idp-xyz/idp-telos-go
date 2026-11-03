@@ -1,0 +1,39 @@
+{
+  "name": "IDP TELOS",
+  "visualWordmark": "TELOS",
+  "revision": "1.0-original-proportions-locked",
+  "colors": {
+    "midnight": "#010415",
+    "white": "#FAFCFF",
+    "binaryCyan": "#22CFFF",
+    "navyInk": "#02051D"
+  },
+  "logo": {
+    "sourceImage": "07_Source_Reference/TELOS_Original_Approved_Reference.jpeg",
+    "officialStatic": "01_Master/TELOS_Primary_Locked_Dark.svg",
+    "transparent": "01_Master/TELOS_Primary_Locked_Transparent.svg",
+    "secondaryAnimated": "02_BinaryE/TELOS_BinaryE_Animated_Dark.svg",
+    "referenceGlyphBoundsPx": {
+      "x0": 535,
+      "y0": 197,
+      "x1": 1014,
+      "y1": 294
+    },
+    "referenceGlyphAspectRatio": 4.898,
+    "binaryE": {
+      "rows": 3,
+      "digitsPerRow": 8,
+      "boundedToOriginalE": true
+    },
+    "markType": "wordmark",
+    "doNotRedesignGlyphs": true,
+    "minimumSizes": {
+      "primaryPreferredHeightPx": 32,
+      "binaryPreferHeightPx": 90
+    }
+  },
+  "notes": [
+    "TELOS is a visual wordmark; IDP TELOS is the product brand and intended trademark text.",
+    "The source JPEG remains the visual authority; traced SVG edges can differ at subpixel level."
+  ]
+}

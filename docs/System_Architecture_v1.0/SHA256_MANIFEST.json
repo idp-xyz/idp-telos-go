@@ -1,0 +1,42 @@
+[
+  {
+    "file": "HTML_Desktop_Preview.png",
+    "bytes": 1329606,
+    "sha256": "c82e3848160f4e61758e1223dcfc4cb9a93777a5a1b0ea9f5a7a94e75dbbc1e2"
+  },
+  {
+    "file": "HTML_Mobile_Preview.png",
+    "bytes": 696825,
+    "sha256": "074baad41c4f0ef6f26087b5c0d34b3d0de48e858551a76838abb8356a35bc30"
+  },
+  {
+    "file": "IDP_TELOS_Execution_Paths.svg",
+    "bytes": 6391,
+    "sha256": "e81f02472631475adb0b867d255c608958c426e4c6ebbfc32fc075e2b90a1183"
+  },
+  {
+    "file": "IDP_TELOS_System_Architecture_3840x2160.png",
+    "bytes": 1710643,
+    "sha256": "9fa13f898ad568cb8604681b279590e0f66bfa47cf6fbe6ead45bf732477be90"
+  },
+  {
+    "file": "IDP_TELOS_System_Architecture_4K.svg",
+    "bytes": 20675,
+    "sha256": "0fb001d0d49bbec0a176b61cb577512cf12097c8a9a425c7b7c6d760b36f70ef"
+  },
+  {
+    "file": "IDP_TELOS_System_Architecture_Interactive.html",
+    "bytes": 40017,
+    "sha256": "248c5bc96b3d6ec2d52073e7019ef1890fdd617ec63fdc09bf7a3d83ce31569a"
+  },
+  {
+    "file": "README.md",
+    "bytes": 809,
+    "sha256": "86fefb67aaa9aea07c9ec96fc08ea7b63cc13a59ce05896865977ec52f807cd8"
+  },
+  {
+    "file": "TELOS_Primary_Locked_Transparent.svg",
+    "bytes": 1399,
+    "sha256": "36eb47562f07fe68e6d2f551d115561bf02a4b400090d73a283e6a114db8593d"
+  }
+]

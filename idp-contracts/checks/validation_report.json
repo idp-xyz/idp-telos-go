@@ -1,0 +1,545 @@
+{
+  "scope": "FILE_LEVEL_ONLY",
+  "checked_on": "2026-11-03",
+  "validator": "jsonschema 4.26.0",
+  "referencing": "0.37.0",
+  "draft": "2020-12",
+  "format_checker_enabled": true,
+  "namespaces": {
+    "idp.telos.mcp": {
+      "id": "urn:idp:telos:mcp:1.0.0",
+      "version": "1.0.0",
+      "definitions": 12
+    }
+  },
+  "positive_cases": 15,
+  "negative_cases": 36,
+  "passed": 51,
+  "total": 51,
+  "invariants_passed": 13,
+  "invariants_total": 13,
+  "producer_sync": "PASSED",
+  "invariants": {
+    "every_definition_has_title_description_owner": {
+      "passed": true
+    },
+    "every_definition_is_owned_by_its_namespace": {
+      "passed": true
+    },
+    "all_schema_refs_resolve": {
+      "passed": true
+    },
+    "every_root_document_has_an_example": {
+      "passed": true
+    },
+    "mcp_only_pinned_mcp_objects_are_open": {
+      "passed": true
+    },
+    "mcp_root_documents": {
+      "passed": true
+    },
+    "registry_names_unique_per_namespace": {
+      "passed": true
+    },
+    "registry_matches_published_schemas": {
+      "passed": true
+    },
+    "registry_entries_are_defined": {
+      "passed": true
+    },
+    "registry_namespace_ids_match": {
+      "passed": true
+    },
+    "registry_namespace_statuses": {
+      "passed": true
+    },
+    "every_published_namespace_names_its_producer_and_consistency_test": {
+      "passed": true
+    },
+    "idp_telos_mcp_published_matches_producer": {
+      "passed": true
+    }
+  },
+  "cases": [
+    {
+      "case": "example:Release#0",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Release#1",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Envelope#2",
+      "namespace": "idp.telos.mcp",
+      "definition": "Envelope",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:InvocationRecord#3",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:InvocationRecord#4",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:InvocationRecord#5",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:InvocationRecord#6",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_without_approver",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_report_drift",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_grant_prompts_only",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_grant_resources_only",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_jwt_auth",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_tool_with_extra_fields",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "record_minimal",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "record_invalid_arguments",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "wrong_schema_version",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "schemaVersion: 'idp.mcp.release/v1' was expected"
+      ]
+    },
+    {
+      "case": "unknown_drift_action",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "driftAction: 'ignore' is not one of ['block', 'report']"
+      ]
+    },
+    {
+      "case": "unknown_tool_naming",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "toolNaming: 'flat' is not one of ['prefixed', 'native']"
+      ]
+    },
+    {
+      "case": "empty_release_id",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "releaseId: '' should be non-empty"
+      ]
+    },
+    {
+      "case": "unknown_top_level_field",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: Additional properties are not allowed ('extra' was unexpected)"
+      ]
+    },
+    {
+      "case": "target_name_uppercase",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/name: 'Parcel' does not match '^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$'"
+      ]
+    },
+    {
+      "case": "target_name_underscore",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/name: 'par_cel' does not match '^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$'"
+      ]
+    },
+    {
+      "case": "endpoint_not_http",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/endpoint: 'ftp://parcel/mcp' does not match '^https?://[^/?#@\\\\s]+(/[^?#\\\\s]*)?$'"
+      ]
+    },
+    {
+      "case": "endpoint_with_query",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/endpoint: 'https://parcel/mcp?x=1' does not match '^https?://[^/?#@\\\\s]+(/[^?#\\\\s]*)?$'"
+      ]
+    },
+    {
+      "case": "unknown_network",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/network: 'vpn' is not one of ['public', 'private', 'loopback']"
+      ]
+    },
+    {
+      "case": "malformed_snapshot_digest",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/snapshotDigest: 'sha256:zz' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "target_without_tools",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/tools: [] should be non-empty"
+      ]
+    },
+    {
+      "case": "tool_without_input_schema",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/tools/0: 'inputSchema' is a required property"
+      ]
+    },
+    {
+      "case": "tool_name_too_long",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/tools/0/name: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' does not match '^[A-Za-z0-9_.-]{1,128}$'"
+      ]
+    },
+    {
+      "case": "unknown_capability",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/capabilities/1: 'magic' is not one of ['tools', 'prompts', 'resources', 'completions', 'resources.subscribe', 'resources.listChanged', 'tasks']"
+      ]
+    },
+    {
+      "case": "unknown_target_field",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0: Additional properties are not allowed ('extra' was unexpected)"
+      ]
+    },
+    {
+      "case": "grant_without_roles",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "grants/0/roles: [] should be non-empty"
+      ]
+    },
+    {
+      "case": "grant_with_nothing",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "grants/1/tools: [] should be non-empty"
+      ]
+    },
+    {
+      "case": "grant_bad_role",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "grants/0/roles/1: 'bad role' does not match '^[A-Za-z0-9_.:-]{1,64}$'"
+      ]
+    },
+    {
+      "case": "api_key_plus_jwt",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "auth: {'apiKeys': [{'id': 'k-agent-1', 'roles': ['operator'], 'sha256': '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 'subject': 'svc-agent'}], 'mode': 'api-key', 'jwt': {'issuer': 'ht"
+      ]
+    },
+    {
+      "case": "api_key_without_keys",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "auth/apiKeys: [] should be non-empty"
+      ]
+    },
+    {
+      "case": "short_sha256",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "auth/apiKeys/0/sha256: 'abc' does not match '^[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "unknown_auth_mode",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "auth/mode: 'none' is not one of ['api-key', 'jwt']"
+      ]
+    },
+    {
+      "case": "jwt_without_profile",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "auth: 'jwt' is a required property"
+      ]
+    },
+    {
+      "case": "envelope_bad_digest",
+      "namespace": "idp.telos.mcp",
+      "definition": "Envelope",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "digest: 'sha256:short' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "envelope_without_document",
+      "namespace": "idp.telos.mcp",
+      "definition": "Envelope",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: 'document' is a required property"
+      ]
+    },
+    {
+      "case": "record_unknown_decision",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "decision: 'MAYBE' is not one of ['ALLOW', 'DENY']"
+      ]
+    },
+    {
+      "case": "record_unknown_outcome",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "outcome: 'FINE' is not one of ['OK', 'TOOL_ERROR', 'RPC_ERROR', 'STREAMED', 'NOT_DELIVERED', 'UNKNOWN', 'DENIED', 'INVALID_ARGUMENTS']"
+      ]
+    },
+    {
+      "case": "record_negative_latency",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "latencyMs: -1 is less than the minimum of 0"
+      ]
+    },
+    {
+      "case": "record_fractional_latency",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "latencyMs: 1.5 is not of type 'integer'"
+      ]
+    },
+    {
+      "case": "record_bad_trace_id",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "traceId: 'xyz' does not match '^[0-9a-f]{32}$'"
+      ]
+    },
+    {
+      "case": "record_unknown_auth_method",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "authMethod: 'basic' is not one of ['api-key', 'jwt']"
+      ]
+    },
+    {
+      "case": "record_unlisted_method",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "method: 'tools/list' is not one of ['tools/call', 'prompts/get', 'resources/read', 'completion/complete', 'tasks/get', 'tasks/cancel', 'tasks/update']"
+      ]
+    },
+    {
+      "case": "record_empty_subject",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "subject: '' should be non-empty"
+      ]
+    },
+    {
+      "case": "record_bad_release_digest",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "releaseDigest: 'sha1:abc' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "record_with_arguments",
+      "namespace": "idp.telos.mcp",
+      "definition": "InvocationRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: Additional properties are not allowed ('arguments' was unexpected)"
+      ]
+    }
+  ]
+}

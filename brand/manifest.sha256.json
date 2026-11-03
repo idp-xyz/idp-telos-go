@@ -1,0 +1,194 @@
+{
+  "package": "IDP_TELOS_Final_Logo_Brand_Assets_v1.0",
+  "file_count": 47,
+  "files": {
+    "01_Master/TELOS_Primary_Locked_Black_Transparent.svg": {
+      "sha256": "0a8d326e1b64cca70ca8feaeb8144ef97f7d7aeb07c72ddb7b6a45667955f9a7",
+      "bytes": 1395
+    },
+    "01_Master/TELOS_Primary_Locked_Cropped_Transparent.svg": {
+      "sha256": "418191af5f23b89c7dcbf7f1d7e715d3b498eae4336169151855fcc4ea4f7eb7",
+      "bytes": 1398
+    },
+    "01_Master/TELOS_Primary_Locked_Dark.svg": {
+      "sha256": "5c7eabd21d6931a0394f264abd056e8d0aaa0bdd7427a530488ed5bbf0d2515c",
+      "bytes": 1445
+    },
+    "01_Master/TELOS_Primary_Locked_Light.svg": {
+      "sha256": "a6dbd86f85e81a9fd431806e50e7c5615af7d8c1fd16c7eb4c244324a25e3746",
+      "bytes": 1444
+    },
+    "01_Master/TELOS_Primary_Locked_Navy_Transparent.svg": {
+      "sha256": "8a7917e16e6499c4669aeba7380c71741774024f2c2d45dccccab884e2ded67c",
+      "bytes": 1395
+    },
+    "01_Master/TELOS_Primary_Locked_Transparent.svg": {
+      "sha256": "36eb47562f07fe68e6d2f551d115561bf02a4b400090d73a283e6a114db8593d",
+      "bytes": 1399
+    },
+    "02_BinaryE/TELOS_BinaryE_Animated_Cropped_Transparent.svg": {
+      "sha256": "d7973559325610eb111e107c4efc316a01eb102af21f840cf96b0b30d1ecbdd0",
+      "bytes": 21555
+    },
+    "02_BinaryE/TELOS_BinaryE_Animated_Dark.svg": {
+      "sha256": "d57573353c6119a60bb7889f3323881bdb7ca8d5eb9cb01f2bf1f0a8bb8653b8",
+      "bytes": 21614
+    },
+    "02_BinaryE/TELOS_BinaryE_Animated_Transparent.svg": {
+      "sha256": "0380fb014412a298cc79b89ae995b2c517e6acd96f4bf480ece6870a5dd893e2",
+      "bytes": 21552
+    },
+    "02_BinaryE/TELOS_BinaryE_Static_Cropped_Transparent.svg": {
+      "sha256": "38ceed3489fc8297fc5456c40f2d70d365663569b46ebfd0657bed5ee2200ae3",
+      "bytes": 10332
+    },
+    "02_BinaryE/TELOS_BinaryE_Static_Dark.svg": {
+      "sha256": "f12123b813277b5009aeb2c73c61723ec1abe5f45bdb2c2a9fb9d171ab5cf442",
+      "bytes": 10378
+    },
+    "02_BinaryE/TELOS_BinaryE_Static_Transparent.svg": {
+      "sha256": "92b2929cea58eae2e4c3b7b4461a36adce9f367e54df9a65483da3f1ba5b0ac8",
+      "bytes": 10329
+    },
+    "03_PNG/TELOS_BinaryE_Static_Dark_3840x1280.png": {
+      "sha256": "b6fb4d262397eafcb579447cd0441b61902f3df2ea572677cfaf01e7d629bc47",
+      "bytes": 47447
+    },
+    "03_PNG/TELOS_BinaryE_Static_Transparent_3000.png": {
+      "sha256": "5df8fdcd9a66cb38bd8d274fcc198f921b0a129ff0ca69223df0c9d84d02d5a7",
+      "bytes": 34055
+    },
+    "03_PNG/TELOS_Primary_Dark_1536x512.png": {
+      "sha256": "a9cc2a3c3268f4ea711c3eab897d02835d45d0169721b0a4c338b3801c16f97a",
+      "bytes": 9701
+    },
+    "03_PNG/TELOS_Primary_Dark_3840x1280.png": {
+      "sha256": "f147d0b998fa84cd87b798fe19f6bc9163535748f7ba9161e3c2c3cd09881c11",
+      "bytes": 32843
+    },
+    "03_PNG/TELOS_Primary_Light_3840x1280.png": {
+      "sha256": "b4daa44450ea45c11f80440a4974a3be09bfdf2826c57637695a204ae049d9cb",
+      "bytes": 32840
+    },
+    "03_PNG/TELOS_Primary_Navy_Transparent_3000.png": {
+      "sha256": "f3c0e6e4b1b8b5588e56fdbd5a6afc45953dcbb9ad01f31f2df8d9311c5b710e",
+      "bytes": 19697
+    },
+    "03_PNG/TELOS_Primary_Navy_UI_Trimmed.png": {
+      "sha256": "0b8a694d9dab6bdba827dbee6402816b6189ed08ae09fee0d8022ca7635acd6d",
+      "bytes": 11326
+    },
+    "03_PNG/TELOS_Primary_White_Transparent_3000.png": {
+      "sha256": "42d201fab41e9bd2a6f848b48e577bbd899eb968fa1e9e3f49eae42cb5761ae8",
+      "bytes": 40491
+    },
+    "03_PNG/TELOS_Primary_White_UI_Trimmed.png": {
+      "sha256": "9795a40c0b91246ffed3136d77afc9acaebd4546866baf73f84547c72b442b00",
+      "bytes": 39729
+    },
+    "04_Icons/TELOS_E_Transparent_512.png": {
+      "sha256": "38802c62219928524b973a0315aca676285a45df2dd259e0567e15808e9c08ad",
+      "bytes": 1830
+    },
+    "04_Icons/TELOS_E_Utility_1024.png": {
+      "sha256": "941baa4465c535042bc54fd23070ab171fa23090d28a4ab94eaa2b982370ff14",
+      "bytes": 6826
+    },
+    "04_Icons/TELOS_E_Utility_128.png": {
+      "sha256": "7953ccb24785d16299572647176ee57af40ecae97c90c8e140ba2c3f5fba9cbf",
+      "bytes": 653
+    },
+    "04_Icons/TELOS_E_Utility_16.png": {
+      "sha256": "7ce8f8b14f6545ef671893a3f01997ca195a745f4dfaa9aa7ddbcbba860ea897",
+      "bytes": 308
+    },
+    "04_Icons/TELOS_E_Utility_180.png": {
+      "sha256": "ceac210141239fbe869916aa7a6d9df793ce3d89a5f9e993b9178a16bb1cbf4a",
+      "bytes": 838
+    },
+    "04_Icons/TELOS_E_Utility_256.png": {
+      "sha256": "efd1e1c13cabb2cfdfcdc545c9bf809726b4cd729f5621d361f1e7d65ede5d9e",
+      "bytes": 1221
+    },
+    "04_Icons/TELOS_E_Utility_32.png": {
+      "sha256": "a74ce9c68b2b1455181858478e1eba9dcfdd81ae85696fac72f27dce0991527b",
+      "bytes": 345
+    },
+    "04_Icons/TELOS_E_Utility_48.png": {
+      "sha256": "4ad73ec54fdeb9818044024aa5ed64fe13d76587a27bf49d9f2d82072fd7d752",
+      "bytes": 359
+    },
+    "04_Icons/TELOS_E_Utility_512.png": {
+      "sha256": "6533fdf10c0895b3d04322e811f934695678ac440a204f97547b64c345faad13",
+      "bytes": 2561
+    },
+    "04_Icons/TELOS_E_Utility_64.png": {
+      "sha256": "4286e9b67cf9458eddd3f7128b106a6a3031cb7bd479b011104368a49ee7bd8f",
+      "bytes": 478
+    },
+    "04_Icons/TELOS_E_Utility_Icon.svg": {
+      "sha256": "718e9c86454162218e7cc0ce2f83d5ecf69bbfc8f2ebb3671bb690c191e70b93",
+      "bytes": 354
+    },
+    "04_Icons/TELOS_E_Utility_Icon_Transparent.svg": {
+      "sha256": "6e016c6be22f86e959e52ad2bdf83deec1dbf4d65536b43ee2c4803221c51f19",
+      "bytes": 291
+    },
+    "04_Icons/apple-touch-icon.png": {
+      "sha256": "ceac210141239fbe869916aa7a6d9df793ce3d89a5f9e993b9178a16bb1cbf4a",
+      "bytes": 838
+    },
+    "04_Icons/favicon.ico": {
+      "sha256": "89c33eb25252ff8bdeb3c8a29f7c6efbcdf0a36a8c3ffe0a3cab0fb7b2500c14",
+      "bytes": 6263
+    },
+    "05_Brand_Guidelines/IDP_TELOS_Brand_Guide_Standalone.html": {
+      "sha256": "f58a42a9a49513ff37c9d8b90829a1604a4f8d8109abcf5a63ea13eb6a814090",
+      "bytes": 170527
+    },
+    "05_Brand_Guidelines/TELOS_Brand_Usage_Guide.html": {
+      "sha256": "b825c3f4d406398c0709e96889c663c2f3263d8984831da449171c28d5cf7590",
+      "bytes": 11482
+    },
+    "06_Engineering/INTEGRATION.md": {
+      "sha256": "a276c902c2ea1afd470b50d941dfb11f5af7a1c3878631c09b4c994a8d631843",
+      "bytes": 1283
+    },
+    "06_Engineering/TELOSWordmark.tsx": {
+      "sha256": "6010d6c84caa7d07467f6ec60765ff9f5bc2211f74bc155b01d1de2b5f46f10c",
+      "bytes": 1137
+    },
+    "06_Engineering/brand-tokens.json": {
+      "sha256": "b43fe0e93bcfe853ed57687923f4b57b76a3de23bfac9398c3b2a578ee7e16d1",
+      "bytes": 1148
+    },
+    "06_Engineering/telos-brand.css": {
+      "sha256": "305c01baeda2dd96a55d491e0dd154d4851d8742bc18ffda63930678151915d0",
+      "bytes": 461
+    },
+    "07_Source_Reference/TELOS_Original_Approved_Reference.jpeg": {
+      "sha256": "3b654fcfbf0f04e8a075d19bbef2b0ea1eb18fff6faab8ccd2bc9519a5297a51",
+      "bytes": 57035
+    },
+    "08_Previews/Brand_Guide_Desktop.png": {
+      "sha256": "b067e23cf0f3fc7877c1721c471d2de24bac3ea058e80a4f1b157a89b7c546a9",
+      "bytes": 85331
+    },
+    "08_Previews/Brand_Guide_Mobile.png": {
+      "sha256": "479ff6ea04cba077276ae9586c8b8cb9809a829432aad5aa46bef6766a451a47",
+      "bytes": 68141
+    },
+    "08_Previews/Reference_vs_Locked_Vector.png": {
+      "sha256": "a6831e1609da044418de62538b9e2bc0625b1d3c5f8589c18557ee51029896b5",
+      "bytes": 185796
+    },
+    "08_Previews/TELOS_Primary_Large_Preview.png": {
+      "sha256": "f147d0b998fa84cd87b798fe19f6bc9163535748f7ba9161e3c2c3cd09881c11",
+      "bytes": 32843
+    },
+    "README.md": {
+      "sha256": "257e9f161235ba8c85ef1f66d6c174b60bf6d4b017edacad9a189240812fb335",
+      "bytes": 2662
+    }
+  }
+}

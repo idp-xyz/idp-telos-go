@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+  width="1690" height="432" viewBox="0 0 1690 432" role="img" aria-labelledby="logo-title logo-desc">
+  <title id="logo-title">TELOS</title>
+  <desc id="logo-desc">TELOS wordmark, clean geometric letterforms with flat ends and a three-horizontal-bar E. All letters are editable vector paths.</desc>
+  <g id="TELOS-wordmark" fill="#FFFFFF" transform="translate(-241 -166)">
+    <path id="glyph-T" d="M261 197 H544 V273 H448 V563 H355 V273 H261 Z" fill-rule="evenodd"/>
+    <path id="glyph-E" d="M587 197 H866 V273 H587 Z M587 335 H866 V415 H587 Z M587 484 H866 V564 H587 Z" fill-rule="evenodd"/>
+    <path id="glyph-L" d="M913 197 H1002 V486 H1165 V564 H913 Z" fill-rule="evenodd"/>
+    <path id="glyph-O" d="M1375 186 C1488 186 1575 270 1575 382 C1575 490 1487 578 1375 578 C1262 578 1175 491 1175 382 C1175 274 1260 186 1375 186 Z M1375 266 C1439 266 1487 317 1487 383 C1487 448 1438 500 1375 500 C1310 500 1262 448 1262 383 C1262 317 1311 266 1375 266 Z" fill-rule="evenodd"/>
+    <path id="glyph-S" d="M1860 201 C1815 183 1762 178 1714 190 C1644 205 1603 254 1607 294 C1599 363 1642 398 1700 410 L1796 435 C1820 444 1819 475 1788 489 C1755 508 1675 492 1609 460 Q1603 459 1603 466 L1603 533 Q1603 540 1609 541 C1694 594 1811 586 1865 541 C1903 509 1918 472 1910 434 C1906 385 1876 371 1836 358 L1722 330 C1694 321 1680 294 1705 273 C1739 246 1815 254 1885 290 Q1898 297 1898 284 L1898 226 Q1898 214 1860 201 Z" fill-rule="evenodd"/>
+  </g>
+</svg>

@@ -1,0 +1,295 @@
+"""File-level validation of the idp.telos.* contracts. Does not run any producer.
+
+For every namespace in registry.json that has a schema: the schema is valid JSON Schema 2020-12,
+every $ref resolves, every definition carries title/description/x-idp-telos-owner, the producer-
+generated examples validate, the hand-written positive and negative cases behave as expected, the
+registry entries match the definitions, and the published files are byte-identical to the
+producer's copies. A missing producer checkout is reported as NOT_RUN (exit 2), never as a reduced
+check.
+
+Usage: python idp-contracts/tools/validate.py [--root CONTRACTS_DIR] [--producer-root DIR] [--report PATH]
+  --producer-root holds the producer repositories (default: the parent of --root, where idp-mcp/
+  is a sibling of idp-contracts/).
+Exit codes: 0 all passed; 1 a check failed; 2 a check could not run (producer checkout missing).
+"""
+import argparse
+import copy
+import datetime
+import hashlib
+import importlib.metadata
+import json
+import sys
+from pathlib import Path
+
+try:
+    from jsonschema import Draft202012Validator, FormatChecker
+    from jsonschema.exceptions import best_match
+    from referencing import Registry, Resource
+except ImportError:
+    raise SystemExit('Install pinned dependencies from idp-contracts/requirements.txt; no reduced validator fallback is used.')
+
+HERE = Path(__file__).resolve()
+OWNER_KEY = 'x-idp-telos-owner'
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--root', type=Path, default=HERE.parents[1])
+parser.add_argument('--producer-root', type=Path)
+parser.add_argument('--report', type=Path)
+args = parser.parse_args()
+ROOT = args.root.resolve()
+PRODUCER_ROOT = (args.producer_root or ROOT.parent).resolve()
+REPORT = args.report or ROOT / 'checks/validation_report.json'
+
+
+def load(rel):
+    return json.loads((ROOT / rel).read_text(encoding='utf-8'))
+
+
+reg = load('registry.json')
+NAMESPACES = {ns: n for ns, n in reg['namespaces'].items() if n.get('schema')}
+schemas = {ns: load(n['schema']) for ns, n in NAMESPACES.items()}
+# Examples are produced by each namespace's producer: {"definition": <$defs name>, "value": <document>}.
+examples = {ns: [(x['definition'], x['value']) for x in load(n['examples'])['examples']] for ns, n in NAMESPACES.items()}
+for s in schemas.values():
+    Draft202012Validator.check_schema(s)
+registry = Registry().with_resources((s['$id'], Resource.from_contents(s)) for s in schemas.values())
+validators = {ns: Draft202012Validator(s, registry=registry, format_checker=FormatChecker()) for ns, s in schemas.items()}
+roots = {ns: {r['$ref'].split('/')[-1] for r in s.get('oneOf', [])} for ns, s in schemas.items()}
+
+results = []
+invariants = {}
+
+
+def by_def(ns, definition):
+    """A validator for one definition, so a rejection names the rule that failed rather than the root oneOf."""
+    return Draft202012Validator({'$ref': f'{schemas[ns]["$id"]}#/$defs/{definition}'}, registry=registry,
+                                format_checker=FormatChecker())
+
+
+def check(name, ns, definition, value, expect_valid):
+    errors = list(by_def(ns, definition).iter_errors(value))
+    passed = (not errors) == expect_valid
+    if definition in roots[ns]:
+        # The root oneOf must dispatch to the same answer for the namespace's top-level documents.
+        root_errors = list(validators[ns].iter_errors(value))
+        passed = passed and (not root_errors) == (not errors)
+        errors = errors or root_errors
+    reason = best_match(errors)
+    results.append({'case': name, 'namespace': ns, 'definition': definition, 'expected_valid': expect_valid, 'passed': passed,
+                    'errors': [f'{"/".join(map(str, reason.absolute_path)) or "<root>"}: {reason.message[:200]}']
+                    if reason else []})
+    if not passed:
+        print(json.dumps(results[-1], ensure_ascii=False), file=sys.stderr)
+
+
+def invariant(name, ok, detail=None):
+    invariants[name] = {'passed': bool(ok), **({'detail': detail} if detail and not ok else {})}
+    if not ok:
+        print(f'INVARIANT FAILED {name}: {detail}', file=sys.stderr)
+
+
+def pick(ns, definition, index=0):
+    return copy.deepcopy([v for d, v in examples[ns] if d == definition][index])
+
+
+def S(**kw):
+    return lambda x: x.update(kw)
+
+
+def U(*keys):
+    return lambda x: [x.pop(k, None) for k in keys]
+
+
+def P(path, value):
+    """Set a nested value by dotted path, list indexes as numbers: P('targets.0.name', 'x')."""
+    def mutate(x):
+        node = x
+        keys = path.split('.')
+        for k in keys[:-1]:
+            node = node[int(k)] if isinstance(node, list) else node[k]
+        k = keys[-1]
+        if isinstance(node, list):
+            node[int(k)] = value
+        else:
+            node[k] = value
+    return mutate
+
+
+# 1. Producer-generated examples: all valid
+for ns, items in examples.items():
+    for i, (definition, x) in enumerate(items):
+        check(f'example:{definition}#{i}', ns, definition, x, True)
+
+# 2. Hand-written cases: (name, namespace, definition, example index, mutations...).
+#    idp.telos.mcp: the negatives mirror idp-mcp's TestContractRejectsWhatValidateRejects.
+MCP = 'idp.telos.mcp'
+MCP_JWT = {'issuer': 'https://idp.example/realms/idp', 'resource': 'https://mcp.example/mcp', 'jwksUrl': 'https://idp.example/realms/idp/certs',
+           'authorizationServers': ['https://idp.example/realms/idp'], 'tenantClaim': 'tenant_id', 'rolesClaim': 'roles'}
+
+POSITIVE = [
+    ('release_without_approver', MCP, 'Release', 0, U('approvedBy')),
+    ('release_report_drift', MCP, 'Release', 0, S(driftAction='report')),
+    ('release_grant_prompts_only', MCP, 'Release', 0, P('grants.1', {'target': 'parcel', 'tools': [], 'prompts': ['shipping-label'], 'roles': ['writer']})),
+    ('release_grant_resources_only', MCP, 'Release', 0, P('grants.1', {'target': 'parcel', 'tools': [], 'resources': True, 'roles': ['reader']})),
+    ('release_jwt_auth', MCP, 'Release', 0, S(auth={'mode': 'jwt', 'jwt': MCP_JWT})),
+    ('release_tool_with_extra_fields', MCP, 'Release', 0, P('targets.0.tools.0.execution', {'taskSupport': 'optional'}), P('targets.0.tools.0._meta', {'v': 1})),
+    ('record_minimal', MCP, 'InvocationRecord', 0, U('client', 'actor', 'target', 'traceId', 'argsDigest')),
+    ('record_invalid_arguments', MCP, 'InvocationRecord', 0, S(outcome='INVALID_ARGUMENTS', decision='DENY')),
+]
+
+NEGATIVE = [
+    ('wrong_schema_version', MCP, 'Release', 0, S(schemaVersion='idp.mcp.release/v2')),
+    ('unknown_drift_action', MCP, 'Release', 0, S(driftAction='ignore')),
+    ('unknown_tool_naming', MCP, 'Release', 0, S(toolNaming='flat')),
+    ('empty_release_id', MCP, 'Release', 0, S(releaseId='')),
+    ('unknown_top_level_field', MCP, 'Release', 0, S(extra=True)),
+    ('target_name_uppercase', MCP, 'Release', 0, P('targets.0.name', 'Parcel')),
+    ('target_name_underscore', MCP, 'Release', 0, P('targets.0.name', 'par_cel')),
+    ('endpoint_not_http', MCP, 'Release', 0, P('targets.0.endpoint', 'ftp://parcel/mcp')),
+    ('endpoint_with_query', MCP, 'Release', 0, P('targets.0.endpoint', 'https://parcel/mcp?x=1')),
+    ('unknown_network', MCP, 'Release', 0, P('targets.0.network', 'vpn')),
+    ('malformed_snapshot_digest', MCP, 'Release', 0, P('targets.0.snapshotDigest', 'sha256:zz')),
+    ('target_without_tools', MCP, 'Release', 0, P('targets.0.tools', [])),
+    ('tool_without_input_schema', MCP, 'Release', 0, P('targets.0.tools.0', {'name': 'x'})),
+    ('tool_name_too_long', MCP, 'Release', 0, P('targets.0.tools.0.name', 'a' * 129)),
+    ('unknown_capability', MCP, 'Release', 0, P('targets.0.capabilities', ['tools', 'magic'])),
+    ('unknown_target_field', MCP, 'Release', 0, P('targets.0.extra', True)),
+    ('grant_without_roles', MCP, 'Release', 0, P('grants.0.roles', [])),
+    ('grant_with_nothing', MCP, 'Release', 0, P('grants.1', {'target': 'parcel', 'tools': [], 'roles': ['viewer']})),
+    ('grant_bad_role', MCP, 'Release', 0, P('grants.0.roles', ['operator', 'bad role'])),
+    ('api_key_plus_jwt', MCP, 'Release', 0, P('auth.jwt', MCP_JWT)),
+    ('api_key_without_keys', MCP, 'Release', 0, P('auth.apiKeys', [])),
+    ('short_sha256', MCP, 'Release', 0, P('auth.apiKeys.0.sha256', 'abc')),
+    ('unknown_auth_mode', MCP, 'Release', 0, P('auth.mode', 'none')),
+    ('jwt_without_profile', MCP, 'Release', 0, S(auth={'mode': 'jwt'})),
+    ('envelope_bad_digest', MCP, 'Envelope', 0, S(digest='sha256:short')),
+    ('envelope_without_document', MCP, 'Envelope', 0, U('document')),
+    ('record_unknown_decision', MCP, 'InvocationRecord', 0, S(decision='MAYBE')),
+    ('record_unknown_outcome', MCP, 'InvocationRecord', 0, S(outcome='FINE')),
+    ('record_negative_latency', MCP, 'InvocationRecord', 0, S(latencyMs=-1)),
+    ('record_fractional_latency', MCP, 'InvocationRecord', 0, S(latencyMs=1.5)),
+    ('record_bad_trace_id', MCP, 'InvocationRecord', 0, S(traceId='xyz')),
+    ('record_unknown_auth_method', MCP, 'InvocationRecord', 0, S(authMethod='basic')),
+    ('record_unlisted_method', MCP, 'InvocationRecord', 0, S(method='tools/list')),
+    ('record_empty_subject', MCP, 'InvocationRecord', 0, S(subject='')),
+    ('record_bad_release_digest', MCP, 'InvocationRecord', 0, S(releaseDigest='sha1:abc')),
+    ('record_with_arguments', MCP, 'InvocationRecord', 0, S(arguments={'recipient': 'x'})),
+]
+
+for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
+    for name, ns, definition, index, *mutations in cases:
+        x = pick(ns, definition, index)
+        for mutate in mutations:
+            mutate(x)
+        check(name, ns, definition, x, expect)
+
+
+# 3. Structural invariants
+def walk(node, visit, path=()):
+    if isinstance(node, dict):
+        visit(node, path)
+        for k, v in node.items():
+            walk(v, visit, path + (k,))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            walk(v, visit, path + (i,))
+
+
+missing_meta = [f'{ns}:{name}' for ns, s in schemas.items() for name, d in s['$defs'].items()
+                if not all(d.get(k) for k in ('title', 'description', OWNER_KEY))]
+invariant('every_definition_has_title_description_owner', not missing_meta, missing_meta)
+
+foreign = [f'{ns}:{name}' for ns, s in schemas.items() for name, d in s['$defs'].items() if d.get(OWNER_KEY) != ns]
+invariant('every_definition_is_owned_by_its_namespace', not foreign, foreign)
+
+unresolved = []
+
+
+def resolve_refs(node, _path, base):
+    ref = node.get('$ref')
+    if isinstance(ref, str):
+        try:
+            registry.resolver(base_uri=base).lookup(ref)
+        except Exception as e:  # noqa: BLE001 - any resolution failure is a finding
+            unresolved.append(f'{base} {ref}: {type(e).__name__}')
+
+
+for s in schemas.values():
+    walk(s, lambda n, p, base=s['$id']: resolve_refs(n, p, base))
+invariant('all_schema_refs_resolve', not unresolved, unresolved)
+
+no_example = [f'{ns}:{d}' for ns in schemas for d in roots[ns] if d not in {d for d, _ in examples[ns]}]
+invariant('every_root_document_has_an_example', not no_example, no_example)
+
+mcp_open = {n for n, d in schemas[MCP]['$defs'].items() if d.get('additionalProperties') is not False}
+invariant('mcp_only_pinned_mcp_objects_are_open', mcp_open == {'Tool', 'Prompt', 'Resource', 'ResourceTemplate'}, sorted(mcp_open))
+invariant('mcp_root_documents', roots[MCP] == {'Release', 'Envelope', 'InvocationRecord'}, sorted(roots[MCP]))
+
+# 4. Registry
+entries = {}
+for e in reg['objects']:
+    entries.setdefault((e['owner'], e['name']), []).append(e)
+dupes = [f'{o}:{n}' for (o, n), es in entries.items() if len(es) > 1]
+invariant('registry_names_unique_per_namespace', not dupes, dupes)
+reg_mismatch = []
+for ns, s in schemas.items():
+    for name in s['$defs']:
+        e = (entries.get((ns, name)) or [{}])[0]
+        if e.get('file') != NAMESPACES[ns]['schema'] or e.get('status') != 'PUBLISHED' or e.get('version') != NAMESPACES[ns]['version'] \
+                or e.get('role') not in ('CONTRACT', 'HELPER') or (e['role'] == 'CONTRACT') != (name in roots[ns]):
+            reg_mismatch.append(f'{ns}:{name}')
+invariant('registry_matches_published_schemas', not reg_mismatch, reg_mismatch)
+dangling = [f'{e["owner"]}:{e["name"]}' for e in reg['objects'] if e['name'] not in schemas.get(e['owner'], {'$defs': {}})['$defs']]
+invariant('registry_entries_are_defined', not dangling, dangling)
+ids_ok = all(n['id'] == schemas[ns]['$id'] for ns, n in NAMESPACES.items())
+invariant('registry_namespace_ids_match', ids_ok)
+bad_status = [f'{ns}:{n.get("status")}' for ns, n in reg['namespaces'].items()
+              if n.get('status') not in ('PUBLISHED', 'DRAFT') or (n['status'] == 'PUBLISHED') != bool(n.get('schema'))]
+invariant('registry_namespace_statuses', not bad_status, bad_status)
+no_producer = [ns for ns in NAMESPACES if not NAMESPACES[ns].get('producer', {}).get('consistency_test')]
+invariant('every_published_namespace_names_its_producer_and_consistency_test', not no_producer, no_producer)
+
+# 5. Producer sync: a namespace is published only as a byte-identical copy of the producer's files.
+producer_sync = 'PASSED'
+for ns, n in NAMESPACES.items():
+    producer = n['producer']
+    src = PRODUCER_ROOT / producer['repository'] / producer['path']
+    if not src.is_dir():
+        producer_sync = 'NOT_RUN_PRODUCER_MISSING'
+        print(f'producer checkout for {ns} not found at {src}; pass --producer-root', file=sys.stderr)
+        continue
+    diverged = []
+    for rel in (n['schema'], n['examples']):
+        published = (ROOT / rel).read_bytes()
+        source = src / Path(rel).name
+        if not source.exists() or hashlib.sha256(published).digest() != hashlib.sha256(source.read_bytes()).digest():
+            diverged.append(f'{rel} != {source}')
+    invariant(f'{ns.replace(".", "_")}_published_matches_producer', not diverged, diverged)
+
+# 6. Report
+cases_ok = all(r['passed'] for r in results)
+invariants_ok = all(v['passed'] for v in invariants.values())
+report = {
+    'scope': 'FILE_LEVEL_ONLY',
+    'checked_on': datetime.date.today().isoformat(),
+    'validator': 'jsonschema ' + importlib.metadata.version('jsonschema'),
+    'referencing': importlib.metadata.version('referencing'),
+    'draft': '2020-12',
+    'format_checker_enabled': True,
+    'namespaces': {ns: {'id': s['$id'], 'version': NAMESPACES[ns]['version'], 'definitions': len(s['$defs'])} for ns, s in schemas.items()},
+    'positive_cases': sum(r['expected_valid'] for r in results),
+    'negative_cases': sum(not r['expected_valid'] for r in results),
+    'passed': sum(r['passed'] for r in results),
+    'total': len(results),
+    'invariants_passed': sum(v['passed'] for v in invariants.values()),
+    'invariants_total': len(invariants),
+    'producer_sync': producer_sync,
+    'invariants': invariants,
+    'cases': results,
+}
+REPORT.parent.mkdir(parents=True, exist_ok=True)
+REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+print(json.dumps({k: v for k, v in report.items() if k not in ('cases', 'invariants')}, ensure_ascii=False))
+if not (cases_ok and invariants_ok):
+    raise SystemExit(1)
+raise SystemExit(0 if producer_sync == 'PASSED' else 2)

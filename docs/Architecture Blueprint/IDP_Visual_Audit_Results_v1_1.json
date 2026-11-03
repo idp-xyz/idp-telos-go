@@ -1,0 +1,63 @@
+{
+  "issues": [],
+  "files": {
+    ".svg": 35552,
+    ".png": 6829841
+  },
+  "flows": {
+    "all": 10,
+    "interaction": 2,
+    "execution": 3,
+    "context": 2,
+    "tool": 3,
+    "model": 1,
+    "business": 2
+  },
+  "responsive": [
+    {
+      "viewport": 320,
+      "docWidth": 320,
+      "canvasWidth": 599.84375,
+      "scrollWidth": 288
+    },
+    {
+      "viewport": 390,
+      "docWidth": 390,
+      "canvasWidth": 962.234375,
+      "scrollWidth": 358,
+      "zoomInChanged": true
+    },
+    {
+      "viewport": 768,
+      "docWidth": 768,
+      "canvasWidth": 805.0625,
+      "scrollWidth": 736
+    },
+    {
+      "viewport": 1024,
+      "docWidth": 1024,
+      "canvasWidth": 966,
+      "scrollWidth": 966
+    },
+    {
+      "viewport": 1440,
+      "docWidth": 1440,
+      "canvasWidth": 1382,
+      "scrollWidth": 1382
+    }
+  ],
+  "png": {
+    "size": [
+      5120,
+      2880
+    ],
+    "bytes": 3196502
+  },
+  "zip_members": [
+    "IDP_AI_Native_Enterprise_Architecture_v1_1_Reviewed.html",
+    "IDP_AI_Native_Enterprise_Architecture_v1_1_Reviewed.svg",
+    "IDP_AI_Native_Enterprise_Architecture_v1_1_Reviewed_4K.png",
+    "IDP_Enterprise_Architecture_v1_1_Desktop.png",
+    "IDP_Enterprise_Architecture_v1_1_Mobile.png"
+  ]
+}
