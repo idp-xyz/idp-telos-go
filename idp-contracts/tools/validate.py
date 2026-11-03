@@ -183,6 +183,10 @@ if HOST in schemas:
         ('release_wildcard_tools', HOST, 'AgentRelease', 0, P('definition.tools.allow', ['*'])),
         ('release_without_fallbacks', HOST, 'AgentRelease', 0, P('definition.model', {'provider': 'local', 'model': 'qwen3.8-flash'})),
         ('run_with_execution_ref', HOST, 'AgentRun', 0, S(executionRef='eer:execution:1')),
+        ('options_server_tools', HOST, 'RunOptions', 0, S(**{'idp.host/toolExecution': 'server'})),
+        ('options_empty', HOST, 'RunOptions', 0,
+         U('idp.host/toolExecution', 'idp.host/releaseDigest', 'idp.host/executionRef', 'idp.host/maxOutputTokens')),
+        ('options_max_tokens_at_cap', HOST, 'RunOptions', 0, S(**{'idp.host/maxOutputTokens': 1048576})),
     ]
     NEGATIVE += [
         ('host_wrong_schema_version', HOST, 'AgentRelease', 0, S(schemaVersion='idp.host.agent/v2')),
@@ -211,6 +215,21 @@ if HOST in schemas:
         ('host_run_bad_trace_id', HOST, 'AgentRun', 0, S(traceId='xyz')),
         ('host_run_unknown_field', HOST, 'AgentRun', 0, S(arguments='x')),
         ('host_run_empty_owner', HOST, 'AgentRun', 0, S(owner='')),
+        # RunOptions: mirrors the option cases of the same test (the API answers these with 422)
+        ('host_options_unknown_key', HOST, 'RunOptions', 0, S(**{'idp.host/unknown': 1})),
+        ('host_options_tool_execution_both', HOST, 'RunOptions', 0, S(**{'idp.host/toolExecution': 'both'})),
+        ('host_options_tool_execution_null', HOST, 'RunOptions', 0, S(**{'idp.host/toolExecution': None})),
+        ('host_options_digest_malformed', HOST, 'RunOptions', 0, S(**{'idp.host/releaseDigest': 'sha256:zz'})),
+        ('host_options_digest_uppercase', HOST, 'RunOptions', 0, S(**{'idp.host/releaseDigest': 'sha256:' + 'AB' * 32})),
+        ('host_options_max_tokens_zero', HOST, 'RunOptions', 0, S(**{'idp.host/maxOutputTokens': 0})),
+        ('host_options_max_tokens_over_cap', HOST, 'RunOptions', 0, S(**{'idp.host/maxOutputTokens': 1048577})),
+        ('host_options_max_tokens_as_text', HOST, 'RunOptions', 0, S(**{'idp.host/maxOutputTokens': '512'})),
+        ('host_options_execution_ref_empty', HOST, 'RunOptions', 0, S(**{'idp.host/executionRef': ''})),
+        ('host_options_execution_ref_space', HOST, 'RunOptions', 0, S(**{'idp.host/executionRef': 'has space'})),
+        ('host_options_execution_ref_too_long', HOST, 'RunOptions', 0, S(**{'idp.host/executionRef': 'x' * 257})),
+        ('host_options_execution_ref_tab', HOST, 'RunOptions', 0, S(**{'idp.host/executionRef': 'tab\there'})),
+        # a caller's own forwardedProps keys are outside the contract object (the API ignores them)
+        ('host_options_foreign_key', HOST, 'RunOptions', 0, S(**{'app/theme': 'dark'})),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
@@ -262,7 +281,7 @@ mcp_open = {n for n, d in schemas[MCP]['$defs'].items() if d.get('additionalProp
 invariant('mcp_only_pinned_mcp_objects_are_open', mcp_open == {'Tool', 'Prompt', 'Resource', 'ResourceTemplate'}, sorted(mcp_open))
 invariant('mcp_root_documents', roots[MCP] == {'Release', 'Envelope', 'InvocationRecord'}, sorted(roots[MCP]))
 if HOST in schemas:
-    invariant('host_root_documents', roots[HOST] == {'AgentRelease', 'SkillRelease', 'Envelope', 'AgentRun'}, sorted(roots[HOST]))
+    invariant('host_root_documents', roots[HOST] == {'AgentRelease', 'SkillRelease', 'Envelope', 'AgentRun', 'RunOptions'}, sorted(roots[HOST]))
     host_open = [n for n, d in schemas[HOST]['$defs'].items() if d.get('additionalProperties') is not False]
     invariant('host_definitions_are_closed', not host_open, host_open)
 

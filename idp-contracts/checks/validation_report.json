@@ -12,17 +12,17 @@
       "definitions": 12
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.1.0",
-      "version": "1.1.0",
-      "definitions": 13
+      "id": "urn:idp:telos:host:1.2.0",
+      "version": "1.2.0",
+      "definitions": 14
     }
   },
-  "positive_cases": 26,
-  "negative_cases": 62,
-  "passed": 88,
-  "total": 88,
-  "invariants_passed": 17,
-  "invariants_total": 17,
+  "positive_cases": 31,
+  "negative_cases": 75,
+  "passed": 106,
+  "total": 106,
+  "invariants_passed": 18,
+  "invariants_total": 18,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -49,7 +49,10 @@
     "host_definitions_are_closed": {
       "passed": true
     },
-    "idp_telos_host_1_1_0_is_additive_over_1_0_0": {
+    "idp_telos_host_1_2_0_is_additive_over_1_1_0": {
+      "passed": true
+    },
+    "idp_telos_host_1_2_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -199,6 +202,22 @@
       "errors": []
     },
     {
+      "case": "example:RunOptions#8",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:RunOptions#9",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
       "case": "release_without_approver",
       "namespace": "idp.telos.mcp",
       "definition": "Release",
@@ -282,6 +301,30 @@
       "case": "run_with_execution_ref",
       "namespace": "idp.telos.host",
       "definition": "AgentRun",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "options_server_tools",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "options_empty",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "options_max_tokens_at_cap",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -904,6 +947,136 @@
       "passed": true,
       "errors": [
         "owner: '' should be non-empty"
+      ]
+    },
+    {
+      "case": "host_options_unknown_key",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: Additional properties are not allowed ('idp.host/unknown' was unexpected)"
+      ]
+    },
+    {
+      "case": "host_options_tool_execution_both",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/toolExecution: 'both' is not one of ['server', 'caller']"
+      ]
+    },
+    {
+      "case": "host_options_tool_execution_null",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/toolExecution: None is not one of ['server', 'caller']"
+      ]
+    },
+    {
+      "case": "host_options_digest_malformed",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/releaseDigest: 'sha256:zz' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "host_options_digest_uppercase",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/releaseDigest: 'sha256:ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "host_options_max_tokens_zero",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/maxOutputTokens: 0 is less than the minimum of 1"
+      ]
+    },
+    {
+      "case": "host_options_max_tokens_over_cap",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/maxOutputTokens: 1048577 is greater than the maximum of 1048576"
+      ]
+    },
+    {
+      "case": "host_options_max_tokens_as_text",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/maxOutputTokens: '512' is not of type 'integer'"
+      ]
+    },
+    {
+      "case": "host_options_execution_ref_empty",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/executionRef: '' does not match '^[\\\\x21-\\\\x7e]{1,256}$'"
+      ]
+    },
+    {
+      "case": "host_options_execution_ref_space",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/executionRef: 'has space' does not match '^[\\\\x21-\\\\x7e]{1,256}$'"
+      ]
+    },
+    {
+      "case": "host_options_execution_ref_too_long",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/executionRef: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ]
+    },
+    {
+      "case": "host_options_execution_ref_tab",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "idp.host/executionRef: 'tab\\there' does not match '^[\\\\x21-\\\\x7e]{1,256}$'"
+      ]
+    },
+    {
+      "case": "host_options_foreign_key",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: Additional properties are not allowed ('app/theme' was unexpected)"
       ]
     }
   ]
