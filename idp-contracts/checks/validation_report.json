@@ -15,14 +15,19 @@
       "id": "urn:idp:telos:host:1.5.0",
       "version": "1.5.0",
       "definitions": 27
+    },
+    "idp.telos.cmi": {
+      "id": "urn:idp:telos:cmi:1.0.0",
+      "version": "1.0.0",
+      "definitions": 12
     }
   },
-  "positive_cases": 47,
+  "positive_cases": 55,
   "negative_cases": 112,
-  "passed": 159,
-  "total": 159,
-  "invariants_passed": 21,
-  "invariants_total": 21,
+  "passed": 167,
+  "total": 167,
+  "invariants_passed": 22,
+  "invariants_total": 22,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -86,6 +91,9 @@
       "passed": true
     },
     "idp_telos_host_published_matches_producer": {
+      "passed": true
+    },
+    "idp_telos_cmi_published_matches_producer": {
       "passed": true
     }
   },
@@ -246,6 +254,70 @@
       "case": "example:RunOptions#12",
       "namespace": "idp.telos.host",
       "definition": "RunOptions",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:ContextPackage#0",
+      "namespace": "idp.telos.cmi",
+      "definition": "ContextPackage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Envelope#1",
+      "namespace": "idp.telos.cmi",
+      "definition": "Envelope",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:MemoryRecord#2",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:MemoryRecord#3",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Source#4",
+      "namespace": "idp.telos.cmi",
+      "definition": "Source",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Source#5",
+      "namespace": "idp.telos.cmi",
+      "definition": "Source",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:KnowledgeDocument#6",
+      "namespace": "idp.telos.cmi",
+      "definition": "KnowledgeDocument",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:KnowledgeDocument#7",
+      "namespace": "idp.telos.cmi",
+      "definition": "KnowledgeDocument",
       "expected_valid": true,
       "passed": true,
       "errors": []

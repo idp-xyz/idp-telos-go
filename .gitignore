@@ -1,7 +1,8 @@
-# idp-mcp, idp-host and idp-eer are their own repositories
+# idp-mcp, idp-host, idp-eer and idp-cmi are their own repositories
 /idp-mcp/
 /idp-host/
 /idp-eer/
+/idp-cmi/
 # Windows download markers
 *:Zone.Identifier
 # local

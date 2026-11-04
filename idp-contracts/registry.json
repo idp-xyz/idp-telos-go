@@ -67,6 +67,21 @@
           "note": "文件保留；1.1.0 对其只有向后兼容的新增（validate.py 检查）"
         }
       ]
+    },
+    "idp.telos.cmi": {
+      "id": "urn:idp:telos:cmi:1.0.0",
+      "version": "1.0.0",
+      "status": "PUBLISHED",
+      "published": "2026-11-04",
+      "schema": "idp.telos.cmi/1.0.0/schema.json",
+      "examples": "idp.telos.cmi/1.0.0/examples.json",
+      "producer": {
+        "repository": "idp-cmi",
+        "path": "api/contracts",
+        "consistency_test": "go test ./internal/cmi -run TestContract",
+        "regenerate_examples": "go test ./internal/cmi -run TestContract -update"
+      },
+      "note": "Context, Memory & Knowledge Infrastructure（idp-cmi）的 ContextPackage（idp.cmi.package/v1）、MemoryRecord、Source、KnowledgeDocument 与 Envelope。权威副本在 idp-cmi/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。"
     }
   },
   "objects": [
@@ -381,6 +396,102 @@
       "role": "HELPER",
       "status": "PUBLISHED",
       "file": "idp.telos.host/1.5.0/schema.json"
+    },
+    {
+      "name": "ContextPackage",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "MemoryRecord",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "Source",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "KnowledgeDocument",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "Envelope",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "ContextItem",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "Scope",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "Budget",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "Provenance",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "ACL",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "Validity",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
+    },
+    {
+      "name": "Revocation",
+      "owner": "idp.telos.cmi",
+      "version": "1.0.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.cmi/1.0.0/schema.json"
     }
   ]
 }
