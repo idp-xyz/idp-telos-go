@@ -23,7 +23,8 @@ for row in "${IMAGES[@]}"; do
     echo "KEPT: $ref@$digest (published before)"
   else
     docker tag "$local" "$ref"
-    docker push "$ref"
+    # a new package may be denied for a moment after ghcr creates it: retry before giving up
+    for attempt in 1 2 3 4; do docker push "$ref" && break; [[ $attempt == 4 ]] && exit 1; echo "push denied, retrying in $((attempt * 15))s"; sleep $((attempt * 15)); done
     digest="$(docker image inspect "$ref" --format '{{join .RepoDigests "\n"}}' | grep "^$REGISTRY/$repo@" | cut -d@ -f2)"
     cosign sign --yes "$REGISTRY/$repo@$digest" >/dev/null
     syft -q "$REGISTRY/$repo@$digest" -o spdx-json > "sbom-$repo.spdx.json"
