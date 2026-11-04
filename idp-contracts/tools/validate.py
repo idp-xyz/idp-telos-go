@@ -368,7 +368,10 @@ if WS in schemas:
         ('ws_item_without_due', WS, 'InboxItem', 0, U('dueAt', 'summary')),
         ('ws_context_never_set', WS, 'WorkContext', 0, S(version=0, entities=[]), U('app', 'thread', 'itemId')),
         ('ws_bridge_request_without_params', WS, 'BridgeMessage', 0, U('params')),
-        ('ws_bridge_event_without_data', WS, 'BridgeMessage', 4, U('data')),
+        ('ws_bridge_event_without_data', WS, 'BridgeMessage', 6, U('data')),
+        # 1.1.0 (D15)
+        ('ws_manifest_identity_token_only', WS, 'AppManifest', 0, S(capabilities=['identity.token'])),
+        ('ws_bridge_identity_token_request', WS, 'BridgeMessage', 4, U()),
     ]
     NEGATIVE += [
         ('ws_manifest_wrong_schema_version', WS, 'AppManifest', 0, S(schemaVersion='idp.workspace.app/v2')),
@@ -393,8 +396,9 @@ if WS in schemas:
         ('ws_bridge_unknown_method', WS, 'BridgeMessage', 0, S(method='token.get')),
         ('ws_bridge_request_with_result', WS, 'BridgeMessage', 0, S(result={})),
         ('ws_bridge_response_with_both', WS, 'BridgeMessage', 1, S(error={'code': 'X', 'message': 'x'})),
-        ('ws_bridge_event_with_id', WS, 'BridgeMessage', 4, S(id='1')),
-        ('ws_bridge_other_protocol', WS, 'BridgeMessage', 4, S(protocol='idp.bridge/v2')),
+        ('ws_bridge_event_with_id', WS, 'BridgeMessage', 6, S(id='1')),
+        ('ws_bridge_other_protocol', WS, 'BridgeMessage', 6, S(protocol='idp.bridge/v2')),
+        ('ws_bridge_identity_token_with_params_result', WS, 'BridgeMessage', 4, S(result={})),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):

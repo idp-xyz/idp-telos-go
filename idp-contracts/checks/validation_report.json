@@ -22,17 +22,17 @@
       "definitions": 17
     },
     "idp.telos.workspace": {
-      "id": "urn:idp:telos:workspace:1.0.0",
-      "version": "1.0.0",
+      "id": "urn:idp:telos:workspace:1.1.0",
+      "version": "1.1.0",
       "definitions": 19
     }
   },
-  "positive_cases": 100,
-  "negative_cases": 170,
-  "passed": 270,
-  "total": 270,
-  "invariants_passed": 31,
-  "invariants_total": 31,
+  "positive_cases": 104,
+  "negative_cases": 171,
+  "passed": 275,
+  "total": 275,
+  "invariants_passed": 32,
+  "invariants_total": 32,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -96,6 +96,9 @@
       "passed": true
     },
     "idp_telos_cmi_1_4_0_is_additive_over_1_0_0": {
+      "passed": true
+    },
+    "idp_telos_workspace_1_1_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -515,7 +518,23 @@
       "errors": []
     },
     {
-      "case": "example:Problem#16",
+      "case": "example:BridgeMessage#16",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:BridgeMessage#17",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Problem#18",
       "namespace": "idp.telos.workspace",
       "definition": "Problem",
       "expected_valid": true,
@@ -924,6 +943,22 @@
     },
     {
       "case": "ws_bridge_event_without_data",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "ws_manifest_identity_token_only",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "ws_bridge_identity_token_request",
       "namespace": "idp.telos.workspace",
       "definition": "BridgeMessage",
       "expected_valid": true,
@@ -2437,7 +2472,7 @@
       "expected_valid": false,
       "passed": true,
       "errors": [
-        "capabilities/0: 'storage.write' is not one of ['context.read', 'context.write', 'actions.invoke', 'inbox.read', 'ui.notify']"
+        "capabilities/0: 'storage.write' is not one of ['context.read', 'context.write', 'actions.invoke', 'inbox.read', 'ui.notify', 'identity.token']"
       ]
     },
     {
@@ -2587,7 +2622,7 @@
       "expected_valid": false,
       "passed": true,
       "errors": [
-        "method: 'token.get' is not one of ['bridge.hello', 'context.get', 'context.set', 'actions.invoke', 'inbox.list', 'ui.notify']"
+        "method: 'token.get' is not one of ['bridge.hello', 'context.get', 'context.set', 'actions.invoke', 'inbox.list', 'ui.notify', 'identity.token']"
       ]
     },
     {
@@ -2628,6 +2663,16 @@
       "passed": true,
       "errors": [
         "protocol: 'idp.bridge/v1' was expected"
+      ]
+    },
+    {
+      "case": "ws_bridge_identity_token_with_params_result",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: {'protocol': 'idp.bridge/v1', 'id': '4', 'type': 'request', 'method': 'identity.token', 'result': {}} should not be valid under {'anyOf': [{'required': ['result']}, {'required': ['error']}, {'required"
       ]
     }
   ]
