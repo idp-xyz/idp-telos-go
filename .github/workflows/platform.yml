@@ -74,6 +74,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Registry probe (can this workflow create packages in idp-xyz?)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: |
+          docker pull -q public.ecr.aws/docker/library/busybox:1.37 && docker tag public.ecr.aws/docker/library/busybox:1.37 ghcr.io/idp-xyz/idp-telos-go-probe:ci
+          docker push ghcr.io/idp-xyz/idp-telos-go-probe:ci
       - uses: sigstore/cosign-installer@v3
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
       - uses: anchore/sbom-action/download-syft@v0

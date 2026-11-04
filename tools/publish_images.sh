@@ -23,7 +23,7 @@ for row in "${IMAGES[@]}"; do
     echo "KEPT: $ref@$digest (published before)"
   else
     docker tag "$local" "$ref"
-    docker push -q "$ref" >/dev/null
+    docker push "$ref"
     digest="$(docker image inspect "$ref" --format '{{join .RepoDigests "\n"}}' | grep "^$REGISTRY/$repo@" | cut -d@ -f2)"
     cosign sign --yes "$REGISTRY/$repo@$digest" >/dev/null
     syft -q "$REGISTRY/$repo@$digest" -o spdx-json > "sbom-$repo.spdx.json"

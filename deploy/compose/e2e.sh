@@ -288,5 +288,6 @@ INTEL_SUB="$(python3 -c 'import base64,json,sys; p=sys.argv[1].split(".")[1]; pr
   PYTHONPATH=intelligence/src uv run --project intelligence --frozen --no-python-downloads \
   python -m unittest intelligence.tests.integration.test_cmi_integration -v) > "$L/path-c.log" 2>&1 \
   || { tail -30 "$L/path-c.log"; echo "FAIL: PATH C (EER Intelligence with the platform's CMI)" >&2; exit 1; }
-grep -qE "^OK" "$L/path-c.log" && ! grep -q "skipped" "$L/path-c.log" || { tail -20 "$L/path-c.log"; echo "FAIL: PATH C did not run its tests" >&2; exit 1; }
-echo "PASS: PATH C — EER Intelligence (Keycloak service account eer-intelligence) -> CMI context for a Decision -> memory left in the CMI ($(grep -cE ' \.\.\. ok$' "$L/path-c.log") tests)"
+RAN="$(sed -nE 's/^Ran ([0-9]+) tests? in .*/\1/p' "$L/path-c.log")"
+grep -qE "^OK$" "$L/path-c.log" && [[ "${RAN:-0}" -ge 1 ]] || { tail -20 "$L/path-c.log"; echo "FAIL: PATH C did not run its tests (ran ${RAN:-0}, or some were skipped)" >&2; exit 1; }
+echo "PASS: PATH C — EER Intelligence (Keycloak service account eer-intelligence) -> CMI context for a Decision -> memory left in the CMI ($RAN tests)"
