@@ -12,22 +12,22 @@
       "definitions": 12
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.6.0",
-      "version": "1.6.0",
+      "id": "urn:idp:telos:host:1.7.0",
+      "version": "1.7.0",
       "definitions": 28
     },
     "idp.telos.cmi": {
-      "id": "urn:idp:telos:cmi:1.1.0",
-      "version": "1.1.0",
-      "definitions": 13
+      "id": "urn:idp:telos:cmi:1.2.0",
+      "version": "1.2.0",
+      "definitions": 15
     }
   },
-  "positive_cases": 65,
-  "negative_cases": 134,
-  "passed": 199,
-  "total": 199,
-  "invariants_passed": 24,
-  "invariants_total": 24,
+  "positive_cases": 73,
+  "negative_cases": 140,
+  "passed": 213,
+  "total": 213,
+  "invariants_passed": 26,
+  "invariants_total": 26,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -54,25 +54,31 @@
     "host_definitions_are_closed": {
       "passed": true
     },
-    "idp_telos_host_1_6_0_is_additive_over_1_5_0": {
+    "idp_telos_host_1_7_0_is_additive_over_1_6_0": {
       "passed": true
     },
-    "idp_telos_host_1_6_0_is_additive_over_1_4_0": {
+    "idp_telos_host_1_7_0_is_additive_over_1_5_0": {
       "passed": true
     },
-    "idp_telos_host_1_6_0_is_additive_over_1_3_0": {
+    "idp_telos_host_1_7_0_is_additive_over_1_4_0": {
       "passed": true
     },
-    "idp_telos_host_1_6_0_is_additive_over_1_2_0": {
+    "idp_telos_host_1_7_0_is_additive_over_1_3_0": {
       "passed": true
     },
-    "idp_telos_host_1_6_0_is_additive_over_1_1_0": {
+    "idp_telos_host_1_7_0_is_additive_over_1_2_0": {
       "passed": true
     },
-    "idp_telos_host_1_6_0_is_additive_over_1_0_0": {
+    "idp_telos_host_1_7_0_is_additive_over_1_1_0": {
       "passed": true
     },
-    "idp_telos_cmi_1_1_0_is_additive_over_1_0_0": {
+    "idp_telos_host_1_7_0_is_additive_over_1_0_0": {
+      "passed": true
+    },
+    "idp_telos_cmi_1_2_0_is_additive_over_1_1_0": {
+      "passed": true
+    },
+    "idp_telos_cmi_1_2_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -305,7 +311,23 @@
       "errors": []
     },
     {
-      "case": "example:Source#5",
+      "case": "example:MemoryRecord#5",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:MemoryRecord#6",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Source#7",
       "namespace": "idp.telos.cmi",
       "definition": "Source",
       "expected_valid": true,
@@ -313,7 +335,7 @@
       "errors": []
     },
     {
-      "case": "example:Source#6",
+      "case": "example:Source#8",
       "namespace": "idp.telos.cmi",
       "definition": "Source",
       "expected_valid": true,
@@ -321,7 +343,7 @@
       "errors": []
     },
     {
-      "case": "example:KnowledgeDocument#7",
+      "case": "example:KnowledgeDocument#9",
       "namespace": "idp.telos.cmi",
       "definition": "KnowledgeDocument",
       "expected_valid": true,
@@ -329,9 +351,17 @@
       "errors": []
     },
     {
-      "case": "example:KnowledgeDocument#8",
+      "case": "example:KnowledgeDocument#10",
       "namespace": "idp.telos.cmi",
       "definition": "KnowledgeDocument",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Verification#11",
+      "namespace": "idp.telos.cmi",
+      "definition": "Verification",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -585,6 +615,14 @@
       "errors": []
     },
     {
+      "case": "release_context_on_stale_fail",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
       "case": "cmi_package_without_scope",
       "namespace": "idp.telos.cmi",
       "definition": "ContextPackage",
@@ -620,6 +658,38 @@
       "case": "cmi_document_with_entities",
       "namespace": "idp.telos.cmi",
       "definition": "KnowledgeDocument",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "cmi_record_candidate",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "cmi_record_team_scope",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "cmi_item_with_scope",
+      "namespace": "idp.telos.cmi",
+      "definition": "ContextPackage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "cmi_verification_fresh",
+      "namespace": "idp.telos.cmi",
+      "definition": "Verification",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -1805,6 +1875,16 @@
       ]
     },
     {
+      "case": "host_context_on_stale_unknown",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/context/onStale: 'ignore' is not one of ['continue', 'refresh', 'fail']"
+      ]
+    },
+    {
       "case": "cmi_package_wrong_schema_version",
       "namespace": "idp.telos.cmi",
       "definition": "ContextPackage",
@@ -1962,6 +2042,56 @@
       "passed": true,
       "errors": [
         "entities: [{'type': 'order', 'id': '0'}, {'type': 'order', 'id': '1'}, {'type': 'order', 'id': '2'}, {'type': 'order', 'id': '3'}, {'type': 'order', 'id': '4'}, {'type': 'order', 'id': '5'}, {'type': 'order', '"
+      ]
+    },
+    {
+      "case": "cmi_record_version_zero",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "version: 0 is less than the minimum of 1"
+      ]
+    },
+    {
+      "case": "cmi_record_unknown_status",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "status: 'quarantined' is not one of ['candidate', 'active', 'disputed', 'expired', 'revoked']"
+      ]
+    },
+    {
+      "case": "cmi_scope_unknown_kind",
+      "namespace": "idp.telos.cmi",
+      "definition": "MemoryRecord",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "scope/kind: 'squad' is not one of ['tenant', 'subject', 'thread', 'agent', 'organization', 'team', 'project']"
+      ]
+    },
+    {
+      "case": "cmi_verification_bad_item_status",
+      "namespace": "idp.telos.cmi",
+      "definition": "Verification",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "items/0/status: 'gone' is not one of ['active', 'candidate', 'disputed', 'superseded', 'expired', 'revoked', 'missing']"
+      ]
+    },
+    {
+      "case": "cmi_verification_unknown_field",
+      "namespace": "idp.telos.cmi",
+      "definition": "Verification",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: Additional properties are not allowed ('digest' was unexpected)"
       ]
     }
   ]

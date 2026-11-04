@@ -208,6 +208,8 @@ if HOST in schemas:
         ('release_context_minimal', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True})),
         ('release_context_fail', HOST, 'AgentRelease', 0, P('definition.context.onError', 'fail')),
         ('run_with_context_package', HOST, 'AgentRun', 1, S(contextPackageId='pkg_01JD7Q3Z8M8T0G3C6N4V9S2B01')),
+        # 1.7.0 (CMI D24)
+        ('release_context_on_stale_fail', HOST, 'AgentRelease', 0, P('definition.context.onStale', 'fail')),
     ]
     NEGATIVE += [
         ('host_wrong_schema_version', HOST, 'AgentRelease', 0, S(schemaVersion='idp.host.agent/v2')),
@@ -298,6 +300,7 @@ if HOST in schemas:
         ('host_context_source_not_a_name', HOST, 'AgentRelease', 0, P('definition.context.sources.0', 'Ops Handbook')),
         ('host_context_unknown_field', HOST, 'AgentRelease', 0, P('definition.context.ttl', 30)),
         ('host_run_empty_context_package', HOST, 'AgentRun', 0, S(contextPackageId='')),
+        ('host_context_on_stale_unknown', HOST, 'AgentRelease', 0, P('definition.context.onStale', 'ignore')),
     ]
 
 #    idp.telos.cmi: mirrors idp-cmi's TestContractRejectsWhatCMIRejects
@@ -310,6 +313,11 @@ if CMI in schemas:
         ('cmi_item_match_semantic', CMI, 'ContextPackage', 0, P('items.0.match', 'semantic')),
         ('cmi_record_flagged', CMI, 'MemoryRecord', 0, S(flags=['injection:persona_switch'])),
         ('cmi_document_with_entities', CMI, 'KnowledgeDocument', 0, S(entities=[{'type': 'order', 'id': '1001'}])),
+        # 1.2.0 (M5: D19, D21, D22, D24)
+        ('cmi_record_candidate', CMI, 'MemoryRecord', 0, S(status='candidate', version=1)),
+        ('cmi_record_team_scope', CMI, 'MemoryRecord', 0, S(scope={'kind': 'team', 'id': 'us-lane'})),
+        ('cmi_item_with_scope', CMI, 'ContextPackage', 0, P('items.1.scope', {'kind': 'project', 'id': 'parcel'})),
+        ('cmi_verification_fresh', CMI, 'Verification', 0, S(stale=False, staleItems=[])),
     ]
     NEGATIVE += [
         ('cmi_package_wrong_schema_version', CMI, 'ContextPackage', 0, S(schemaVersion='idp.cmi.package/v2')),
@@ -329,6 +337,12 @@ if CMI in schemas:
         ('cmi_record_entity_empty_id', CMI, 'MemoryRecord', 0, S(entities=[{'type': 'order', 'id': ''}])),
         ('cmi_record_flag_not_a_finding', CMI, 'MemoryRecord', 0, S(flags=['spam'])),
         ('cmi_record_too_many_entities', CMI, 'MemoryRecord', 0, S(entities=[{'type': 'order', 'id': str(i)} for i in range(33)])),
+        # 1.2.0 (M5)
+        ('cmi_record_version_zero', CMI, 'MemoryRecord', 0, S(version=0)),
+        ('cmi_record_unknown_status', CMI, 'MemoryRecord', 0, S(status='quarantined')),
+        ('cmi_scope_unknown_kind', CMI, 'MemoryRecord', 0, S(scope={'kind': 'squad', 'id': 'x'})),
+        ('cmi_verification_bad_item_status', CMI, 'Verification', 0, P('items.0.status', 'gone')),
+        ('cmi_verification_unknown_field', CMI, 'Verification', 0, S(digest='sha256:00')),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
