@@ -92,6 +92,20 @@ def main(argv=None):
         if not any(p["spec"].get("podSelector") == {} and set(p["spec"].get("policyTypes", [])) == {"Ingress", "Egress"}
                    and not p["spec"].get("ingress") and not p["spec"].get("egress") for p in policies):
             problems.append(f"{name}: no default-deny NetworkPolicy")
+    # a peer selector that points into another namespace must not carry the policy owner's own
+    # app.kubernetes.io/name: that is kustomize commonLabels rewriting selectors (it replaces the
+    # peer's label, e.g. postgresql, by the component's), and the rule then matches nothing
+    for name, policies in policies_of.items():
+        own = labels_of.get(name, {}).get("app.kubernetes.io/name")
+        for p in policies:
+            for direction, key in (("ingress", "from"), ("egress", "to")):
+                for rule in p["spec"].get(direction, []) or []:
+                    for peer in rule.get(key, []) or []:
+                        target = (peer.get("namespaceSelector") or {}).get("matchLabels", {}).get("kubernetes.io/metadata.name")
+                        pod = (peer.get("podSelector") or {}).get("matchLabels", {})
+                        if target and target != namespace_of.get(name) and own and pod.get("app.kubernetes.io/name") == own:
+                            problems.append(f"{name}: NetworkPolicy {p['metadata']['name']} selects pods in {target} by its own name label "
+                                            f"({pod}) - commonLabels rewrote the peer selector, the rule matches nothing")
     for i in integrations:
         if i.get("kubernetes") == "not-deployed":
             notes.append(f"{i['id']}: not deployed by the manifests ({i['from']} -> {i['to']})")
