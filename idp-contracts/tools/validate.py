@@ -300,6 +300,37 @@ if HOST in schemas:
         ('host_run_empty_context_package', HOST, 'AgentRun', 0, S(contextPackageId='')),
     ]
 
+#    idp.telos.cmi: mirrors idp-cmi's TestContractRejectsWhatCMIRejects
+CMI = 'idp.telos.cmi'
+if CMI in schemas:
+    POSITIVE += [
+        ('cmi_package_without_scope', CMI, 'ContextPackage', 0, U('scope')),
+        ('cmi_record_without_entities_flags', CMI, 'MemoryRecord', 0, U('entities', 'flags')),
+        # 1.1.0 (D11-D13)
+        ('cmi_item_match_semantic', CMI, 'ContextPackage', 0, P('items.0.match', 'semantic')),
+        ('cmi_record_flagged', CMI, 'MemoryRecord', 0, S(flags=['injection:persona_switch'])),
+        ('cmi_document_with_entities', CMI, 'KnowledgeDocument', 0, S(entities=[{'type': 'order', 'id': '1001'}])),
+    ]
+    NEGATIVE += [
+        ('cmi_package_wrong_schema_version', CMI, 'ContextPackage', 0, S(schemaVersion='idp.cmi.package/v2')),
+        ('cmi_package_empty_query', CMI, 'ContextPackage', 0, S(query='')),
+        ('cmi_item_unknown_kind', CMI, 'ContextPackage', 0, P('items.0.kind', 'fact')),
+        ('cmi_item_bad_trust', CMI, 'ContextPackage', 0, P('items.0.trust', 'verified')),
+        ('cmi_budget_over_cap', CMI, 'ContextPackage', 0, P('budget.maxTokens', 64000)),
+        ('cmi_record_bad_kind', CMI, 'MemoryRecord', 0, S(kind='fact')),
+        ('cmi_record_bad_tag', CMI, 'MemoryRecord', 0, P('tags.0', 'Bad Tag')),
+        ('cmi_record_bad_level', CMI, 'MemoryRecord', 0, S(sensitivity='secret')),
+        ('cmi_source_bad_kind', CMI, 'Source', 0, S(kind='spreadsheet')),
+        ('cmi_document_bad_digest', CMI, 'KnowledgeDocument', 0, S(contentSha256='sha1:abc')),
+        # 1.1.0 (D11-D13)
+        ('cmi_item_bad_match', CMI, 'ContextPackage', 0, P('items.0.match', 'fuzzy')),
+        ('cmi_item_bad_entity_type', CMI, 'ContextPackage', 0, P('items.1.entities.0.type', 'Order')),
+        ('cmi_record_bad_entity_type', CMI, 'MemoryRecord', 0, S(entities=[{'type': 'Order', 'id': '1'}])),
+        ('cmi_record_entity_empty_id', CMI, 'MemoryRecord', 0, S(entities=[{'type': 'order', 'id': ''}])),
+        ('cmi_record_flag_not_a_finding', CMI, 'MemoryRecord', 0, S(flags=['spam'])),
+        ('cmi_record_too_many_entities', CMI, 'MemoryRecord', 0, S(entities=[{'type': 'order', 'id': str(i)} for i in range(33)])),
+    ]
+
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
     for name, ns, definition, index, *mutations in cases:
         x = pick(ns, definition, index)
