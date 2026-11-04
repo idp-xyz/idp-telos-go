@@ -44,6 +44,14 @@ uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py          #
 bash tests/kind/smoke.sh                                                       # 在 kind 集群上按组件清单部署并跑 PATH A（CI: kind.yml）
 ```
 
+CI：`ci.yml`（目录、清单、契约、Kubernetes 检查）、`kind.yml`（kind 上的 PATH A）与 `platform.yml`（整平台 PATH A、B、C 验收）。私有的 idp-eer 用只读部署密钥检出（secret `IDP_EER_DEPLOY_KEY`）。`platform.yml` 在 main 上把通过验收的镜像发布为 `ghcr.io/idp-xyz/<镜像>:<组件提交>`（`idp-cmi`、`idp-host`、`idp-workspace`、`eer-runtime`），并用 cosign 无密钥签名、附 SPDX SBOM 证明（`tools/publish_images.sh`）。校验签名：
+
+```sh
+cosign verify ghcr.io/idp-xyz/idp-cmi:<commit> \
+  --certificate-identity-regexp '^https://github.com/idp-xyz/idp-telos-go/.github/workflows/platform.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## 许可证
 
 本仓库采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：允许非商业用途，禁止任何商业使用。

@@ -1,0 +1,87 @@
+name: platform
+
+# The platform acceptance in CI: every component, idp-eer included (read-only deploy key, secret
+# IDP_EER_DEPLOY_KEY), is checked out at the commits releases/platform-bom.yaml pins, the images are built
+# and deploy/compose/e2e.sh runs PATH A, B and C. On main, exactly the images that passed are then
+# published to ghcr.io/idp-xyz/<image>:<component commit>, signed with cosign (keyless, this workflow's
+# GitHub OIDC identity) and with an SPDX SBOM attestation (tools/publish_images.sh).
+#   verify: cosign verify ghcr.io/idp-xyz/idp-cmi:<commit> \
+#     --certificate-identity-regexp '^https://github.com/idp-xyz/idp-telos-go/.github/workflows/platform.yml@' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  acceptance:
+    name: platform acceptance (PATH A, B, C)
+    # pull requests from forks get no secrets, so idp-eer cannot be checked out there
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write   # publish (main only)
+      id-token: write   # keyless signing (main only)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Pinned tools
+        run: pip install --disable-pip-version-check 'PyYAML==6.0.3'
+      - name: Components at the BOM's commits
+        env:
+          IDP_EER_DEPLOY_KEY: ${{ secrets.IDP_EER_DEPLOY_KEY }}
+        run: python -I tools/checkout_components.py --require idp-eer
+      - name: Platform acceptance
+        env:
+          EER_TEMPORAL_IMAGE: temporalio/temporal:1.7.3
+        run: |
+          set -o pipefail
+          bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
+          for p in A B C; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
+      - name: PATH C output on failure
+        if: failure()
+        run: cat .local/platform/path-c.log 2>/dev/null || true
+      - name: Log in to ghcr.io
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v3
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      - uses: anchore/sbom-action/download-syft@v0
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      - name: Publish the accepted images (signed, SBOM attested)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          bash tools/publish_images.sh | tee -a "$GITHUB_STEP_SUMMARY"
+          { echo '```json'; cat published-images.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          name: published-images
+          path: |
+            published-images.json
+            sbom-*.spdx.json

@@ -4,8 +4,9 @@ name: CI
 # components are checked out at the commits releases/platform-bom.yaml pins, then the catalog, BOM and
 # compatibility matrix are checked (tools/platform.py check), the tool's own tests run, and the
 # contract registry is validated against the producers' copies (idp-contracts/tools/validate.py).
-# idp-eer is private and not checked out here: its rows are reported NOT_RUN (allowed), never passed.
-# The platform acceptance (deploy/compose/e2e.sh) needs the component images and runs locally.
+# idp-eer is private: it is cloned with the read-only deploy key (secret IDP_EER_DEPLOY_KEY) and required
+# on main; a pull request without secrets (a fork) reports its rows NOT_RUN (allowed), never passed.
+# The platform acceptance (deploy/compose/e2e.sh) runs in platform.yml.
 
 on:
   push:
@@ -30,24 +31,18 @@ jobs:
           go-version: '1.26'
       - name: Pinned tools
         run: pip install --disable-pip-version-check 'jsonschema[format]==4.26.0' 'PyYAML==6.0.3'
-      - name: Components at the BOM's commits (public repositories)
-        run: |
-          python - <<'PY'
-          import subprocess, yaml
-          bom = yaml.safe_load(open("releases/platform-bom.yaml"))
-          for c in bom["components"]:
-              if c["name"] == "idp-eer":
-                  continue  # private
-              url = f"https://github.com/{c['repository']}.git"
-              subprocess.run(["git", "clone", "--quiet", "--filter=blob:none", url, c["name"]], check=True)
-              subprocess.run(["git", "-C", c["name"], "checkout", "--quiet", c["commit"]], check=True)
-              print(c["name"], c["commit"][:12])
-          PY
+      - name: Components at the BOM's commits
+        env:
+          IDP_EER_DEPLOY_KEY: ${{ secrets.IDP_EER_DEPLOY_KEY }}
+        run: python -I tools/checkout_components.py ${{ github.event_name == 'push' && '--require idp-eer' || '' }}
+      - name: idp-eer checked out?
+        id: eer
+        run: echo "allow=$([ -d idp-eer/.git ] || echo '--allow-missing idp-eer')" >> "$GITHUB_OUTPUT"
       - name: Catalog, BOM and compatibility matrix
-        run: python -I tools/platform.py check --allow-missing idp-eer
+        run: python -I tools/platform.py check ${{ steps.eer.outputs.allow }}
       - name: Platform tool tests
         run: python -m unittest discover -s tools/tests -v
       - name: Kubernetes manifests as one platform (NetworkPolicies of every integration)
-        run: python -I tools/k8s_check.py --allow-missing idp-eer
+        run: python -I tools/k8s_check.py ${{ steps.eer.outputs.allow }}
       - name: Contract registry against the producers
         run: python -I idp-contracts/tools/validate.py --report /tmp/validation_report.json
