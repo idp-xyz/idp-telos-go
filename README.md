@@ -6,7 +6,7 @@ IDP TELOS 的 Go 实现。本仓库是工作区：承载 `idp.telos.*` 契约登
 |---|---|---|
 | `idp-mcp/` | MCP 基础设施：`mcp-gateway`（数据面）与 `registry-service`（控制面）。M1–M5 完成并实测；设计见其 `docs/adr/ADR-0001-mcp-infrastructure.md` | [idp-xyz/idp-mcp](https://github.com/idp-xyz/idp-mcp) |
 | `idp-host/` | Agent Hosting & Coordination：Agent 与 Skill 发布、Run 状态机、harness、模型适配器（OpenAI 兼容 / Anthropic / Gemini）、经 idp-mcp 的工具调用（含 Keycloak 委派）、租户配额、AG-UI。M1、M2 完成并实测；设计见其 `docs/adr/ADR-0001-host-design.md` | [idp-xyz/idp-host](https://github.com/idp-xyz/idp-host) |
-| `idp-eer/` | Enterprise Execution Runtime：持久化 Agent Loop，Agent Turn 由 idp-host 提供（ADR-036），依赖契约 `idp.telos.host` 1.2.0 | [idpxyz/idp-eer](https://github.com/idpxyz/idp-eer) |
+| `idp-eer/` | Enterprise Execution Runtime：持久化 Agent Loop，Agent Turn 由 idp-host 提供（ADR-036），依赖契约 `idp.telos.host` 1.2.0 | [idp-xyz/idp-eer](https://github.com/idp-xyz/idp-eer) |
 | `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.0.0、`idp.telos.host` 1.2.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
 | `docs/` | 架构蓝图、系统架构 v1.0、仓库工程架构 v1.0 | 本仓库 |
 | `brand/` | 品牌资源 | 本仓库 |
@@ -18,7 +18,7 @@ git clone https://github.com/idp-xyz/idp-telos-go.git
 cd idp-telos-go
 git clone https://github.com/idp-xyz/idp-mcp.git
 git clone https://github.com/idp-xyz/idp-host.git
-git clone https://github.com/idpxyz/idp-eer.git
+git clone https://github.com/idp-xyz/idp-eer.git
 ```
 
 契约校验器默认在 `idp-contracts/` 的上级目录（即本仓库根目录）里寻找并排克隆的生产者仓库；若它们放在别处，用 `--producer-root` 指定。
