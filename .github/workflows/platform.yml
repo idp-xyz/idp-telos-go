@@ -52,6 +52,11 @@ jobs:
         env:
           IDP_EER_DEPLOY_KEY: ${{ secrets.IDP_EER_DEPLOY_KEY }}
         run: python -I tools/checkout_components.py --require idp-eer
+      - name: The Python idp-eer pins (EER Intelligence, PATH C)
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: idp-eer/.python-version
+      - run: pip install --disable-pip-version-check 'PyYAML==6.0.3'
       - name: Platform acceptance
         env:
           EER_TEMPORAL_IMAGE: temporalio/temporal:1.7.3
