@@ -9,3 +9,5 @@
 # local
 .local/
 __pycache__/
+# docs/ is kept locally only (not versioned)
+/docs/
