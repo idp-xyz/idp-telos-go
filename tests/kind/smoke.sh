@@ -78,14 +78,21 @@ done
 # the HOST? kind's CNI enforces NetworkPolicies in recent versions.
 diagnose() {
   echo "== diagnostics"
-  kubectl get networkpolicy -A
-  for ns in idp-workspace default; do
-    kubectl -n "$ns" run "probe-$RANDOM" --rm -i --restart=Never --quiet --image=public.ecr.aws/docker/library/busybox:1.37 \
-      --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"p","image":"public.ecr.aws/docker/library/busybox:1.37","command":["sh","-c","nslookup idp-host.idp-host.svc.cluster.local; wget -qO- -T 3 http://idp-host.idp-host.svc.cluster.local:8450/healthz || echo WGET-FAILED"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
-      2>&1 | sed "s/^/[$ns] /" || true
-  done
-  kubectl -n idp-workspace logs deploy/idp-workspace --tail=20 || true
-  kubectl -n idp-host logs deploy/idp-host --tail=20 || true
+  probe() { # probe NAMESPACE COMPONENT-LABEL URL: a pod the namespace's policies select as that component
+    local ns="$1" component="$2" url="$3"
+    kubectl -n "$ns" run "probe-$RANDOM" --rm -i --restart=Never --quiet --labels="app.kubernetes.io/component=$component,app.kubernetes.io/name=$ns,app.kubernetes.io/part-of=idp-telos" \
+      --image=public.ecr.aws/docker/library/busybox:1.37 \
+      --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"p","image":"public.ecr.aws/docker/library/busybox:1.37","command":["sh","-c","wget -qO- -T 5 '"$url"' && echo REACHED || echo NOT-REACHED"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
+      2>&1 | sed "s#^#[$ns as $component -> $url] #" || true
+  }
+  probe idp-host host http://idp-cmi.idp-cmi.svc.cluster.local:8550/healthz
+  probe idp-workspace workspace http://idp-host.idp-host.svc.cluster.local:8450/healthz
+  probe idp-host host http://fakemodel.idp-host.svc.cluster.local:18080/v1/models
+  kubectl -n idp-host get networkpolicy host -o yaml | sed -n '/^spec:/,$p'
+  kubectl -n idp-cmi get networkpolicy cmi -o yaml | sed -n '/^spec:/,$p'
+  kubectl get ns --show-labels
+  kubectl -n idp-cmi logs deploy/idp-cmi --tail=15 || true
+  kubectl -n idp-host logs deploy/idp-host --tail=15 || true
 }
 trap 'status=$?; [[ $status -ne 0 ]] && diagnose; exit $status' EXIT
 
