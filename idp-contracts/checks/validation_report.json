@@ -17,17 +17,17 @@
       "definitions": 28
     },
     "idp.telos.cmi": {
-      "id": "urn:idp:telos:cmi:1.3.0",
-      "version": "1.3.0",
-      "definitions": 16
+      "id": "urn:idp:telos:cmi:1.4.0",
+      "version": "1.4.0",
+      "definitions": 17
     }
   },
-  "positive_cases": 75,
-  "negative_cases": 143,
-  "passed": 218,
-  "total": 218,
-  "invariants_passed": 27,
-  "invariants_total": 27,
+  "positive_cases": 77,
+  "negative_cases": 146,
+  "passed": 223,
+  "total": 223,
+  "invariants_passed": 28,
+  "invariants_total": 28,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -75,13 +75,16 @@
     "idp_telos_host_1_7_0_is_additive_over_1_0_0": {
       "passed": true
     },
-    "idp_telos_cmi_1_3_0_is_additive_over_1_2_0": {
+    "idp_telos_cmi_1_4_0_is_additive_over_1_3_0": {
       "passed": true
     },
-    "idp_telos_cmi_1_3_0_is_additive_over_1_1_0": {
+    "idp_telos_cmi_1_4_0_is_additive_over_1_2_0": {
       "passed": true
     },
-    "idp_telos_cmi_1_3_0_is_additive_over_1_0_0": {
+    "idp_telos_cmi_1_4_0_is_additive_over_1_1_0": {
+      "passed": true
+    },
+    "idp_telos_cmi_1_4_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -707,6 +710,22 @@
     },
     {
       "case": "cmi_package_with_lag",
+      "namespace": "idp.telos.cmi",
+      "definition": "ContextPackage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "cmi_package_without_omitted",
+      "namespace": "idp.telos.cmi",
+      "definition": "ContextPackage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "cmi_package_omitted",
       "namespace": "idp.telos.cmi",
       "definition": "ContextPackage",
       "expected_valid": true,
@@ -2141,6 +2160,36 @@
       "passed": true,
       "errors": [
         "projectionLag: -1 is less than the minimum of 0"
+      ]
+    },
+    {
+      "case": "cmi_omitted_negative",
+      "namespace": "idp.telos.cmi",
+      "definition": "ContextPackage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "omitted/budget: -1 is less than the minimum of 0"
+      ]
+    },
+    {
+      "case": "cmi_omitted_missing_reason",
+      "namespace": "idp.telos.cmi",
+      "definition": "ContextPackage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "omitted: 'flagged' is a required property"
+      ]
+    },
+    {
+      "case": "cmi_omitted_unknown_reason",
+      "namespace": "idp.telos.cmi",
+      "definition": "ContextPackage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "omitted: Additional properties are not allowed ('acl' was unexpected)"
       ]
     }
   ]
