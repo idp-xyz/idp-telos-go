@@ -359,6 +359,44 @@ if CMI in schemas:
         ('cmi_omitted_unknown_reason', CMI, 'ContextPackage', 0, S(omitted={'budget': 0, 'flagged': 0, 'candidate': 0, 'disputed': 0, 'forbidden': 0, 'lowSimilarity': 0, 'acl': 1})),
     ]
 
+#    idp.telos.workspace: mirrors idp-workspace's TestContractRejectsWhatTheWorkspaceRejects
+WS = 'idp.telos.workspace'
+if WS in schemas:
+    POSITIVE += [
+        ('ws_manifest_without_config', WS, 'AppManifest', 0, U('config', 'description')),
+        ('ws_item_for_everybody', WS, 'InboxItem', 0, S(assignees={'subjects': [], 'roles': []})),
+        ('ws_item_without_due', WS, 'InboxItem', 0, U('dueAt', 'summary')),
+        ('ws_context_never_set', WS, 'WorkContext', 0, S(version=0, entities=[]), U('app', 'thread', 'itemId')),
+        ('ws_bridge_request_without_params', WS, 'BridgeMessage', 0, U('params')),
+        ('ws_bridge_event_without_data', WS, 'BridgeMessage', 4, U('data')),
+    ]
+    NEGATIVE += [
+        ('ws_manifest_wrong_schema_version', WS, 'AppManifest', 0, S(schemaVersion='idp.workspace.app/v2')),
+        ('ws_manifest_uppercase_name', WS, 'AppManifest', 0, S(name='Orders')),
+        ('ws_manifest_not_semver', WS, 'AppManifest', 0, S(version='1.2')),
+        ('ws_manifest_plain_http_entry', WS, 'AppManifest', 0, P('entry.url', 'http://orders.example/')),
+        ('ws_manifest_unknown_capability', WS, 'AppManifest', 0, P('capabilities.0', 'storage.write')),
+        ('ws_action_input_not_object', WS, 'AppManifest', 0, P('actions.0.input', {'type': 'string'})),
+        ('ws_target_unknown_kind', WS, 'AppManifest', 0, P('actions.0.target.kind', 'email')),
+        ('ws_target_host_run_without_agent', WS, 'AppManifest', 0, P('actions.0.target', {'kind': 'host.run'})),
+        ('ws_target_mixed', WS, 'AppManifest', 0, P('actions.3.target', {'kind': 'webhook', 'url': 'https://x.example/h', 'agent': 'a'})),
+        ('ws_target_decision_maybe', WS, 'AppManifest', 0, P('actions.1.target.decision', 'maybe')),
+        ('ws_manifest_unknown_field', WS, 'AppManifest', 0, S(extra=True)),
+        ('ws_item_unknown_kind', WS, 'InboxItem', 0, S(kind='chat')),
+        ('ws_item_bad_ref_system', WS, 'InboxItem', 0, P('ref.system', 'erp')),
+        ('ws_item_unknown_status', WS, 'InboxItem', 0, S(status='decided')),
+        ('ws_item_version_zero', WS, 'InboxItem', 0, S(version=0)),
+        ('ws_item_without_assignees', WS, 'InboxItem', 0, U('assignees')),
+        ('ws_release_bad_digest', WS, 'AppRelease', 0, S(digest='sha1:abc')),
+        ('ws_invocation_failed_without_error', WS, 'Invocation', 1, U('error')),
+        ('ws_invocation_succeeded_with_error', WS, 'Invocation', 0, S(error={'code': 'X', 'message': 'x'})),
+        ('ws_bridge_unknown_method', WS, 'BridgeMessage', 0, S(method='token.get')),
+        ('ws_bridge_request_with_result', WS, 'BridgeMessage', 0, S(result={})),
+        ('ws_bridge_response_with_both', WS, 'BridgeMessage', 1, S(error={'code': 'X', 'message': 'x'})),
+        ('ws_bridge_event_with_id', WS, 'BridgeMessage', 4, S(id='1')),
+        ('ws_bridge_other_protocol', WS, 'BridgeMessage', 4, S(protocol='idp.bridge/v2')),
+    ]
+
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
     for name, ns, definition, index, *mutations in cases:
         x = pick(ns, definition, index)
@@ -411,6 +449,11 @@ if HOST in schemas:
     invariant('host_root_documents', roots[HOST] == {'AgentRelease', 'SkillRelease', 'Envelope', 'AgentRun', 'RunOptions'}, sorted(roots[HOST]))
     host_open = [n for n, d in schemas[HOST]['$defs'].items() if d.get('additionalProperties') is not False]
     invariant('host_definitions_are_closed', not host_open, host_open)
+
+if WS in schemas:
+    invariant('workspace_root_documents', roots[WS] == {'Workspace', 'AppManifest', 'AppRelease', 'Installation', 'InboxItem', 'WorkContext', 'Invocation', 'BridgeMessage', 'Problem'}, sorted(roots[WS]))
+    ws_open = [n for n, d in schemas[WS]['$defs'].items() if d.get('additionalProperties') is not False]
+    invariant('workspace_definitions_are_closed', not ws_open, ws_open)
 
 # 3b. Minor versions only add: against every previous version whose files are still in the tree,
 #     the current schema keeps every definition, never adds a required property to one, never

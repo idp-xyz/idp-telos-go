@@ -20,14 +20,19 @@
       "id": "urn:idp:telos:cmi:1.4.0",
       "version": "1.4.0",
       "definitions": 17
+    },
+    "idp.telos.workspace": {
+      "id": "urn:idp:telos:workspace:1.0.0",
+      "version": "1.0.0",
+      "definitions": 19
     }
   },
-  "positive_cases": 77,
-  "negative_cases": 146,
-  "passed": 223,
-  "total": 223,
-  "invariants_passed": 28,
-  "invariants_total": 28,
+  "positive_cases": 100,
+  "negative_cases": 170,
+  "passed": 270,
+  "total": 270,
+  "invariants_passed": 31,
+  "invariants_total": 31,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -52,6 +57,12 @@
       "passed": true
     },
     "host_definitions_are_closed": {
+      "passed": true
+    },
+    "workspace_root_documents": {
+      "passed": true
+    },
+    "workspace_definitions_are_closed": {
       "passed": true
     },
     "idp_telos_host_1_7_0_is_additive_over_1_6_0": {
@@ -112,6 +123,9 @@
       "passed": true
     },
     "idp_telos_cmi_published_matches_producer": {
+      "passed": true
+    },
+    "idp_telos_workspace_published_matches_producer": {
       "passed": true
     }
   },
@@ -368,6 +382,142 @@
       "case": "example:Verification#11",
       "namespace": "idp.telos.cmi",
       "definition": "Verification",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Workspace#0",
+      "namespace": "idp.telos.workspace",
+      "definition": "Workspace",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AppManifest#1",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AppManifest#2",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AppRelease#3",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:AppRelease#4",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Installation#5",
+      "namespace": "idp.telos.workspace",
+      "definition": "Installation",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:InboxItem#6",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:InboxItem#7",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:WorkContext#8",
+      "namespace": "idp.telos.workspace",
+      "definition": "WorkContext",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Invocation#9",
+      "namespace": "idp.telos.workspace",
+      "definition": "Invocation",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Invocation#10",
+      "namespace": "idp.telos.workspace",
+      "definition": "Invocation",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:BridgeMessage#11",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:BridgeMessage#12",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:BridgeMessage#13",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:BridgeMessage#14",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:BridgeMessage#15",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:Problem#16",
+      "namespace": "idp.telos.workspace",
+      "definition": "Problem",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -728,6 +878,54 @@
       "case": "cmi_package_omitted",
       "namespace": "idp.telos.cmi",
       "definition": "ContextPackage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "ws_manifest_without_config",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "ws_item_for_everybody",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "ws_item_without_due",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "ws_context_never_set",
+      "namespace": "idp.telos.workspace",
+      "definition": "WorkContext",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "ws_bridge_request_without_params",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "ws_bridge_event_without_data",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -2190,6 +2388,246 @@
       "passed": true,
       "errors": [
         "omitted: Additional properties are not allowed ('acl' was unexpected)"
+      ]
+    },
+    {
+      "case": "ws_manifest_wrong_schema_version",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "schemaVersion: 'idp.workspace.app/v1' was expected"
+      ]
+    },
+    {
+      "case": "ws_manifest_uppercase_name",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "name: 'Orders' does not match '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'"
+      ]
+    },
+    {
+      "case": "ws_manifest_not_semver",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "version: '1.2' does not match '^(0|[1-9][0-9]*)\\\\.(0|[1-9][0-9]*)\\\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'"
+      ]
+    },
+    {
+      "case": "ws_manifest_plain_http_entry",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "entry/url: 'http://orders.example/' does not match '^(https://|http://(localhost|127\\\\.0\\\\.0\\\\.1|\\\\[::1\\\\])(:[0-9]+)?/?)[^\\\\s#]*$'"
+      ]
+    },
+    {
+      "case": "ws_manifest_unknown_capability",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "capabilities/0: 'storage.write' is not one of ['context.read', 'context.write', 'actions.invoke', 'inbox.read', 'ui.notify']"
+      ]
+    },
+    {
+      "case": "ws_action_input_not_object",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "actions/0/input/type: 'object' was expected"
+      ]
+    },
+    {
+      "case": "ws_target_unknown_kind",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "actions/0/target/kind: 'email' is not one of ['host.run', 'eer.decision', 'webhook']"
+      ]
+    },
+    {
+      "case": "ws_target_host_run_without_agent",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "actions/0/target: 'agent' is a required property"
+      ]
+    },
+    {
+      "case": "ws_target_mixed",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "actions/3/target: {'kind': 'webhook', 'url': 'https://x.example/h', 'agent': 'a'} should not be valid under {'anyOf': [{'required': ['agent']}, {'required': ['decision']}]}"
+      ]
+    },
+    {
+      "case": "ws_target_decision_maybe",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "actions/1/target/decision: 'maybe' is not one of ['approve', 'reject']"
+      ]
+    },
+    {
+      "case": "ws_manifest_unknown_field",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppManifest",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: Additional properties are not allowed ('extra' was unexpected)"
+      ]
+    },
+    {
+      "case": "ws_item_unknown_kind",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "kind: 'chat' is not one of ['approval', 'task', 'run', 'notification']"
+      ]
+    },
+    {
+      "case": "ws_item_bad_ref_system",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "ref/system: 'erp' does not match '^(eer|host|cmi|external|app:[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)$'"
+      ]
+    },
+    {
+      "case": "ws_item_unknown_status",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "status: 'decided' is not one of ['open', 'resolved', 'withdrawn']"
+      ]
+    },
+    {
+      "case": "ws_item_version_zero",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "version: 0 is less than the minimum of 1"
+      ]
+    },
+    {
+      "case": "ws_item_without_assignees",
+      "namespace": "idp.telos.workspace",
+      "definition": "InboxItem",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: 'assignees' is a required property"
+      ]
+    },
+    {
+      "case": "ws_release_bad_digest",
+      "namespace": "idp.telos.workspace",
+      "definition": "AppRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "digest: 'sha1:abc' does not match '^sha256:[0-9a-f]{64}$'"
+      ]
+    },
+    {
+      "case": "ws_invocation_failed_without_error",
+      "namespace": "idp.telos.workspace",
+      "definition": "Invocation",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: 'error' is a required property"
+      ]
+    },
+    {
+      "case": "ws_invocation_succeeded_with_error",
+      "namespace": "idp.telos.workspace",
+      "definition": "Invocation",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: {'invocationId': '3d4e5f60-0000-4000-8000-000000000004', 'workspaceId': '0a1b2c3d-0000-4000-8000-000000000001', 'subject': 'bob', 'app': 'orders', 'appVersion': '1.2.0', 'action': 'approval.approve', "
+      ]
+    },
+    {
+      "case": "ws_bridge_unknown_method",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "method: 'token.get' is not one of ['bridge.hello', 'context.get', 'context.set', 'actions.invoke', 'inbox.list', 'ui.notify']"
+      ]
+    },
+    {
+      "case": "ws_bridge_request_with_result",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: {'protocol': 'idp.bridge/v1', 'id': '1', 'type': 'request', 'method': 'bridge.hello', 'params': {'app': 'orders', 'version': '1.2.0'}, 'result': {}} should not be valid under {'anyOf': [{'required': ["
+      ]
+    },
+    {
+      "case": "ws_bridge_response_with_both",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: {'protocol': 'idp.bridge/v1', 'id': '1', 'type': 'response', 'result': {'capabilities': ['context.read', 'actions.invoke'], 'locale': 'zh-CN', 'protocol': 'idp.bridge/v1', 'theme': 'light', 'workspace"
+      ]
+    },
+    {
+      "case": "ws_bridge_event_with_id",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "<root>: {'protocol': 'idp.bridge/v1', 'type': 'event', 'event': 'context.changed', 'data': {'entities': [{'id': '1002', 'type': 'order'}], 'version': 4}, 'id': '1'} should not be valid under {'anyOf': [{'requ"
+      ]
+    },
+    {
+      "case": "ws_bridge_other_protocol",
+      "namespace": "idp.telos.workspace",
+      "definition": "BridgeMessage",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "protocol: 'idp.bridge/v1' was expected"
       ]
     }
   ]

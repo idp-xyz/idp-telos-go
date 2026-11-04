@@ -8,7 +8,8 @@ IDP TELOS 的 Go 实现。本仓库是工作区：承载 `idp.telos.*` 契约登
 | `idp-host/` | Agent Hosting & Coordination：Agent 与 Skill 发布、Run 状态机、harness、模型适配器（OpenAI 兼容 / Anthropic / Gemini / 外部 harness worker）与路由、经 idp-mcp 的工具调用（含 Keycloak 委派）、子 agent、租户配额、内容护栏、评估门禁、AG-UI 与 A2A。M1–M5 完成并实测；设计见其 `docs/adr/ADR-0001-host-design.md` | [idp-xyz/idp-host](https://github.com/idp-xyz/idp-host) |
 | `idp-eer/` | Enterprise Execution Runtime：持久化 Agent Loop，Agent Turn 由 idp-host 提供（ADR-036），Decision 从 idp-cmi 取上下文并留下记忆（ADR-037）；依赖契约 `idp.telos.host` 1.2.0（1.7.0 对其只有新增）与 `idp.telos.cmi` 1.3.0 | [idp-xyz/idp-eer](https://github.com/idp-xyz/idp-eer) |
 | `idp-cmi/` | Context, Memory & Knowledge Infrastructure：来源与信任级别、记忆记录（来历、有效期、撤销）、知识文档与全文索引、密封的上下文包、敏感级别与 ACL。M1–M6 完成并实测（混合检索、写入时注入隔离、实体引用、整合 Worker、连接器、评估套件、Kubernetes 清单、compose e2e 含与 idp-host 的联调；幂等与版本、受控擦除、候选 / 存疑、单元作用域与共享、外部 PDP、消费时复验、双时态、outbox 投影、标注评估集；未进包报告、外部模型敏感上限、审批核验、来源可追溯率）；设计见其 `docs/adr/ADR-0001-cmi-design.md` | [idp-xyz/idp-cmi](https://github.com/idp-xyz/idp-cmi) |
-| `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.0.0、`idp.telos.host` 1.7.0、`idp.telos.cmi` 1.4.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
+| `idp-workspace/` | 企业工作入口：工作空间与成员、应用注册与安装（不可变发布、可撤销）、工作收件箱（生产者推入、只作视图）、工作上下文、动作契约（转给 idp-host 运行、idp-eer 审批决定或签名的应用 webhook）与应用桥 SDK（`packages/bridge`，idp.bridge/v1）。M1 完成并实测；设计见其 `docs/adr/ADR-0001-workspace-design.md` | [idp-xyz/idp-workspace](https://github.com/idp-xyz/idp-workspace) |
+| `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.0.0、`idp.telos.host` 1.7.0、`idp.telos.cmi` 1.4.0、`idp.telos.workspace` 1.0.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
 | `docs/` | 架构蓝图、系统架构 v1.0、仓库工程架构 v1.0 | 本仓库 |
 | `brand/` | 品牌资源 | 本仓库 |
 
