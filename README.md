@@ -12,7 +12,7 @@ IDP TELOS 的 Go 实现。本仓库是平台仓库（仓库工程架构中的 id
 | `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.0.0、`idp.telos.host` 1.7.0、`idp.telos.cmi` 1.4.0、`idp.telos.workspace` 1.1.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
 | `catalog/` | 组件目录、允许的跨系统调用及其证据、状态权威归属 | 本仓库 |
 | `releases/` | 平台发布清单 `platform-bom.yaml`（组件提交、镜像、契约版本）与兼容性矩阵 `compatibility-matrix.yaml`，由 `tools/platform.py` 生成与校验 | 本仓库 |
-| `deploy/` | 整平台组装（`deploy/compose/platform.yaml`：Keycloak、idp-cmi、idp-host、idp-workspace）与 PATH A 验收（`deploy/compose/e2e.sh`） | 本仓库 |
+| `deploy/` | 整平台组装（`deploy/compose/platform.yaml`：Keycloak（https 发行者）、idp-cmi、idp-host、idp-workspace、idp-eer 与 Temporal）与跨系统验收（`deploy/compose/e2e.sh`：PATH A 问答经 Workspace→HOST→CMI；PATH B T2 审批经 EER→Workspace 收件箱→成员批准→EER 完成） | 本仓库 |
 | `docs/` | 平台 ADR、架构蓝图、系统架构 v1.0、仓库工程架构 v1.0 | 本仓库 |
 | `brand/` | 品牌资源 | 本仓库 |
 
@@ -39,7 +39,7 @@ git clone https://github.com/idp-xyz/idp-workspace.git
 ```sh
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py check    # 目录、发布清单、兼容性矩阵
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py bom      # 组件移动后重新生成发布清单（matrix 同理）
-bash deploy/compose/e2e.sh                                                     # 构建三组件镜像，跑 PATH A 验收（KEEP=1 保留运行）
+bash deploy/compose/e2e.sh                                                     # 构建四个组件镜像，跑 PATH A 与 PATH B 验收（KEEP=1 保留运行）
 ```
 
 ## 许可证

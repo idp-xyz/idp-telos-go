@@ -15,15 +15,14 @@ integrations:
     interface: POST /v1/executions/{id}/approval
     contract: null
     auth: [forward, static, exchange]
-    evidence: [idp-workspace internal/dispatch tests (fake EER)]
-    gap: not run against a real EER (needs EER's https issuer and principal mapping for Workspace users)
+    evidence: [idp-workspace internal/dispatch tests, this repository deploy/compose/e2e.sh (PATH B: a member's exchanged token decides a real T2 execution)]
   - id: eer-workspace-inbox
     from: idp-eer
     to: idp-workspace
     interface: POST /v1/workspaces/{ws}/inbox/items, /inbox/close (producer)
     contract: idp.telos.workspace
     auth: [client credentials, static token file]
-    evidence: [idp-eer ADR-038 (TestLiveWorkspace against the idp-workspace image)]
+    evidence: [idp-eer ADR-038 (TestLiveWorkspace against the idp-workspace image), this repository deploy/compose/e2e.sh (PATH B)]
   - id: host-cmi-context
     from: idp-host
     to: idp-cmi

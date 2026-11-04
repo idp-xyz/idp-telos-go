@@ -3,9 +3,12 @@
 # a member signed in at Keycloak asks through the Workspace; the Workspace exchanges the member's token
 # and starts a run on idp-host; the HOST draws a ContextPackage from idp-cmi with its own identity;
 # the result comes back into the member's inbox. Then the three systems are checked against each other.
+# PATH B (P2): an operator submits a T2 intent to idp-eer; the approval wait appears in the approver's
+# Workspace inbox (EER ADR-038); the approver approves there; the Workspace exchanges the token and
+# decides on EER; EER dispatches and completes, and closes the item. EER and the Workspace are checked.
 #
 #   bash deploy/compose/e2e.sh          build the component images from the side-by-side checkouts, run, tear down
-#   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev, idp-host:dev, idp-host-fakemodel:dev, idp-workspace:dev)
+#   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev, idp-host:dev, idp-host-fakemodel:dev, idp-workspace:dev, eer-runtime:dev)
 #   KEEP=1 ...                          leave the platform running
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -13,17 +16,18 @@ ROOT="$PWD"
 L=.local/platform
 ENVF=$L/compose.env
 C=(docker compose -f deploy/compose/platform.yaml --env-file "$ENVF" --profile tools)
-ISSUER=http://127.0.0.1:7080/realms/idp
-WS=http://127.0.0.1:8560 HOST=http://127.0.0.1:8450 CMI=http://127.0.0.1:8550
+ISSUER=https://127.0.0.1:7443/realms/idp
+WS=http://127.0.0.1:8560 HOST=http://127.0.0.1:8450 CMI=http://127.0.0.1:8550 EER=http://127.0.0.1:18180
 mkdir -p "$L"
 umask 077
-if [[ ! -f "$ENVF" ]]; then
-  { for v in IDP_PG_OWNER_PASSWORD IDP_CMI_DB_PASSWORD IDP_HOST_DB_PASSWORD IDP_WORKSPACE_DB_PASSWORD KC_BOOTSTRAP_ADMIN_PASSWORD; do echo "$v=$(openssl rand -hex 16)"; done
+if [[ ! -f "$ENVF" ]] || ! grep -q EER_RUNTIME_APP_PASSWORD "$ENVF"; then
+  { for v in IDP_PG_OWNER_PASSWORD IDP_CMI_DB_PASSWORD IDP_HOST_DB_PASSWORD IDP_WORKSPACE_DB_PASSWORD KC_BOOTSTRAP_ADMIN_PASSWORD \
+             EER_RUNTIME_OWNER_PASSWORD EER_RUNTIME_APP_PASSWORD EER_RUNTIME_READONLY_PASSWORD EER_INTELLIGENCE_OWNER_PASSWORD EER_INTELLIGENCE_APP_PASSWORD; do echo "$v=$(openssl rand -hex 16)"; done
     echo "IDP_HOST_CREDENTIAL_KEY=$(openssl rand -hex 32)"; } > "$ENVF"
 fi
 set -a; source "$ENVF"; set +a
 
-for repo in idp-cmi idp-host idp-workspace; do
+for repo in idp-cmi idp-host idp-workspace idp-eer; do
   [[ -d "$repo/.git" ]] || { echo "BLOCKED: $repo is not checked out next to this repository" >&2; exit 2; }
 done
 if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
@@ -31,8 +35,9 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-host/deploy/build.sh idp-host:dev
   [[ -x idp-host/deploy/fixtures/build-fakemodel.sh ]] && bash idp-host/deploy/fixtures/build-fakemodel.sh >/dev/null
   bash idp-workspace/deploy/build.sh idp-workspace:dev
+  bash idp-eer/tools/development/runtime_image_offline.sh eer-runtime:dev
 fi
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev; do
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
 done
 
@@ -43,40 +48,95 @@ trap cleanup EXIT
 # ---- identity: one realm, one tenant for every component ----
 TENANT="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 umask 022
+# an https issuer (idp-eer accepts no other): a CA and a server certificate for 127.0.0.1 and keycloak
+rm -rf "$L/tls"; mkdir -p "$L/tls"
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=IDP TELOS platform test CA" -keyout "$L/tls/ca.key" -out "$L/tls/ca.crt" 2>/dev/null
+openssl req -newkey rsa:2048 -nodes -subj "/CN=keycloak" -keyout "$L/tls/server.key" -out "$L/tls/server.csr" 2>/dev/null
+printf 'subjectAltName=IP:127.0.0.1,DNS:keycloak,DNS:localhost\n' > "$L/tls/san.ext"
+openssl x509 -req -in "$L/tls/server.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 2 -extfile "$L/tls/san.ext" -out "$L/tls/server.crt" 2>/dev/null
+chmod 644 "$L/tls/server.key" "$L/tls/server.crt" "$L/tls/ca.crt"   # read by the Keycloak container user; a throw-away dev CA
 rm -rf "$L/keycloak"; mkdir -p "$L/keycloak"
 python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
 printf 'pending\n' > "$L/cmi.key"
 printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: http://fakemodel:18080/v1\n    insecure: true\ncmi:\n  endpoint: http://cmi:8550\n  auth: {mode: static, apiKeyFile: /etc/idp/cmi.key}\n' > "$L/host.yaml"
 python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["idp-workspace"])' > "$L/exchange.secret"
-printf 'targets:\n  host:\n    endpoint: "http://host:8450"\n    auth: exchange\n    exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: idp-host}\n' > "$L/workspace.yaml"
-chmod 644 "$L"/keycloak/idp-realm.json "$L/host.yaml" "$L/cmi.key" "$L/exchange.secret" "$L/workspace.yaml"
+cat > "$L/workspace.yaml" <<'YAML'
+targets:
+  host:
+    endpoint: "http://host:8450"
+    auth: exchange
+    exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: idp-host}
+  eer:
+    endpoint: "http://eer-api:8080"
+    auth: exchange
+    exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: eer-runtime}
+    tenantId: pilot
+YAML
+python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["svc-eer"])' > "$L/svc-eer.secret"
+# idp-eer: Keycloak as its issuer; operator submits, bob approves as actor bob; its own workloads
+python3 - "$L/clients.json" "$ISSUER" > "$L/eer.env" <<'PY'
+import json, sys
+ids = json.load(open(sys.argv[1]))["ids"]; iss = sys.argv[2]
+wl = "urn:eer:workload"
+mappings = [{"issuer": iss, "subject": ids["operator"], "tenant_id": "pilot", "actor_id": "operator"},
+            {"issuer": iss, "subject": ids["bob"], "tenant_id": "pilot", "actor_id": "bob"}] + \
+           [{"issuer": wl, "subject": s, "tenant_id": "pilot"} for s in ("eer-worker", "eer-projector", "eer-configure")]
+policy = {"policy_id": "platform-acceptance", "policy_version": 1,
+          "bindings": [{"issuer": iss, "subject": ids["operator"], "roles": ["runtime-operator"]},
+                       {"issuer": iss, "subject": ids["bob"], "roles": ["runtime-operator"]},
+                       {"issuer": wl, "subject": "eer-worker", "roles": ["runtime-workload"]},
+                       {"issuer": wl, "subject": "eer-projector", "roles": ["runtime-workload"]},
+                       {"issuer": wl, "subject": "eer-configure", "roles": ["runtime-configurator"]}],
+          "grants": [
+              {"grant_id": "operator-general", "role": "runtime-operator", "principal_kind": "human", "actor_scope": "any",
+               "actions": ["event.publish", "execution.submit", "execution.read", "decision.read", "actor.read", "plan.read", "world.read", "human_task.read"]},
+              {"grant_id": "operator-mapped-actor", "role": "runtime-operator", "principal_kind": "human", "actor_scope": "mapped",
+               "actions": ["execution.approve", "execution.cancel"]},
+              {"grant_id": "runtime-workload", "role": "runtime-workload", "principal_kind": "workload", "actor_scope": "any",
+               "actions": ["event.publish", "event.replay", "execution.submit", "execution.dispatch", "world.snapshot.create", "human_task.create", "human_task.expire"]},
+              {"grant_id": "runtime-configuration", "role": "runtime-configurator", "principal_kind": "workload", "actor_scope": "any", "actions": ["configuration.apply"]}]}
+# EER fetches keys over https only (http is for .invalid test issuers); it trusts the run's CA (SSL_CERT_FILE)
+issuers = [{"issuer": iss, "audience": "eer-runtime", "jwks_url": "https://keycloak:7443/realms/idp/protocol/openid-connect/certs"}]
+for k, v in (("EER_PRINCIPAL_MAPPINGS", mappings), ("EER_AUTHORIZATION_POLICY", policy), ("EER_OIDC_ISSUERS", issuers)):
+    print(k + "=" + json.dumps(v, separators=(",", ":")))
+print("SSL_CERT_FILE=/etc/eer/ca.crt")
+PY
+chmod 644 "$L"/keycloak/idp-realm.json "$L/host.yaml" "$L/cmi.key" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
 token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
-user_token() { curl -sf --noproxy '*' "$ISSUER/protocol/openid-connect/token" -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d "username=$1" -d "password=$(secret_of "$1")" | token_json; }
+KC=(curl -sf --noproxy '*' --cacert "$L/tls/ca.crt")
+user_token() { "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d "username=$1" -d "password=$(secret_of "$1")" | token_json; }
 
 "${C[@]}" up -d --wait postgres
-for db in idp_cmi idp_host idp_workspace; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
-"${C[@]}" up -d keycloak
-for _ in $(seq 1 120); do curl -sf --noproxy '*' -o /dev/null "$ISSUER/.well-known/openid-configuration" && break; sleep 1; done
-curl -sf --noproxy '*' -o /dev/null "$ISSUER/.well-known/openid-configuration" || { "${C[@]}" logs --tail 30 keycloak; echo "BLOCKED: Keycloak did not come up" >&2; exit 2; }
+for db in idp_cmi idp_host idp_workspace eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
+"${C[@]}" up -d keycloak eer-temporal
+for _ in $(seq 1 120); do "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" && break; sleep 1; done
+"${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" || { "${C[@]}" logs --tail 30 keycloak; echo "BLOCKED: Keycloak did not come up" >&2; exit 2; }
 for c in cmi host workspace; do
   "${C[@]}" run --rm -T $c-admin migrate >/dev/null
 done
 "${C[@]}" run --rm -T cmi-admin ensure-login idp_cmi_svc
 "${C[@]}" run --rm -T host-admin ensure-login idp_host_svc
 "${C[@]}" run --rm -T workspace-admin ensure-login idp_ws_svc
+# idp-eer: its roles (deploy/postgres/bootstrap-runtime-roles.sql), schema and pilot Actors and Plans
+"${C[@]}" exec -T postgres psql -U postgres --no-psqlrc -q --set ON_ERROR_STOP=1 \
+  --set "runtime_owner_password=$EER_RUNTIME_OWNER_PASSWORD" --set "runtime_app_password=$EER_RUNTIME_APP_PASSWORD" \
+  --set "runtime_readonly_password=$EER_RUNTIME_READONLY_PASSWORD" --set "intelligence_owner_password=$EER_INTELLIGENCE_OWNER_PASSWORD" \
+  --set "intelligence_app_password=$EER_INTELLIGENCE_APP_PASSWORD" --dbname eer < idp-eer/deploy/postgres/bootstrap-runtime-roles.sql >/dev/null
+"${C[@]}" run --rm -T eer-migrate >/dev/null
+"${C[@]}" run --rm -T eer-configure >/dev/null
 for c in cmi host workspace; do
   got="$("${C[@]}" run --rm -T $c-admin seed-tenant acme "$TENANT" | sed -n 's/^TENANT_ID=//p')"
   [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: $c tenant $got != $TENANT" >&2; exit 2; }
 done
 # the HOST's own identity at the CMI (client credentials), as its static key
 umask 022
-curl -sf --noproxy '*' "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=idp-host-svc -d "client_secret=$(secret_of idp-host-svc)" | token_json > "$L/cmi.key"
+"${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=idp-host-svc -d "client_secret=$(secret_of idp-host-svc)" | token_json > "$L/cmi.key"
 umask 077
-"${C[@]}" up -d cmi host host-worker workspace
-for url in "$CMI/healthz" "$HOST/healthz" "$WS/healthz"; do
-  for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null "$url" && break; sleep 0.5; done
+"${C[@]}" up -d cmi host host-worker workspace eer-api eer-worker eer-projector
+for url in "$CMI/healthz" "$HOST/healthz" "$WS/healthz" "$EER/health/ready" http://127.0.0.1:18181/health/ready http://127.0.0.1:18182/health/ready; do
+  for _ in $(seq 1 120); do curl -sf --noproxy '*' -o /dev/null "$url" && break; sleep 0.5; done
   curl -sf --noproxy '*' -o /dev/null "$url" || { "${C[@]}" logs --tail 20; echo "BLOCKED: $url" >&2; exit 2; }
 done
 
@@ -136,3 +196,44 @@ OWNER="$(echo "$RUNDOC" | field "['owner']")"
 INVLIST="$(call 200 GET "$WS/v1/workspaces/us-ops/invocations" "$BOB" | field "['invocations'][0]['result']['id']")"
 [[ "$INVLIST" == "$RUN" ]] || { echo "FAIL: the Workspace's invocation record names $INVLIST, not $RUN" >&2; exit 1; }
 echo "PASS: PATH A — bob (Keycloak) -> Workspace (token exchange) -> HOST run $RUN (owner $OWNER) -> CMI package $PKG with the pickup policy -> bob's inbox: $RESULT"
+
+# ---- PATH B: a T2 execution waits for a human; the approver decides in the Workspace ----
+OPERATOR="$(user_token operator)"; BOB="$(user_token bob)"
+call 200 PUT "$WS/api/v1/workspaces/us-ops/members/bob" "$ALICE" '{"roles":["approver"]}' >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" "$(cat idp-workspace/deploy/apps/eer-approvals.json)" >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/eer-approvals" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+SUFFIX="$(date +%s%N)"
+EVENT="event:platform-$SUFFIX" EXEC="execution:platform-$SUFFIX"
+NOW="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+call 201 POST "$EER/v1/events" "$OPERATOR" "{\"tenant_id\":\"pilot\",\"event_id\":\"$EVENT\",\"event_type\":\"parcel.address.rejected\",\"occurred_at\":\"$NOW\",\"source\":\"actor:carrier-connector\",\"subject\":\"parcel:PLATFORM-$SUFFIX\",\"schema_version\":1,\"correlation_id\":\"loop:platform-$SUFFIX\",\"payload\":{\"reason\":\"postal_code_missing\"}}" >/dev/null
+call 202 POST "$EER/v1/intents" "$OPERATOR" "{\"intent\":{\"tenant_id\":\"pilot\",\"intent_id\":\"intent:platform-$SUFFIX\",\"schema_version\":1,\"objective\":\"correct rejected parcel address\",\"originating_events\":[\"$EVENT\"],\"correlation_id\":\"loop:platform-$SUFFIX\",\"constraints\":{\"disposition_tier\":\"T2\"},\"policy_id\":\"address-exception-policy\",\"policy_version\":1,\"created_at\":\"$NOW\"},\"execution_id\":\"$EXEC\",\"plan_id\":\"address-error-actions\",\"plan_version\":1,\"compilation_context\":{\"context\":{\"parcel\":{\"parcel_id\":\"PKG-$SUFFIX\"}},\"request\":{\"oms_action_cost\":0,\"reissue_cost\":120,\"fail_mode\":\"none\"}}}" >/dev/null
+state_of() { call 200 GET "$EER/v1/executions/$EXEC" "$OPERATOR" | field "['state']"; }
+for _ in $(seq 1 120); do [[ "$(state_of)" == Waiting ]] && break; sleep 0.5; done
+[[ "$(state_of)" == Waiting ]] || { echo "FAIL: $EXEC is $(state_of), not Waiting for approval" >&2; exit 1; }
+ITEM=""
+for _ in $(seq 1 120); do
+  ITEM="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=approval" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='$EXEC/approval': print(it['itemId'])")"
+  [[ -n "$ITEM" ]] && break; sleep 0.5
+done
+[[ -n "$ITEM" ]] || { "${C[@]}" logs --tail 30 eer-projector; echo "FAIL: the approval wait of $EXEC never reached bob's inbox" >&2; exit 1; }
+DECIDED="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" "{\"app\":\"eer-approvals\",\"action\":\"approval.approve\",\"itemId\":\"$ITEM\",\"input\":{}}")"
+[[ "$(echo "$DECIDED" | field "['result']['accepted']")" == True ]] || { echo "FAIL: EER did not accept the decision: $DECIDED" >&2; exit 1; }
+for _ in $(seq 1 120); do [[ "$(state_of)" == Completed ]] && break; sleep 0.5; done
+[[ "$(state_of)" == Completed ]] || { "${C[@]}" logs --tail 30 eer-worker; echo "FAIL: $EXEC is $(state_of) after the approval" >&2; exit 1; }
+call 200 GET "$EER/v1/executions/$EXEC" "$OPERATOR" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+audit=[(a.get('action'), a.get('actor_id') or a.get('actor')) for a in d.get('audit',[])]
+assert ('approval.approved','bob') in audit, audit
+print('EER audit:', [a for a in audit if a[0].startswith('approval')])
+" || { echo "FAIL: EER did not record bob's approval" >&2; exit 1; }
+CLOSED=""
+for _ in $(seq 1 120); do
+  CLOSED="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox/$ITEM" "$BOB" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['status']+'/'+((d.get('resolution') or {}).get('outcome') or ''))")"
+  [[ "$CLOSED" == resolved/approved ]] && break; sleep 0.5
+done
+[[ "$CLOSED" == resolved/approved ]] || { echo "FAIL: the inbox item is $CLOSED" >&2; exit 1; }
+echo "PASS: PATH B — operator -> EER $EXEC (T2) -> Waiting -> bob's inbox (EER projector, svc-eer) -> bob approves in the Workspace (token exchange) -> EER Completed, audit approval.approved by bob -> item $CLOSED by EER"

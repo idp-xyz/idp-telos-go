@@ -27,13 +27,13 @@ components:
     adr: docs/adr/ADR-0001-host-design.md
     contracts: {produces: idp.telos.host, consumes: [idp.telos.cmi]}  # MCP is reached through its protocol, not idp.telos.mcp documents
   - name: idp-eer
-    platform: false   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6)
+    platform: true   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6)
     title: Enterprise Execution Runtime
     repository: idp-xyz/idp-eer
     visibility: private
     language: [go, python]
     executables: [eer-api, eer-worker, eer-projector, eer-migrate]
-    image: eer-runtime
+    image: eer-runtime   # offline build: tools/development/runtime_image_offline.sh
     ports: {api: 8080}
     adr: docs/eer/adr/README.md
     contracts: {produces: null, consumes: [idp.telos.host, idp.telos.cmi]}

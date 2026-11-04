@@ -2,8 +2,10 @@
 # PostgreSQL (a database per component), Keycloak (deploy/keycloak/realm.py), idp-cmi, idp-host (with
 # its worker and model double) and idp-workspace, each the image its own repository builds
 # (releases/platform-bom.yaml records their ids). Driven by deploy/compose/e2e.sh.
-# The browser uses http://127.0.0.1:{7080 Keycloak, 8560 Workspace}; containers reach each other by name.
-# DEV ONLY: a test realm, plaintext http on private networks. idp-eer is not part of it yet (ADR-0001 T6).
+# Keycloak's issuer is https://127.0.0.1:7443/realms/idp (a CA generated per run in .local/platform/tls),
+# because idp-eer accepts only https issuers; containers fetch keys and tokens from http://keycloak:7080.
+# idp-eer runs from its offline image with Temporal (P2). The browser uses 127.0.0.1:{7443, 8560}.
+# DEV ONLY: a test realm and CA, plaintext http on private networks.
 name: idp-telos-platform
 
 x-hardened: &hardened
@@ -34,14 +36,18 @@ services:
     image: ${IDP_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.1}
     command: [start-dev, --import-realm, --features, 'token-exchange-standard']
     networks: [edge, upstream]
-    ports: ['127.0.0.1:7080:7080']
+    ports: ['127.0.0.1:7443:7443']
     environment:
+      KC_HTTP_ENABLED: 'true'
       KC_HTTP_PORT: '7080'
-      KC_HOSTNAME: http://127.0.0.1:7080
+      KC_HTTPS_PORT: '7443'
+      KC_HTTPS_CERTIFICATE_FILE: /opt/keycloak/tls/server.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /opt/keycloak/tls/server.key
+      KC_HOSTNAME: https://127.0.0.1:7443
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?run deploy/compose/e2e.sh}
-    volumes: ['../../.local/platform/keycloak:/opt/keycloak/data/import:ro']
+    volumes: ['../../.local/platform/keycloak:/opt/keycloak/data/import:ro', '../../.local/platform/tls:/opt/keycloak/tls:ro']
 
   # ---- idp-cmi ----
   cmi-admin:
@@ -62,7 +68,7 @@ services:
       <<: *oidc
       IDP_DATABASE_URL: postgres://idp_cmi_svc:${IDP_CMI_DB_PASSWORD}@postgres:5432/idp_cmi?sslmode=disable
       IDP_CMI_LISTEN: 0.0.0.0:8550
-      IDP_CMI_ISSUER: http://127.0.0.1:7080/realms/idp
+      IDP_CMI_ISSUER: https://127.0.0.1:7443/realms/idp
       IDP_CMI_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
       IDP_CMI_AUDIENCE: idp-cmi
 
@@ -90,7 +96,7 @@ services:
       IDP_DEV_MODE: 'true'   # only so the HOST talks plaintext http to its model double; tokens still come from Keycloak (JWKS)
       IDP_DATABASE_URL: postgres://idp_host_svc:${IDP_HOST_DB_PASSWORD}@postgres:5432/idp_host?sslmode=disable
       IDP_HOST_LISTEN: 0.0.0.0:8450
-      IDP_HOST_ISSUER: http://127.0.0.1:7080/realms/idp
+      IDP_HOST_ISSUER: https://127.0.0.1:7443/realms/idp
       IDP_HOST_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
       IDP_HOST_CREDENTIAL_KEY: ${IDP_HOST_CREDENTIAL_KEY:?run deploy/compose/e2e.sh}
       IDP_HOST_CONFIG: /etc/idp/host.yaml
@@ -127,7 +133,7 @@ services:
       IDP_DEV_MODE: 'true'   # only for the ephemeral app-token key; tokens come from Keycloak (JWKS)
       IDP_DATABASE_URL: postgres://idp_ws_svc:${IDP_WORKSPACE_DB_PASSWORD}@postgres:5432/idp_workspace?sslmode=disable
       IDP_WORKSPACE_LISTEN: 0.0.0.0:8560
-      IDP_WORKSPACE_ISSUER: http://127.0.0.1:7080/realms/idp
+      IDP_WORKSPACE_ISSUER: https://127.0.0.1:7443/realms/idp
       IDP_WORKSPACE_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
       IDP_WORKSPACE_OIDC_CLIENT_ID: workspace-shell
       IDP_WORKSPACE_SUBJECT_CLAIM: preferred_username
@@ -135,3 +141,84 @@ services:
       IDP_WORKSPACE_CONFIG: /etc/idp/workspace.yaml
     volumes: ['../../.local/platform/workspace.yaml:/etc/idp/workspace.yaml:ro', '../../.local/platform/exchange.secret:/etc/idp/exchange.secret:ro']
     depends_on: [host]
+
+  # ---- idp-eer (image: idp-eer tools/development/runtime_image_offline.sh) ----
+  eer-temporal:
+    image: ${EER_TEMPORAL_IMAGE:-local/temporal:1.7.3}
+    command: [server, start-dev, --ip, 0.0.0.0, --headless]
+    networks: [data]
+  eer-migrate:
+    <<: *hardened
+    image: ${EER_RUNTIME_IMAGE:-eer-runtime:dev}
+    profiles: [tools]
+    command: [eer-migrate]
+    networks: [data]
+    environment:
+      EER_MIGRATION_PG_DSN: postgresql://eer_runtime_owner:${EER_RUNTIME_OWNER_PASSWORD:?run deploy/compose/e2e.sh}@postgres:5432/eer?sslmode=disable
+  eer-configure:
+    <<: *hardened
+    image: ${EER_RUNTIME_IMAGE:-eer-runtime:dev}
+    profiles: [tools]
+    command: [eer-configure]
+    networks: [data]
+    volumes: ['../../.local/platform/tls/ca.crt:/etc/eer/ca.crt:ro']
+    env_file: ['../../.local/platform/eer.env']
+    environment:
+      EER_PG_DSN: &eer-dsn postgresql://eer_runtime_app:${EER_RUNTIME_APP_PASSWORD:?run deploy/compose/e2e.sh}@postgres:5432/eer?sslmode=disable
+      EER_TENANT_ID: pilot
+      EER_WORKLOAD_ISSUER: urn:eer:workload
+      EER_WORKLOAD_SUBJECT: eer-configure
+  eer-api:
+    <<: *hardened
+    image: ${EER_RUNTIME_IMAGE:-eer-runtime:dev}
+    command: [eer-api]
+    networks: [edge, upstream, data]
+    ports: ['127.0.0.1:18180:8080']
+    env_file: ['../../.local/platform/eer.env']
+    environment:
+      EER_PG_DSN: *eer-dsn
+      EER_TEMPORAL_TARGET: eer-temporal:7233
+      EER_TENANT_ID: pilot
+      EER_HTTP_ADDRESS: ':8080'
+    volumes: ['../../.local/platform/tls/ca.crt:/etc/eer/ca.crt:ro']
+    depends_on: [eer-temporal]
+  eer-worker:
+    <<: *hardened
+    image: ${EER_RUNTIME_IMAGE:-eer-runtime:dev}
+    command: [eer-worker]
+    networks: [edge, data]
+    ports: ['127.0.0.1:18181:8081']
+    env_file: ['../../.local/platform/eer.env']
+    environment:
+      EER_PG_DSN: *eer-dsn
+      EER_TEMPORAL_TARGET: eer-temporal:7233
+      EER_TENANT_ID: pilot
+      EER_HEALTH_ADDRESS: ':8081'
+      EER_WORKLOAD_ISSUER: urn:eer:workload
+      EER_WORKLOAD_SUBJECT: eer-worker
+      EER_EXECUTION_INVOKER_MODE: conformance   # EER's deterministic Actor harness; no real connectors in the platform
+    volumes: ['../../.local/platform/tls/ca.crt:/etc/eer/ca.crt:ro']
+    depends_on: [eer-temporal]
+  eer-projector:
+    <<: *hardened
+    image: ${EER_RUNTIME_IMAGE:-eer-runtime:dev}
+    command: [eer-projector]
+    networks: [edge, upstream, data]
+    ports: ['127.0.0.1:18182:8082']
+    env_file: ['../../.local/platform/eer.env']
+    environment:
+      EER_PG_DSN: *eer-dsn
+      EER_TENANT_ID: pilot
+      EER_HEALTH_ADDRESS: ':8082'
+      EER_WORKLOAD_ISSUER: urn:eer:workload
+      EER_WORKLOAD_SUBJECT: eer-projector
+      EER_PROJECTOR_POLL_INTERVAL: 250ms
+      # idp-eer ADR-038: approval waits into the Workspace inbox, as the producer svc-eer
+      EER_WORKSPACE_INBOX_URL: http://workspace:8560
+      EER_WORKSPACE_INBOX_WORKSPACE: us-ops
+      EER_WORKSPACE_INBOX_APP: eer-approvals
+      EER_WORKSPACE_INBOX_ROLES: approver
+      EER_WORKSPACE_INBOX_TOKEN_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/token
+      EER_WORKSPACE_INBOX_CLIENT_ID: svc-eer
+      EER_WORKSPACE_INBOX_CLIENT_SECRET_FILE: /etc/eer/svc-eer.secret
+    volumes: ['../../.local/platform/svc-eer.secret:/etc/eer/svc-eer.secret:ro', '../../.local/platform/tls/ca.crt:/etc/eer/ca.crt:ro']
