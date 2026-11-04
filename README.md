@@ -6,9 +6,9 @@ IDP TELOS 的 Go 实现。本仓库是工作区：承载 `idp.telos.*` 契约登
 |---|---|---|
 | `idp-mcp/` | MCP 基础设施：`mcp-gateway`（数据面）与 `registry-service`（控制面）。M1–M5 完成并实测；设计见其 `docs/adr/ADR-0001-mcp-infrastructure.md` | [idp-xyz/idp-mcp](https://github.com/idp-xyz/idp-mcp) |
 | `idp-host/` | Agent Hosting & Coordination：Agent 与 Skill 发布、Run 状态机、harness、模型适配器（OpenAI 兼容 / Anthropic / Gemini / 外部 harness worker）与路由、经 idp-mcp 的工具调用（含 Keycloak 委派）、子 agent、租户配额、内容护栏、评估门禁、AG-UI 与 A2A。M1–M5 完成并实测；设计见其 `docs/adr/ADR-0001-host-design.md` | [idp-xyz/idp-host](https://github.com/idp-xyz/idp-host) |
-| `idp-eer/` | Enterprise Execution Runtime：持久化 Agent Loop，Agent Turn 由 idp-host 提供（ADR-036），依赖契约 `idp.telos.host` 1.2.0（1.5.0 对其只有新增） | [idp-xyz/idp-eer](https://github.com/idp-xyz/idp-eer) |
+| `idp-eer/` | Enterprise Execution Runtime：持久化 Agent Loop，Agent Turn 由 idp-host 提供（ADR-036），依赖契约 `idp.telos.host` 1.2.0（1.6.0 对其只有新增） | [idp-xyz/idp-eer](https://github.com/idp-xyz/idp-eer) |
 | `idp-cmi/` | Context, Memory & Knowledge Infrastructure：来源与信任级别、记忆记录（来历、有效期、撤销）、知识文档与全文索引、密封的上下文包、敏感级别与 ACL。M1 完成并实测；设计见其 `docs/adr/ADR-0001-cmi-design.md` | [idp-xyz/idp-cmi](https://github.com/idp-xyz/idp-cmi) |
-| `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.0.0、`idp.telos.host` 1.5.0、`idp.telos.cmi` 1.0.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
+| `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.0.0、`idp.telos.host` 1.6.0、`idp.telos.cmi` 1.0.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
 | `docs/` | 架构蓝图、系统架构 v1.0、仓库工程架构 v1.0 | 本仓库 |
 | `brand/` | 品牌资源 | 本仓库 |
 

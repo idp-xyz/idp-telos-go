@@ -203,6 +203,11 @@ if HOST in schemas:
         ('release_without_routing', HOST, 'AgentRelease', 0, U('subagents'), P('definition.subagents', []), P('definition.model', {'provider': 'local', 'model': 'qwen3.8-flash'})),
         ('release_routing_latency', HOST, 'AgentRelease', 0, P('definition.model.routing.strategy', 'latency')),
         ('release_candidate_minimal', HOST, 'AgentRelease', 0, P('definition.model.routing.candidates', [{'provider': 'local', 'model': 'qwen3.8-flash'}])),
+        # 1.6.0 (D32)
+        ('release_without_context', HOST, 'AgentRelease', 0, U('definition.context')),
+        ('release_context_minimal', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True})),
+        ('release_context_fail', HOST, 'AgentRelease', 0, P('definition.context.onError', 'fail')),
+        ('run_with_context_package', HOST, 'AgentRun', 1, S(contextPackageId='pkg_01JD7Q3Z8M8T0G3C6N4V9S2B01')),
     ]
     NEGATIVE += [
         ('host_wrong_schema_version', HOST, 'AgentRelease', 0, S(schemaVersion='idp.host.agent/v2')),
@@ -286,6 +291,13 @@ if HOST in schemas:
         ('host_a2a_card_not_a_url', HOST, 'AgentRelease', 0, P('definition.subagents.1.a2a.cardUrl', 'carrier-desk')),
         ('host_a2a_embedded_not_a_url', HOST, 'AgentRelease', 0, P('subagents.1.a2a.cardUrl', 'nope')),
         ('host_a2a_unknown_field', HOST, 'AgentRelease', 0, P('definition.subagents.1.a2a.token', 'x')),
+        # 1.6.0 (D32)
+        ('host_context_on_error_unknown', HOST, 'AgentRelease', 0, P('definition.context.onError', 'retry')),
+        ('host_context_kind_unknown', HOST, 'AgentRelease', 0, P('definition.context.kinds.0', 'secrets')),
+        ('host_context_budget_too_high', HOST, 'AgentRelease', 0, P('definition.context.maxTokens', 64000)),
+        ('host_context_source_not_a_name', HOST, 'AgentRelease', 0, P('definition.context.sources.0', 'Ops Handbook')),
+        ('host_context_unknown_field', HOST, 'AgentRelease', 0, P('definition.context.ttl', 30)),
+        ('host_run_empty_context_package', HOST, 'AgentRun', 0, S(contextPackageId='')),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):

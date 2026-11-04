@@ -5,7 +5,7 @@
 | 命名空间 | 版本 | `$id` | 内容 | 生产者 | 状态 |
 |---|---|---|---|---|---|
 | `idp.telos.mcp` | 1.0.0 | `urn:idp:telos:mcp:1.0.0` | Release、Envelope、InvocationRecord（MCP 基础设施 idp-mcp） | `idp-mcp/api/contracts`，`go test ./internal/release -run TestContract` | 已发布（2026-11-03） |
-| `idp.telos.host` | 1.5.0 | `urn:idp:telos:host:1.5.0` | AgentRelease（可嵌入 Skill、引用本地或远端 A2A 子 agent，带护栏、评估集与模型路由）、SkillRelease（可带资源）、Envelope、AgentRun（含子 agent 运行与评估运行）、RunOptions（创建运行时的调用方选项）（Agent Hosting & Coordination idp-host） | `idp-host/api/contracts`，`go test ./internal/run -run TestContract` | 已发布（2026-11-04）；1.4.0 及更早版本 SUPERSEDED，文件保留，`tools/validate.py` 检查 1.5.0 对它们都只做了向后兼容的新增 |
+| `idp.telos.host` | 1.6.0 | `urn:idp:telos:host:1.6.0` | AgentRelease（可嵌入 Skill、引用本地或远端 A2A 子 agent，带护栏、评估集、模型路由与 CMI 上下文策略）、SkillRelease（可带资源）、Envelope、AgentRun（含子 agent 运行、评估运行与 contextPackageId）、RunOptions（创建运行时的调用方选项）（Agent Hosting & Coordination idp-host） | `idp-host/api/contracts`，`go test ./internal/run -run TestContract` | 已发布（2026-11-04）；1.4.0 及更早版本 SUPERSEDED，文件保留，`tools/validate.py` 检查 1.5.0 对它们都只做了向后兼容的新增 |
 
 | `idp.telos.cmi` | 1.0.0 | `urn:idp:telos:cmi:1.0.0` | ContextPackage、ContextItem、MemoryRecord、Source、KnowledgeDocument、Envelope（Context, Memory & Knowledge Infrastructure idp-cmi） | `idp-cmi/api/contracts`，`go test ./internal/cmi -run TestContract` | 已发布（2026-11-04） |
 

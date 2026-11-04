@@ -12,9 +12,9 @@
       "definitions": 12
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.5.0",
-      "version": "1.5.0",
-      "definitions": 27
+      "id": "urn:idp:telos:host:1.6.0",
+      "version": "1.6.0",
+      "definitions": 28
     },
     "idp.telos.cmi": {
       "id": "urn:idp:telos:cmi:1.0.0",
@@ -22,12 +22,12 @@
       "definitions": 12
     }
   },
-  "positive_cases": 55,
-  "negative_cases": 112,
-  "passed": 167,
-  "total": 167,
-  "invariants_passed": 22,
-  "invariants_total": 22,
+  "positive_cases": 59,
+  "negative_cases": 118,
+  "passed": 177,
+  "total": 177,
+  "invariants_passed": 23,
+  "invariants_total": 23,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -54,19 +54,22 @@
     "host_definitions_are_closed": {
       "passed": true
     },
-    "idp_telos_host_1_5_0_is_additive_over_1_4_0": {
+    "idp_telos_host_1_6_0_is_additive_over_1_5_0": {
       "passed": true
     },
-    "idp_telos_host_1_5_0_is_additive_over_1_3_0": {
+    "idp_telos_host_1_6_0_is_additive_over_1_4_0": {
       "passed": true
     },
-    "idp_telos_host_1_5_0_is_additive_over_1_2_0": {
+    "idp_telos_host_1_6_0_is_additive_over_1_3_0": {
       "passed": true
     },
-    "idp_telos_host_1_5_0_is_additive_over_1_1_0": {
+    "idp_telos_host_1_6_0_is_additive_over_1_2_0": {
       "passed": true
     },
-    "idp_telos_host_1_5_0_is_additive_over_1_0_0": {
+    "idp_telos_host_1_6_0_is_additive_over_1_1_0": {
+      "passed": true
+    },
+    "idp_telos_host_1_6_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -534,6 +537,38 @@
       "case": "release_candidate_minimal",
       "namespace": "idp.telos.host",
       "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_without_context",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_context_minimal",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_context_fail",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "run_with_context_package",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -1656,6 +1691,66 @@
       "passed": true,
       "errors": [
         "definition/subagents/1/a2a: Additional properties are not allowed ('token' was unexpected)"
+      ]
+    },
+    {
+      "case": "host_context_on_error_unknown",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/context/onError: 'retry' is not one of ['skip', 'fail']"
+      ]
+    },
+    {
+      "case": "host_context_kind_unknown",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/context/kinds/0: 'secrets' is not one of ['memory', 'knowledge']"
+      ]
+    },
+    {
+      "case": "host_context_budget_too_high",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/context/maxTokens: 64000 is greater than the maximum of 32000"
+      ]
+    },
+    {
+      "case": "host_context_source_not_a_name",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/context/sources/0: 'Ops Handbook' does not match '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'"
+      ]
+    },
+    {
+      "case": "host_context_unknown_field",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/context: Additional properties are not allowed ('ttl' was unexpected)"
+      ]
+    },
+    {
+      "case": "host_run_empty_context_package",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRun",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "contextPackageId: '' should be non-empty"
       ]
     }
   ]
