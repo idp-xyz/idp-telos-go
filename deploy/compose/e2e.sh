@@ -51,7 +51,7 @@ done
 if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-cmi/deploy/build.sh idp-cmi:dev
   bash idp-host/deploy/build.sh idp-host:dev
-  [[ -x idp-host/deploy/fixtures/build-fakemodel.sh ]] && bash idp-host/deploy/fixtures/build-fakemodel.sh >/dev/null
+  bash idp-host/deploy/fixtures/build-fakemodel.sh >/dev/null
   bash idp-workspace/deploy/build.sh idp-workspace:dev
   bash idp-eer/tools/development/runtime_image_offline.sh eer-runtime:dev
 fi
