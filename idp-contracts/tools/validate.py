@@ -194,6 +194,11 @@ if HOST in schemas:
         ('release_resource_inline_only', HOST, 'AgentRelease', 0, P('skills.0.definition.resources.1.onDemand', False)),
         ('run_awaiting_subagent', HOST, 'AgentRun', 0, S(status='AWAITING_SUBAGENT')),
         ('run_child', HOST, 'AgentRun', 0, S(parentRunId='run_01JD7Q3Z8M8T0G3C6N4V9S2A1E', depth=1)),
+        # 1.4.0 (D26-D28)
+        ('release_guards_off', HOST, 'AgentRelease', 0, P('definition.guards', {'input': {'toolResults': 'off', 'context': 'off'}})),
+        ('release_without_evaluation', HOST, 'AgentRelease', 0, U('definition.evaluation'), P('definition.guards.output', {})),
+        ('release_evaluation_minimal', HOST, 'AgentRelease', 0, P('definition.evaluation', {'cases': [{'name': 'a', 'input': 'hi', 'expect': {'noToolCall': True}}]})),
+        ('run_evaluation', HOST, 'AgentRun', 0, S(purpose='evaluation')),
     ]
     NEGATIVE += [
         ('host_wrong_schema_version', HOST, 'AgentRelease', 0, S(schemaVersion='idp.host.agent/v2')),
@@ -255,6 +260,19 @@ if HOST in schemas:
         ('host_skill_release_bad_resource', HOST, 'SkillRelease', 0, P('definition.resources.0.mediaType', 'text/html')),
         ('host_run_negative_depth', HOST, 'AgentRun', 0, S(depth=-1)),
         ('host_run_bad_parent_id', HOST, 'AgentRun', 0, S(parentRunId='run 1')),
+        # 1.4.0 (D26-D28)
+        ('host_guard_input_mode_unknown', HOST, 'AgentRelease', 0, P('definition.guards.input.toolResults', 'sanitize')),
+        ('host_guard_input_incomplete', HOST, 'AgentRelease', 0, P('definition.guards.input', {'toolResults': 'wrap'})),
+        ('host_guard_redact_unknown', HOST, 'AgentRelease', 0, P('definition.guards.output.redact.0', 'ssn')),
+        ('host_guard_on_error_unknown', HOST, 'AgentRelease', 0, P('definition.guards.output.onError', 'retry')),
+        ('host_guard_pattern_empty', HOST, 'AgentRelease', 0, P('definition.guards.output.patterns.0', '')),
+        ('host_guard_classifier_bad_name', HOST, 'AgentRelease', 0, P('definition.guards.output.classifier', 'Bad Name')),
+        ('host_eval_case_bad_name', HOST, 'AgentRelease', 0, P('definition.evaluation.cases.0.name', 'has space')),
+        ('host_eval_case_empty_input', HOST, 'AgentRelease', 0, P('definition.evaluation.cases.0.input', '')),
+        ('host_eval_max_steps_too_high', HOST, 'AgentRelease', 0, P('definition.evaluation.cases.0.expect.maxSteps', 1000)),
+        ('host_eval_tool_not_a_name', HOST, 'AgentRelease', 0, P('definition.evaluation.cases.1.expect.toolCalled', 'bad name')),
+        ('host_eval_unknown_field', HOST, 'AgentRelease', 0, P('definition.evaluation.extra', True)),
+        ('host_run_unknown_purpose', HOST, 'AgentRun', 0, S(purpose='test')),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
