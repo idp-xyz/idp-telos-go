@@ -39,7 +39,9 @@ git clone https://github.com/idp-xyz/idp-workspace.git
 ```sh
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py check    # 目录、发布清单、兼容性矩阵
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py bom      # 组件移动后重新生成发布清单（matrix 同理）
-bash deploy/compose/e2e.sh                                                     # 构建四个组件镜像，跑 PATH A 与 PATH B 验收（KEEP=1 保留运行）
+bash deploy/compose/e2e.sh                                                     # 构建四个组件镜像，跑 PATH A、B、C 验收（KEEP=1 保留运行；MODEL=live 用本机真实模型）
+uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py          # 渲染五个组件的 Kubernetes 清单，核对每条集成两端的 NetworkPolicy
+bash tests/kind/smoke.sh                                                       # 在 kind 集群上按组件清单部署并跑 PATH A（CI: kind.yml）
 ```
 
 ## 许可证

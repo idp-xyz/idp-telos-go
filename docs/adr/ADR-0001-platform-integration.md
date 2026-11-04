@@ -66,4 +66,10 @@
 - **Kubernetes**：
   - 组件自带清单：idp-workspace（新增，含一致性测试）、idp-eer（新增，PR #26：五个进程的 Deployment / Job，测试把每个工作负载由清单拼出的环境交给 Runtime 自己的 `LoadConfig`，并验证删掉 Temporal 地址或改成 http 的 JWKS 时失败）。
   - `tools/k8s_check.py`：渲染五个组件的清单（kustomize 经 `go run`），对目录中每条集成核对调用方的出站规则与被调方的入站规则（命名空间选择器按标签语义匹配）。首次运行发现三处跨组件缺陷并已在各自仓库修复：idp-host 没有到 idp-cmi 的出站（上下文包被阻断）、idp-host 的命名空间缺少 MCP 网关接纳客户端所用的标签（工具调用被阻断）、idp-workspace 的命名空间缺少 idp-host 接纳客户端所用的标签（host.run 被阻断）。compose 环境不执行 NetworkPolicy，所以这些缺陷在 PATH A / B 中看不出来。
-  - `deploy/kubernetes/kind` + `tests/kind/smoke.sh` + CI `kind.yml`：把三个公开组件的清单按其仓库原样组合（仅在叠加层中改为开发令牌、明文 HTTP、本地镜像，并加集群内 PostgreSQL、模型替身与建登录 / 租户的 Job），部署到 kind 并经端口转发跑 PATH A。
+  - `deploy/kubernetes/kind` + `tests/kind/smoke.sh` + CI `kind.yml`：把三个公开组件的清单按其仓库原样组合（仅在叠加层中改为开发令牌、明文 HTTP、本地镜像，并加集群内 PostgreSQL、模型替身与建登录 / 租户的 Job），部署到 kind 并经端口转发跑 PATH A。CI 中通过。kind 的 CNI 实际执行 NetworkPolicy，第一次运行因此暴露了第四类缺陷：idp-mcp、idp-host、idp-cmi 的 kustomization 使用 `commonLabels`，它把组件自己的 `app.kubernetes.io/name` 写进了所有选择器，包括指向其他命名空间 Pod 的 NetworkPolicy 规则（PostgreSQL、kube-dns、MCP 网关），这些规则从此匹配不到任何 Pod——CMI 建立不了新的数据库连接，解析请求挂起。三个仓库改用 `labels`（`includeTemplates: true`，不动选择器）后 kind 上 PATH A 通过；`tools/k8s_check.py` 增加了对这种改写的检测（指向别的命名空间的 Pod 选择器带着本组件的名称标签即判失败）。
+- 发布清单按修复后的提交重新生成；PATH A / B / C 以新镜像重跑通过。
+
+**仍待外部条件的局限**
+- 整平台 compose 验收与带 EER 的 kind 部署不在 CI 中：idp-eer 是私有仓库，CI 需要一个只读访问凭据（部署密钥或细粒度令牌）存入本仓库的 secrets。
+- 镜像未推送到镜像仓库，没有签名与 SBOM：需要决定发布到哪里、是否公开。
+- EER 的 Actor 仍由确定性替身执行；真实连接器需要真实的业务系统。
