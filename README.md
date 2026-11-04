@@ -13,7 +13,7 @@ IDP TELOS 的 Go 实现。本仓库是平台仓库（仓库工程架构中的 id
 | `catalog/` | 组件目录、允许的跨系统调用及其证据、状态权威归属 | 本仓库 |
 | `releases/` | 平台发布清单 `platform-bom.yaml`（组件提交、镜像、契约版本）与兼容性矩阵 `compatibility-matrix.yaml`，由 `tools/platform.py` 生成与校验 | 本仓库 |
 | `deploy/` | 整平台组装（`deploy/compose/platform.yaml`：Keycloak（https 发行者）、idp-cmi、idp-host、idp-workspace、idp-eer 与 Temporal）与跨系统验收（`deploy/compose/e2e.sh`：PATH A 问答经 Workspace→HOST→CMI；PATH B T2 审批经 EER→Workspace 收件箱→成员批准→EER 完成） | 本仓库 |
-| `docs/` | 平台 ADR、架构蓝图、系统架构 v1.0、仓库工程架构 v1.0 | 本仓库 |
+| `docs/` | 平台 ADR、平台建设记录（`docs/reports/`，HTML）、架构蓝图、系统架构 v1.0、仓库工程架构 v1.0 | 本仓库 |
 | `brand/` | 品牌资源 | 本仓库 |
 
 ## 工作区布局
