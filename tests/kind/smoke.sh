@@ -74,11 +74,26 @@ for c in idp-cmi idp-host idp-workspace; do
   for d in $(kubectl -n "$c" get deploy -o name); do kubectl -n "$c" rollout status "$d" --timeout=300s; done
 done
 
+# on failure: can a pod in the Workspace's namespace (policies apply) and one in default (none) reach
+# the HOST? kind's CNI enforces NetworkPolicies in recent versions.
+diagnose() {
+  echo "== diagnostics"
+  kubectl get networkpolicy -A
+  for ns in idp-workspace default; do
+    kubectl -n "$ns" run "probe-$RANDOM" --rm -i --restart=Never --quiet --image=public.ecr.aws/docker/library/busybox:1.37 \
+      --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"p","image":"public.ecr.aws/docker/library/busybox:1.37","command":["sh","-c","nslookup idp-host.idp-host.svc.cluster.local; wget -qO- -T 3 http://idp-host.idp-host.svc.cluster.local:8450/healthz || echo WGET-FAILED"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
+      2>&1 | sed "s/^/[$ns] /" || true
+  done
+  kubectl -n idp-workspace logs deploy/idp-workspace --tail=20 || true
+  kubectl -n idp-host logs deploy/idp-host --tail=20 || true
+}
+trap 'status=$?; [[ $status -ne 0 ]] && diagnose; exit $status' EXIT
+
 log "PATH A through port-forwards"
 kubectl -n idp-workspace port-forward svc/idp-workspace 18560:8560 >/dev/null 2>&1 & PF1=$!
 kubectl -n idp-host port-forward svc/idp-host 18450:8450 >/dev/null 2>&1 & PF2=$!
 kubectl -n idp-cmi port-forward svc/idp-cmi 18550:8550 >/dev/null 2>&1 & PF3=$!
-trap 'kill $PF1 $PF2 $PF3 2>/dev/null || true' EXIT
+trap 'status=$?; kill $PF1 $PF2 $PF3 2>/dev/null || true; [[ $status -ne 0 ]] && diagnose; exit $status' EXIT
 WS=http://127.0.0.1:18560 HOST=http://127.0.0.1:18450 CMI=http://127.0.0.1:18550
 for url in "$WS/readyz" "$HOST/readyz" "$CMI/readyz"; do
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$url" && break; sleep 1; done
