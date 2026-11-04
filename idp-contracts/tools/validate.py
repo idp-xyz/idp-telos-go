@@ -318,6 +318,9 @@ if CMI in schemas:
         ('cmi_record_team_scope', CMI, 'MemoryRecord', 0, S(scope={'kind': 'team', 'id': 'us-lane'})),
         ('cmi_item_with_scope', CMI, 'ContextPackage', 0, P('items.1.scope', {'kind': 'project', 'id': 'parcel'})),
         ('cmi_verification_fresh', CMI, 'Verification', 0, S(stale=False, staleItems=[])),
+        # 1.3.0 (D25, D26)
+        ('cmi_package_without_as_of', CMI, 'ContextPackage', 0, U('asOf')),
+        ('cmi_package_with_lag', CMI, 'ContextPackage', 0, S(projectionLag=12.5)),
     ]
     NEGATIVE += [
         ('cmi_package_wrong_schema_version', CMI, 'ContextPackage', 0, S(schemaVersion='idp.cmi.package/v2')),
@@ -343,6 +346,10 @@ if CMI in schemas:
         ('cmi_scope_unknown_kind', CMI, 'MemoryRecord', 0, S(scope={'kind': 'squad', 'id': 'x'})),
         ('cmi_verification_bad_item_status', CMI, 'Verification', 0, P('items.0.status', 'gone')),
         ('cmi_verification_unknown_field', CMI, 'Verification', 0, S(digest='sha256:00')),
+        # 1.3.0 (D25, D26)
+        ('cmi_as_of_bad_time', CMI, 'ContextPackage', 0, P('asOf.valid', 'yesterday')),
+        ('cmi_as_of_unknown_field', CMI, 'ContextPackage', 0, P('asOf.at', '2026-11-04T00:00:00Z')),
+        ('cmi_negative_lag', CMI, 'ContextPackage', 0, S(projectionLag=-1)),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
