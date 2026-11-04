@@ -1,0 +1,22 @@
+# State authority (repository engineering architecture §03, "One Source of Truth"): every kind of
+# data has exactly one authoritative component; the others may show, reference or cache it but never
+# become a second fact. Checked by tools/platform.py check (exactly one owner per kind).
+ownership:
+  - data: Workspace, membership, app installation, inbox item (as a view), work context, action invocation record
+    owner: idp-workspace
+    not: approval record, run state, business transactions
+  - data: AgentDefinition / release, AgentRun, Session, thread, tool-call confirmation
+    owner: idp-host
+    not: the business Execution
+  - data: Goal, Task, Plan, Execution, Checkpoint, Retry, Approval, Evidence
+    owner: idp-eer
+    not: CMI memory (checkpoints are never written to CMI)
+  - data: ContextPackage, MemoryRecord, KnowledgeDocument, Source, erasure
+    owner: idp-cmi
+    not: the real-time business fact
+  - data: MCP server / tool registry, connection policy, invocation audit
+    owner: idp-mcp
+    not: business APIs' contracts
+  - data: Contract registry, platform BOM, compatibility matrix
+    owner: idp-telos-go
+    not: any component's source or state

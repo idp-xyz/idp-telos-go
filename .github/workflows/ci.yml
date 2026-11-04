@@ -1,0 +1,48 @@
+name: CI
+
+# The merge gate of the platform repository (docs/adr/ADR-0001-platform-integration.md): the
+# components are checked out at the commits releases/platform-bom.yaml pins, then the catalog, BOM and
+# compatibility matrix are checked (tools/platform.py check), the tool's own tests run, and the
+# contract registry is validated against the producers' copies (idp-contracts/tools/validate.py).
+# idp-eer is private and not checked out here: its rows are reported NOT_RUN (allowed), never passed.
+# The platform acceptance (deploy/compose/e2e.sh) needs the component images and runs locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  platform:
+    name: catalog, BOM, compatibility, contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned tools
+        run: pip install --disable-pip-version-check 'jsonschema[format]==4.26.0' 'PyYAML==6.0.3'
+      - name: Components at the BOM's commits (public repositories)
+        run: |
+          python - <<'PY'
+          import subprocess, yaml
+          bom = yaml.safe_load(open("releases/platform-bom.yaml"))
+          for c in bom["components"]:
+              if c["name"] == "idp-eer":
+                  continue  # private
+              url = f"https://github.com/{c['repository']}.git"
+              subprocess.run(["git", "clone", "--quiet", "--filter=blob:none", url, c["name"]], check=True)
+              subprocess.run(["git", "-C", c["name"], "checkout", "--quiet", c["commit"]], check=True)
+              print(c["name"], c["commit"][:12])
+          PY
+      - name: Catalog, BOM and compatibility matrix
+        run: python -I tools/platform.py check --allow-missing idp-eer
+      - name: Platform tool tests
+        run: python -m unittest discover -s tools/tests -v
+      - name: Contract registry against the producers
+        run: python -I idp-contracts/tools/validate.py --report /tmp/validation_report.json

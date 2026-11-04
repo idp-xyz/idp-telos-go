@@ -1,0 +1,137 @@
+# The IDP TELOS platform for acceptance (docs/adr/ADR-0001-platform-integration.md T5): one
+# PostgreSQL (a database per component), Keycloak (deploy/keycloak/realm.py), idp-cmi, idp-host (with
+# its worker and model double) and idp-workspace, each the image its own repository builds
+# (releases/platform-bom.yaml records their ids). Driven by deploy/compose/e2e.sh.
+# The browser uses http://127.0.0.1:{7080 Keycloak, 8560 Workspace}; containers reach each other by name.
+# DEV ONLY: a test realm, plaintext http on private networks. idp-eer is not part of it yet (ADR-0001 T6).
+name: idp-telos-platform
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+
+x-oidc: &oidc
+  IDP_DEV_MODE: 'false'
+
+networks:
+  edge: {}
+  upstream: {internal: true}
+  data: {internal: true}
+
+volumes:
+  pgdata: {}
+
+services:
+  postgres:
+    image: ${IDP_PG_IMAGE:-public.ecr.aws/docker/library/postgres:17-alpine}
+    networks: [data]
+    environment: {POSTGRES_PASSWORD: '${IDP_PG_OWNER_PASSWORD:?run deploy/compose/e2e.sh}'}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres'], interval: 2s, timeout: 3s, retries: 30}
+
+  keycloak:
+    image: ${IDP_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.1}
+    command: [start-dev, --import-realm, --features, 'token-exchange-standard']
+    networks: [edge, upstream]
+    ports: ['127.0.0.1:7080:7080']
+    environment:
+      KC_HTTP_PORT: '7080'
+      KC_HOSTNAME: http://127.0.0.1:7080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?run deploy/compose/e2e.sh}
+    volumes: ['../../.local/platform/keycloak:/opt/keycloak/data/import:ro']
+
+  # ---- idp-cmi ----
+  cmi-admin:
+    <<: *hardened
+    image: ${IDP_CMI_IMAGE:-idp-cmi:dev}
+    profiles: [tools]
+    networks: [data]
+    environment:
+      IDP_MIGRATION_DATABASE_URL: postgres://postgres:${IDP_PG_OWNER_PASSWORD}@postgres:5432/idp_cmi?sslmode=disable
+      IDP_APP_DB_PASSWORD: ${IDP_CMI_DB_PASSWORD:?run deploy/compose/e2e.sh}
+  cmi:
+    <<: *hardened
+    image: ${IDP_CMI_IMAGE:-idp-cmi:dev}
+    command: [serve]
+    networks: [edge, upstream, data]
+    ports: ['127.0.0.1:8550:8550']
+    environment:
+      <<: *oidc
+      IDP_DATABASE_URL: postgres://idp_cmi_svc:${IDP_CMI_DB_PASSWORD}@postgres:5432/idp_cmi?sslmode=disable
+      IDP_CMI_LISTEN: 0.0.0.0:8550
+      IDP_CMI_ISSUER: http://127.0.0.1:7080/realms/idp
+      IDP_CMI_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
+      IDP_CMI_AUDIENCE: idp-cmi
+
+  # ---- idp-host ----
+  fakemodel:
+    <<: *hardened
+    image: ${IDP_FAKEMODEL_IMAGE:-idp-host-fakemodel:dev}
+    networks: [upstream]
+    environment: {IDP_FAKEMODEL_LISTEN: '0.0.0.0:18080'}
+  host-admin:
+    <<: *hardened
+    image: ${IDP_HOST_IMAGE:-idp-host:dev}
+    profiles: [tools]
+    networks: [data]
+    environment:
+      IDP_MIGRATION_DATABASE_URL: postgres://postgres:${IDP_PG_OWNER_PASSWORD}@postgres:5432/idp_host?sslmode=disable
+      IDP_APP_DB_PASSWORD: ${IDP_HOST_DB_PASSWORD:?run deploy/compose/e2e.sh}
+  host:
+    <<: *hardened
+    image: ${IDP_HOST_IMAGE:-idp-host:dev}
+    command: [serve]
+    networks: [edge, upstream, data]
+    ports: ['127.0.0.1:8450:8450']
+    environment: &host-env
+      IDP_DEV_MODE: 'true'   # only so the HOST talks plaintext http to its model double; tokens still come from Keycloak (JWKS)
+      IDP_DATABASE_URL: postgres://idp_host_svc:${IDP_HOST_DB_PASSWORD}@postgres:5432/idp_host?sslmode=disable
+      IDP_HOST_LISTEN: 0.0.0.0:8450
+      IDP_HOST_ISSUER: http://127.0.0.1:7080/realms/idp
+      IDP_HOST_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
+      IDP_HOST_CREDENTIAL_KEY: ${IDP_HOST_CREDENTIAL_KEY:?run deploy/compose/e2e.sh}
+      IDP_HOST_CONFIG: /etc/idp/host.yaml
+      IDP_HOST_WORKERS: '0'
+    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro']
+    depends_on: [fakemodel, cmi]
+  host-worker:
+    <<: *hardened
+    image: ${IDP_HOST_IMAGE:-idp-host:dev}
+    command: [worker]
+    networks: [upstream, data]
+    environment:
+      <<: *host-env
+      IDP_HOST_WORKERS: '2'
+    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro']
+    depends_on: [fakemodel, cmi]
+
+  # ---- idp-workspace ----
+  workspace-admin:
+    <<: *hardened
+    image: ${IDP_WORKSPACE_IMAGE:-idp-workspace:dev}
+    profiles: [tools]
+    networks: [data]
+    environment:
+      IDP_MIGRATION_DATABASE_URL: postgres://postgres:${IDP_PG_OWNER_PASSWORD}@postgres:5432/idp_workspace?sslmode=disable
+      IDP_APP_DB_PASSWORD: ${IDP_WORKSPACE_DB_PASSWORD:?run deploy/compose/e2e.sh}
+  workspace:
+    <<: *hardened
+    image: ${IDP_WORKSPACE_IMAGE:-idp-workspace:dev}
+    command: [serve]
+    networks: [edge, upstream, data]
+    ports: ['127.0.0.1:8560:8560']
+    environment:
+      IDP_DEV_MODE: 'true'   # only for the ephemeral app-token key; tokens come from Keycloak (JWKS)
+      IDP_DATABASE_URL: postgres://idp_ws_svc:${IDP_WORKSPACE_DB_PASSWORD}@postgres:5432/idp_workspace?sslmode=disable
+      IDP_WORKSPACE_LISTEN: 0.0.0.0:8560
+      IDP_WORKSPACE_ISSUER: http://127.0.0.1:7080/realms/idp
+      IDP_WORKSPACE_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
+      IDP_WORKSPACE_OIDC_CLIENT_ID: workspace-shell
+      IDP_WORKSPACE_SUBJECT_CLAIM: preferred_username
+      IDP_WORKSPACE_PUBLIC_URL: http://127.0.0.1:8560
+      IDP_WORKSPACE_CONFIG: /etc/idp/workspace.yaml
+    volumes: ['../../.local/platform/workspace.yaml:/etc/idp/workspace.yaml:ro', '../../.local/platform/exchange.secret:/etc/idp/exchange.secret:ro']
+    depends_on: [host]

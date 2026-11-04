@@ -1,0 +1,62 @@
+# IDP TELOS components (ADR-0001 T2). Checked by tools/platform.py check against idp-contracts and
+# the side-by-side checkouts. contracts.produces: the namespace the component's api/contracts/
+# copy is the authority for; contracts.consumes: namespaces it calls (its pinned copies, if any, are
+# found by tools/platform.py matrix). platform: built and run by deploy/compose/e2e.sh, so the BOM
+# records the image that acceptance used.
+components:
+  - name: idp-mcp
+    platform: false   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6)
+    title: MCP Infrastructure
+    repository: idp-xyz/idp-mcp
+    visibility: public
+    language: go
+    executables: [mcp-gateway, registry-service]
+    image: idp-mcp
+    ports: {gateway: 3220, registry: 8250}
+    adr: docs/adr/ADR-0001-mcp-infrastructure.md
+    contracts: {produces: idp.telos.mcp, consumes: []}
+  - name: idp-host
+    platform: true   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6)
+    title: Agent Hosting & Coordination
+    repository: idp-xyz/idp-host
+    visibility: public
+    language: go
+    executables: [idp-host]
+    image: idp-host
+    ports: {api: 8450}
+    adr: docs/adr/ADR-0001-host-design.md
+    contracts: {produces: idp.telos.host, consumes: [idp.telos.cmi]}  # MCP is reached through its protocol, not idp.telos.mcp documents
+  - name: idp-eer
+    platform: false   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6)
+    title: Enterprise Execution Runtime
+    repository: idp-xyz/idp-eer
+    visibility: private
+    language: [go, python]
+    executables: [eer-api, eer-worker, eer-projector, eer-migrate]
+    image: eer-runtime
+    ports: {api: 8080}
+    adr: docs/eer/adr/README.md
+    contracts: {produces: null, consumes: [idp.telos.host, idp.telos.cmi]}
+    note: EER's own public API contract (eer/v1) lives in its repository and is not registered here yet.
+  - name: idp-cmi
+    platform: true   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6)
+    title: Context, Memory & Knowledge Infrastructure
+    repository: idp-xyz/idp-cmi
+    visibility: public
+    language: go
+    executables: [idp-cmi]
+    image: idp-cmi
+    ports: {api: 8550}
+    adr: docs/adr/ADR-0001-cmi-design.md
+    contracts: {produces: idp.telos.cmi, consumes: []}
+  - name: idp-workspace
+    platform: true   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6)
+    title: Workspace
+    repository: idp-xyz/idp-workspace
+    visibility: public
+    language: [go, typescript]
+    executables: [idp-workspace]
+    image: idp-workspace
+    ports: {api: 8560}
+    adr: docs/adr/ADR-0001-workspace-design.md
+    contracts: {produces: idp.telos.workspace, consumes: [idp.telos.host]}

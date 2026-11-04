@@ -1,0 +1,54 @@
+# Cross-system calls the system architecture allows (ADR-0001 T2), each with how it authenticates
+# and what proves it. "contract": the registered namespace the call's documents follow, or null when
+# the interface is the callee's own API without a registered contract (a finding, not a pass).
+integrations:
+  - id: workspace-host-run
+    from: idp-workspace
+    to: idp-host
+    interface: POST /v1/agents/{ref}/runs, GET /v1/runs/{id}/events (AG-UI)
+    contract: idp.telos.host
+    auth: [forward, static, exchange (RFC 8693)]
+    evidence: [idp-workspace ADR-0001 §7 D12 (HOST=1 e2e), §10 D16 (OIDC=1 e2e), this repository deploy/compose/e2e.sh (PATH A)]
+  - id: workspace-eer-decision
+    from: idp-workspace
+    to: idp-eer
+    interface: POST /v1/executions/{id}/approval
+    contract: null
+    auth: [forward, static, exchange]
+    evidence: [idp-workspace internal/dispatch tests (fake EER)]
+    gap: not run against a real EER (needs EER's https issuer and principal mapping for Workspace users)
+  - id: eer-workspace-inbox
+    from: idp-eer
+    to: idp-workspace
+    interface: POST /v1/workspaces/{ws}/inbox/items, /inbox/close (producer)
+    contract: idp.telos.workspace
+    auth: [client credentials, static token file]
+    evidence: [idp-eer ADR-038 (TestLiveWorkspace against the idp-workspace image)]
+  - id: host-cmi-context
+    from: idp-host
+    to: idp-cmi
+    interface: POST /v1/context/resolve, POST /v1/context/packages/{id}/verify
+    contract: idp.telos.cmi
+    auth: [static, delegation]
+    evidence: [idp-host ADR-0001 §14 D32, idp-cmi deploy/e2e.sh HOST=1, this repository deploy/compose/e2e.sh (PATH A)]
+  - id: host-mcp-tools
+    from: idp-host
+    to: idp-mcp
+    interface: MCP (streamable HTTP) through mcp-gateway
+    contract: null  # the MCP protocol itself; idp.telos.mcp describes the registry's documents, which HOST does not read
+    auth: [delegation (RFC 8693, Keycloak)]
+    evidence: [idp-host deploy/e2e.sh MODE=oidc]
+  - id: eer-host-agent-turn
+    from: idp-eer
+    to: idp-host
+    interface: POST /v1/agents/{ref}/runs (Agent Turn)
+    contract: idp.telos.host
+    auth: [client credentials (workload identity)]
+    evidence: [idp-eer ADR-036, make intelligence-host-integration]
+  - id: eer-cmi-context
+    from: idp-eer
+    to: idp-cmi
+    interface: POST /v1/context/resolve, /verify, POST /v1/memory/records
+    contract: idp.telos.cmi
+    auth: [static, client credentials]
+    evidence: [idp-eer ADR-037, CI cmi.yml]
