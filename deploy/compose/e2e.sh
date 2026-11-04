@@ -10,6 +10,10 @@
 #   bash deploy/compose/e2e.sh          build the component images from the side-by-side checkouts, run, tear down
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev, idp-host:dev, idp-host-fakemodel:dev, idp-workspace:dev, eer-runtime:dev)
 #   KEEP=1 ...                          leave the platform running
+#   MODEL=live ...                      the HOST's agent answers with a real OpenAI-compatible model on the Docker
+#                                       host (IDP_LIVE_MODEL_URL, default http://127.0.0.1:8080/v1; IDP_LIVE_MODEL,
+#                                       default the first model it lists) instead of the deterministic double;
+#                                       PATH A then also checks that the answer uses the CMI context
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
@@ -19,6 +23,17 @@ C=(docker compose -f deploy/compose/platform.yaml --env-file "$ENVF" --profile t
 ISSUER=https://127.0.0.1:7443/realms/idp
 WS=http://127.0.0.1:8560 HOST=http://127.0.0.1:8450 CMI=http://127.0.0.1:8550 EER=http://127.0.0.1:18180
 mkdir -p "$L"
+MODEL="${MODEL:-fake}"
+if [[ "$MODEL" == live ]]; then
+  LIVE_URL="${IDP_LIVE_MODEL_URL:-http://127.0.0.1:8080/v1}"
+  LIVE_MODEL="${IDP_LIVE_MODEL:-$(curl -sf --noproxy '*' -m 10 "$LIVE_URL/models" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null || true)}"
+  [[ -n "$LIVE_MODEL" ]] || { echo "BLOCKED: no model at $LIVE_URL" >&2; exit 2; }
+  BRIDGE="$(ip -4 -o addr show docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
+  [[ -n "$BRIDGE" ]] || { echo "BLOCKED: no docker0 address for the model forwarder" >&2; exit 2; }
+  TARGET="$(python3 -c "import urllib.parse,sys; u=urllib.parse.urlparse(sys.argv[1]); print(f'{u.hostname}:{u.port or 80}')" "$LIVE_URL")"
+  python3 tools/model_forward.py "$BRIDGE:18088" "$TARGET" >/dev/null 2>&1 & FORWARDER=$!
+  LIVE_PATH="$(python3 -c "import urllib.parse,sys; print(urllib.parse.urlparse(sys.argv[1]).path.rstrip('/'))" "$LIVE_URL")"
+fi
 umask 077
 if [[ ! -f "$ENVF" ]] || ! grep -q EER_RUNTIME_APP_PASSWORD "$ENVF"; then
   { for v in IDP_PG_OWNER_PASSWORD IDP_CMI_DB_PASSWORD IDP_HOST_DB_PASSWORD IDP_WORKSPACE_DB_PASSWORD KC_BOOTSTRAP_ADMIN_PASSWORD \
@@ -42,7 +57,11 @@ for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer
 done
 
 "${C[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
-cleanup() { [[ "${KEEP:-0}" == 1 ]] || "${C[@]}" down -v --remove-orphans >/dev/null 2>&1; }
+cleanup() {
+  [[ -n "${FORWARDER:-}" && "${KEEP:-0}" != 1 ]] && kill "$FORWARDER" 2>/dev/null
+  [[ "${KEEP:-0}" == 1 ]] || "${C[@]}" down -v --remove-orphans >/dev/null 2>&1
+  return 0
+}
 trap cleanup EXIT
 
 # ---- identity: one realm, one tenant for every component ----
@@ -58,7 +77,9 @@ chmod 644 "$L/tls/server.key" "$L/tls/server.crt" "$L/tls/ca.crt"   # read by th
 rm -rf "$L/keycloak"; mkdir -p "$L/keycloak"
 python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
 printf 'pending\n' > "$L/cmi.key"
-printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: http://fakemodel:18080/v1\n    insecure: true\ncmi:\n  endpoint: http://cmi:8550\n  auth: {mode: static, apiKeyFile: /etc/idp/cmi.key}\n' > "$L/host.yaml"
+MODEL_BASE=http://fakemodel:18080/v1 AGENT_MODEL=fake-1
+[[ "$MODEL" == live ]] && MODEL_BASE="http://host.docker.internal:18088$LIVE_PATH" AGENT_MODEL="$LIVE_MODEL"
+printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\ncmi:\n  endpoint: http://cmi:8550\n  auth: {mode: static, apiKeyFile: /etc/idp/cmi.key}\n' "$MODEL_BASE" > "$L/host.yaml"
 python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["idp-workspace"])' > "$L/exchange.secret"
 cat > "$L/workspace.yaml" <<'YAML'
 targets:
@@ -155,7 +176,7 @@ call 201 POST "$CMI/api/v1/sources" "$ALICE" '{"name":"handbook","displayName":"
 DOC="$(call 201 POST "$CMI/api/v1/knowledge/documents" "$ALICE" '{"source":"handbook","uri":"handbook://pickup","title":"Pickup policy","sensitivity":"internal","acl":{},"text":"Pickup policy.\n\nParcels above 10000 USD need a manager to approve the pickup slot."}' | field "['documentId']")"
 
 # ---- HOST: an agent that answers with CMI context, released through four eyes ----
-call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"order-assistant","displayName":"Order assistant","definition":{"instructions":"Answer from the context you are given.","model":{"provider":"local","model":"fake-1"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"order-assistant","displayName":"Order assistant","definition":{"instructions":"Answer from the context you are given. Quote the rule that applies.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null
 REL="$(call 201 POST "$HOST/api/v1/agents/order-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
 
@@ -169,7 +190,7 @@ call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/orders" "$ALICE" '{"ver
 INV="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" '{"app":"orders","action":"order.review","input":{"message":"What is the pickup policy for expensive parcels?"}}')"
 RUN="$(echo "$INV" | field "['result']['id']")"
 RESULT=""
-for _ in $(seq 1 120); do
+for _ in $(seq 1 600); do
   RESULT="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
 import json,sys
 for it in json.load(sys.stdin)['items']:
@@ -177,6 +198,15 @@ for it in json.load(sys.stdin)['items']:
   [[ -n "$RESULT" ]] && break; sleep 0.5
 done
 [[ "$RESULT" == *"— finished" ]] || { "${C[@]}" logs --tail 30 workspace host host-worker cmi; echo "FAIL: no finished run in bob's inbox ('$RESULT')" >&2; exit 1; }
+ANSWER="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$RUN': print(it.get('summary',''))")"
+if [[ "$MODEL" == live ]]; then
+  # the real model saw the CMI package: the answer carries the rule only the handbook document states
+  echo "$ANSWER" | grep -qi "manager" || { echo "FAIL: the live answer does not use the CMI context: $ANSWER" >&2; exit 1; }
+  echo "live answer ($LIVE_MODEL): $(echo "$ANSWER" | tr '\n' ' ' | cut -c1-300)"
+fi
 
 # ---- the three systems agree ----
 RUNDOC="$(call 200 GET "$HOST/v1/runs/$RUN" "$HADMIN")"

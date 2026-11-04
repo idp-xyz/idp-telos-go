@@ -102,16 +102,18 @@ services:
       IDP_HOST_CONFIG: /etc/idp/host.yaml
       IDP_HOST_WORKERS: '0'
     volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro']
+    extra_hosts: ['host.docker.internal:host-gateway']   # MODEL=live: the model forwarder on the Docker host
     depends_on: [fakemodel, cmi]
   host-worker:
     <<: *hardened
     image: ${IDP_HOST_IMAGE:-idp-host:dev}
     command: [worker]
-    networks: [upstream, data]
+    networks: [edge, upstream, data]   # edge: MODEL=live reaches the model on the Docker host
     environment:
       <<: *host-env
       IDP_HOST_WORKERS: '2'
     volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro']
+    extra_hosts: ['host.docker.internal:host-gateway']
     depends_on: [fakemodel, cmi]
 
   # ---- idp-workspace ----
