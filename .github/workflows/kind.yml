@@ -1,0 +1,50 @@
+name: kind
+
+# The platform on a real Kubernetes cluster (docs/adr/ADR-0001-platform-integration.md P3): the
+# public components are cloned at the BOM's commits and built, their own manifests are composed by
+# deploy/kubernetes/kind and applied to kind, and tests/kind/smoke.sh runs PATH A through the cluster.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kind:
+    name: platform on kind
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned tools
+        run: pip install --disable-pip-version-check 'PyYAML==6.0.3'
+      - name: Components at the BOM's commits (public repositories)
+        run: |
+          python - <<'PY'
+          import subprocess, yaml
+          for c in yaml.safe_load(open("releases/platform-bom.yaml"))["components"]:
+              if c["name"] in ("idp-cmi", "idp-host", "idp-workspace"):
+                  subprocess.run(["git", "clone", "--quiet", "--filter=blob:none", f"https://github.com/{c['repository']}.git", c["name"]], check=True)
+                  subprocess.run(["git", "-C", c["name"], "checkout", "--quiet", c["commit"]], check=True)
+          PY
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: idp-telos
+      - name: Platform on kind, PATH A
+        run: bash tests/kind/smoke.sh
+      - name: Cluster state on failure
+        if: failure()
+        run: kubectl get pods -A -o wide; kubectl get events -A --sort-by=.lastTimestamp | tail -60

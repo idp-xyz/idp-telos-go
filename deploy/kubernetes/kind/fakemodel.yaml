@@ -1,0 +1,45 @@
+# kind only: the HOST's deterministic model double (idp-host deploy/fixtures/build-fakemodel.sh).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fakemodel
+  namespace: idp-host
+  labels: {app.kubernetes.io/component: fakemodel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/component: fakemodel}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/component: fakemodel}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: fakemodel
+          image: idp-host-fakemodel:dev
+          env: [{name: IDP_FAKEMODEL_LISTEN, value: "0.0.0.0:18080"}]
+          ports: [{name: http, containerPort: 18080}]
+          resources: {limits: {cpu: 500m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fakemodel
+  namespace: idp-host
+spec:
+  selector: {app.kubernetes.io/component: fakemodel}
+  ports: [{name: http, port: 18080, targetPort: http}]
+---
+# the model double is an egress the HOST's policy does not know (kind only)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kind-fakemodel
+  namespace: idp-host
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: [{from: [{podSelector: {}}], ports: [{protocol: TCP, port: 18080}]}]
+  egress: [{to: [{podSelector: {matchLabels: {app.kubernetes.io/component: fakemodel}}}], ports: [{protocol: TCP, port: 18080}]}]

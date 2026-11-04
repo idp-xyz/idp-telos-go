@@ -8,6 +8,7 @@ Clients:
 - workspace-shell   the Workspace shell (public, authorization code + PKCE), aud idp-workspace
 - idp-workspace     the Workspace as token-exchange requester: a member's token -> aud idp-host / eer-runtime
 - svc-eer           idp-eer's projector as an inbox producer (client credentials): aud idp-workspace, ws-producer
+- eer-intelligence  idp-eer's Intelligence worker at the CMI (client credentials): aud idp-cmi, cmi-reader + cmi-writer
 - idp-host-svc      the HOST's own identity at the CMI (client credentials): aud idp-cmi, cmi-reader
 - idp-host, idp-cmi, eer-runtime audiences (bearer only)
 - e2e-cli           the acceptance script (password grant), aud idp-workspace, idp-host, idp-cmi, eer-runtime
@@ -45,7 +46,7 @@ user_mappers = [tenant_attr, roles_map, username]
 users = {"alice": ["ws-admin", "cmi-admin"], "bob": ["ws-member", "host-user"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
-secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "svc-eer", "e2e-cli")}
+secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "svc-eer", "eer-intelligence", "e2e-cli")}
 realm = {
     "realm": "idp", "enabled": True, "sslRequired": "none", "accessTokenLifespan": 600,
     "roles": {"realm": [{"name": r} for r in ("ws-admin", "ws-member", "ws-producer", "host-user", "host-admin", "host-approver", "cmi-admin", "cmi-writer", "cmi-reader")]},
@@ -64,6 +65,9 @@ realm = {
         {"clientId": "idp-host-svc", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-host-svc"], "standardFlowEnabled": False,
          "serviceAccountsEnabled": True, "fullScopeAllowed": False, "attributes": {"access.token.lifespan": "3600"},
          "protocolMappers": [audience("idp-cmi"), hardcoded("tenant_id", tenant), hardcoded("roles", json.dumps(["cmi-reader"]), "JSON"), username]},
+        {"clientId": "eer-intelligence", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["eer-intelligence"], "standardFlowEnabled": False,
+         "serviceAccountsEnabled": True, "fullScopeAllowed": False,
+         "protocolMappers": [audience("idp-cmi"), hardcoded("tenant_id", tenant), hardcoded("roles", json.dumps(["cmi-reader", "cmi-writer"]), "JSON"), username]},
         {"clientId": "idp-host", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "idp-cmi", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "eer-runtime", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},

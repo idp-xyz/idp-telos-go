@@ -17,38 +17,38 @@ components:
     version: 1.0.0
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: c657eec3baea02d9082a7490ab0cffed3d5c03b5
+  commit: fdc1b3ded9972dab088041ae8e514c04e4dbf278
   clean: true
   contract:
     namespace: idp.telos.host
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:8c21b9b46be736c869d91b4d26cfd8664ce0b7196e7a4d456b5c6ac32db0ff6f
+    id: sha256:a0a9e6dcc2536927e8e943f3c2d20aea982ffb13d8778eafb20955084130b3ec
 - name: idp-eer
   repository: idp-xyz/idp-eer
-  commit: 795cffcd13624f0de906969a8c1da82055052a0c
+  commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:22ded6afd7d690c991df6144bb441077fee493c3a3d1bd50c0940d6d4f6bc28d
+    id: sha256:7e50fbb6ff58ee4d189b1526b5298d6df6f74e8020b0fd8a3cb8e012e28dbf2e
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: 3576e05caffb6a7ac0e2b859660969f91a60b11a
+  commit: e04e1980a44956e46a9037729c48fca3de8a5565
   clean: true
   contract:
     namespace: idp.telos.cmi
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:dc65235c898a2284e02f2a396cf7abf524f7750d3f40489f0101cf641eb993dc
+    id: sha256:90e0a1a2c13c0a45011b4b9c20d86c90b6bfe204c3935b2d4e501fbe3f91ba00
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: d7a3e44c049c27b7f77512945082e71b662721c4
+  commit: eb5a75a7810efedc257119bb8205fd6e17a175ec
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:e2909767854c48de63631e746be33e4fb14013f89de00c8880d3adc3921954a1
+    id: sha256:6f26373f2be098d926c8eee16de71c224edcf7bfde29cb2cb62fe4721f4408b4

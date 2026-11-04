@@ -25,6 +25,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
       - name: Pinned tools
         run: pip install --disable-pip-version-check 'jsonschema[format]==4.26.0' 'PyYAML==6.0.3'
       - name: Components at the BOM's commits (public repositories)
@@ -44,5 +47,7 @@ jobs:
         run: python -I tools/platform.py check --allow-missing idp-eer
       - name: Platform tool tests
         run: python -m unittest discover -s tools/tests -v
+      - name: Kubernetes manifests as one platform (NetworkPolicies of every integration)
+        run: python -I tools/k8s_check.py --allow-missing idp-eer
       - name: Contract registry against the producers
         run: python -I idp-contracts/tools/validate.py --report /tmp/validation_report.json

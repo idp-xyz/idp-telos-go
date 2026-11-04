@@ -6,6 +6,9 @@
 # PATH B (P2): an operator submits a T2 intent to idp-eer; the approval wait appears in the approver's
 # Workspace inbox (EER ADR-038); the approver approves there; the Workspace exchanges the token and
 # decides on EER; EER dispatches and completes, and closes the item. EER and the Workspace are checked.
+# PATH C (EER ADR-037 inside the platform): idp-eer's Intelligence takes a Decision with context drawn
+# from the platform's CMI and leaves memory there, authenticated by a Keycloak service account. Nothing
+# in EER's API starts a Decision, so this runs EER's own opt-in test against the platform (needs uv).
 #
 #   bash deploy/compose/e2e.sh          build the component images from the side-by-side checkouts, run, tear down
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev, idp-host:dev, idp-host-fakemodel:dev, idp-workspace:dev, eer-runtime:dev)
@@ -267,3 +270,23 @@ for _ in $(seq 1 120); do
 done
 [[ "$CLOSED" == resolved/approved ]] || { echo "FAIL: the inbox item is $CLOSED" >&2; exit 1; }
 echo "PASS: PATH B — operator -> EER $EXEC (T2) -> Waiting -> bob's inbox (EER projector, svc-eer) -> bob approves in the Workspace (token exchange) -> EER Completed, audit approval.approved by bob -> item $CLOSED by EER"
+
+# ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
+if ! command -v uv >/dev/null; then
+  echo "NOT_RUN: PATH C needs uv (EER's Intelligence runs from its locked environment)"
+  exit 0
+fi
+call 201 POST "$CMI/api/v1/sources" "$ALICE" '{"name":"eer","displayName":"EER Intelligence","kind":"agent","trust":"informational"}' >/dev/null
+# the knowledge EER's test expects for its Decision fixture (as idp-eer tools/development/cmi_stack.sh seeds it)
+call 201 POST "$CMI/api/v1/knowledge/documents" "$ALICE" '{"source":"handbook","uri":"handbook://addresses","title":"Address normalization","sensitivity":"internal","acl":{},"entities":[{"type":"city","id":"test-city"}],"text":"Address normalization.\n\nPostal codes of the test city start with 0000; the district office is on Example Road."}' >/dev/null
+INTEL_TOKEN="$("${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=eer-intelligence -d "client_secret=$(secret_of eer-intelligence)" | token_json)"
+ALICE="$(user_token alice)"
+INTEL_SUB="$(python3 -c 'import base64,json,sys; p=sys.argv[1].split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4)))["sub"])' "$INTEL_TOKEN")"
+# a clean environment: the Intelligence plane refuses to start beside Runtime credentials (EER ADR-032)
+(cd idp-eer && env -i HOME="$HOME" PATH="$PATH" UV_CACHE_DIR="${UV_CACHE_DIR:-$HOME/.cache/uv}" EER_CMI_INTEGRATION=1 EER_TENANT_ID=pilot EER_CMI_BASE_URL="$CMI" EER_CMI_BEARER_TOKEN="$INTEL_TOKEN" EER_CMI_ADMIN_TOKEN="$ALICE" EER_CMI_EXPECTED_REQUESTER="$INTEL_SUB" \
+  EER_INTELLIGENCE_ALLOWED_EGRESS_ORIGINS="[\"$CMI\"]" \
+  PYTHONPATH=intelligence/src uv run --project intelligence --frozen --no-python-downloads \
+  python -m unittest intelligence.tests.integration.test_cmi_integration -v) > "$L/path-c.log" 2>&1 \
+  || { tail -30 "$L/path-c.log"; echo "FAIL: PATH C (EER Intelligence with the platform's CMI)" >&2; exit 1; }
+grep -qE "^OK" "$L/path-c.log" && ! grep -q "skipped" "$L/path-c.log" || { tail -20 "$L/path-c.log"; echo "FAIL: PATH C did not run its tests" >&2; exit 1; }
+echo "PASS: PATH C — EER Intelligence (Keycloak service account eer-intelligence) -> CMI context for a Decision -> memory left in the CMI ($(grep -cE ' \.\.\. ok$' "$L/path-c.log") tests)"

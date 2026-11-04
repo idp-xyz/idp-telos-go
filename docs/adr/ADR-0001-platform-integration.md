@@ -55,3 +55,15 @@
 **局限（不标 PASS）**
 - EER 的 Actor 由 `conformance` 替身执行，没有真实连接器；EER 的 Intelligence（Python）worker 未进入整平台（Decision 与 Agent Turn 的联调在 EER 仓库内已证明）。
 - 测试 CA 每次运行生成、有效期两天，只用于验收。
+
+## 6. P3 实施结果（2026-11-04）
+
+上一阶段列出的局限中，不需要外部条件的四项已处理：
+
+- **CMI 整合的跨副本互斥**：idp-cmi 以每租户的 PostgreSQL 会话级咨询锁保证同一时刻只有一个副本整合该租户（其 ADR §12）。
+- **真实模型**：`MODEL=live bash deploy/compose/e2e.sh` 让 HOST 的 agent 使用 Docker 主机上的 OpenAI 兼容模型（缺省本机 127.0.0.1:8080），经只绑定 docker0 地址的转发器（`tools/model_forward.py`）到达。PATH A 此时另外核对回答引用了只存在于 CMI 包中的规则；本机 Qwen 的回答为"Parcels above 10000 USD need a manager to approve the pickup slot"。该模型服务没有 `/v1/embeddings`，CMI 的向量检索仍用不到它。
+- **EER 的 Intelligence**：EER 的 API 没有启动 Decision 的入口，平台中没有触发它的产品路径；因此以 PATH C 在平台上运行 EER 自己的 Decision × CMI 测试（idp-eer PR #25 让它接受身份提供方的主体）：Keycloak 服务账号 `eer-intelligence` 取上下文、做 Decision、把 episodic 记忆写回 CMI，第二次 Decision 看到第一次的记忆。测试在干净的环境里运行——EER 的 Intelligence 平面拒绝在 Runtime 凭据旁启动（ADR-032）。
+- **Kubernetes**：
+  - 组件自带清单：idp-workspace（新增，含一致性测试）、idp-eer（新增，PR #26：五个进程的 Deployment / Job，测试把每个工作负载由清单拼出的环境交给 Runtime 自己的 `LoadConfig`，并验证删掉 Temporal 地址或改成 http 的 JWKS 时失败）。
+  - `tools/k8s_check.py`：渲染五个组件的清单（kustomize 经 `go run`），对目录中每条集成核对调用方的出站规则与被调方的入站规则（命名空间选择器按标签语义匹配）。首次运行发现三处跨组件缺陷并已在各自仓库修复：idp-host 没有到 idp-cmi 的出站（上下文包被阻断）、idp-host 的命名空间缺少 MCP 网关接纳客户端所用的标签（工具调用被阻断）、idp-workspace 的命名空间缺少 idp-host 接纳客户端所用的标签（host.run 被阻断）。compose 环境不执行 NetworkPolicy，所以这些缺陷在 PATH A / B 中看不出来。
+  - `deploy/kubernetes/kind` + `tests/kind/smoke.sh` + CI `kind.yml`：把三个公开组件的清单按其仓库原样组合（仅在叠加层中改为开发令牌、明文 HTTP、本地镜像，并加集群内 PostgreSQL、模型替身与建登录 / 租户的 Job），部署到 kind 并经端口转发跑 PATH A。

@@ -1,0 +1,79 @@
+# The platform on a kind cluster (ADR-0001 P3): the component manifests as their repositories ship them
+# (idp-cmi, idp-host, idp-workspace; idp-eer is private and joins when CI can check it out), plus an
+# in-cluster PostgreSQL and the HOST's model double. Everything kind-specific is here, as patches:
+# development tokens instead of an IdP (the signing secret rides in the otherwise unused TLS Secret), plain HTTP instead of certificates, local :dev images, and
+# Jobs that create the service logins and the tenant. tests/kind/smoke.sh drives it.
+# NOT FOR PRODUCTION. kind's default CNI does not enforce NetworkPolicies; tools/k8s_check.py checks them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - postgres.yaml
+  - ../../../idp-cmi/deploy/kubernetes
+  - ../../../idp-host/deploy/kubernetes
+  - ../../../idp-workspace/deploy/kubernetes
+  - fakemodel.yaml
+  - setup-jobs.yaml
+images:
+  - {name: registry.example.com/idp/idp-cmi, newName: idp-cmi, newTag: dev}
+  - {name: registry.example.com/idp/idp-host, newName: idp-host, newTag: dev}
+  - {name: registry.example.com/idp/idp-workspace, newName: idp-workspace, newTag: dev}
+  - {name: idp-cmi, newTag: dev}         # the kind-only setup Jobs name the images directly
+  - {name: idp-host, newTag: dev}
+  - {name: idp-workspace, newTag: dev}
+patches:
+  # ---- idp-cmi: development tokens, plain HTTP, no model endpoints ----
+  - target: {kind: ConfigMap, name: idp-cmi-env}
+    patch: |-
+      - op: replace
+        path: /data
+        value: {IDP_CMI_LISTEN: "0.0.0.0:8550", IDP_CMI_CONFIG: "/etc/idp/config/cmi.yaml", IDP_DEV_MODE: "true", IDP_DEV_SECRET_FILE: "/etc/idp/tls/dev-secret", IDP_LOG_LEVEL: "info", IDP_METRICS_LISTEN: "0.0.0.0:9565"}
+  - target: {kind: ConfigMap, name: idp-cmi-config}
+    patch: |-
+      - op: replace
+        path: /data
+        value: {cmi.yaml: ""}
+  - target: {kind: Deployment, name: idp-cmi}
+    patch: &http-probes |-
+      - {op: replace, path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme, value: HTTP}
+      - {op: replace, path: /spec/template/spec/containers/0/livenessProbe/httpGet/scheme, value: HTTP}
+  # ---- idp-host: development tokens, plain HTTP, the model double, context from the CMI ----
+  - target: {kind: ConfigMap, name: idp-host-env}
+    patch: |-
+      - op: replace
+        path: /data
+        value: {IDP_HOST_LISTEN: "0.0.0.0:8450", IDP_HOST_CONFIG: "/etc/idp/config/host.yaml", IDP_HOST_WORKERS: "2", IDP_HOST_LEASE: "30s", IDP_DEV_MODE: "true", IDP_DEV_SECRET_FILE: "/etc/idp/tls/dev-secret",
+                IDP_HOST_CREDENTIAL_KEY_FILE: "/etc/idp/credential-key/key", IDP_LOG_LEVEL: "info", IDP_METRICS_LISTEN: "0.0.0.0:9465"}
+  - target: {kind: ConfigMap, name: idp-host-providers}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          host.yaml: |
+            providers:
+              - name: local
+                kind: openai
+                baseUrl: http://fakemodel.idp-host.svc.cluster.local:18080/v1
+                insecure: true
+            cmi:
+              endpoint: http://idp-cmi.idp-cmi.svc.cluster.local:8550
+              auth: {mode: static, apiKeyFile: /etc/idp/provider-keys/cmi}
+  - target: {kind: Deployment, name: idp-host}
+    patch: *http-probes
+  # ---- idp-workspace: development tokens, plain HTTP, the HOST with a static service token ----
+  - target: {kind: ConfigMap, name: idp-workspace-env}
+    patch: |-
+      - op: replace
+        path: /data
+        value: {IDP_WORKSPACE_LISTEN: "0.0.0.0:8560", IDP_WORKSPACE_CONFIG: "/etc/idp/config/workspace.yaml", IDP_DEV_MODE: "true", IDP_DEV_SECRET_FILE: "/etc/idp/tls/dev-secret",
+                IDP_WORKSPACE_PUBLIC_URL: "http://127.0.0.1:8560", IDP_WORKSPACE_SIGNING_KEY_FILE: "/etc/idp/signing/signing.pem",
+                IDP_LOG_LEVEL: "info", IDP_METRICS_LISTEN: "0.0.0.0:9566"}
+  - target: {kind: ConfigMap, name: idp-workspace-config}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          workspace.yaml: |
+            targets:
+              host: {endpoint: "http://idp-host.idp-host.svc.cluster.local:8450", auth: static, tokenFile: /etc/idp/exchange/client-secret}
+  - target: {kind: Deployment, name: idp-workspace}
+    patch: *http-probes
