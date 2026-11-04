@@ -187,6 +187,13 @@ if HOST in schemas:
         ('options_empty', HOST, 'RunOptions', 0,
          U('idp.host/toolExecution', 'idp.host/releaseDigest', 'idp.host/executionRef', 'idp.host/maxOutputTokens')),
         ('options_max_tokens_at_cap', HOST, 'RunOptions', 0, S(**{'idp.host/maxOutputTokens': 1048576})),
+        # 1.3.0 (D22-D24)
+        ('release_merge_prepend_union_agent', HOST, 'AgentRelease', 0, P('definition.skillMerge', {'instructions': 'prepend', 'tools': 'union', 'confirmation': 'agent'})),
+        ('release_without_subagents', HOST, 'AgentRelease', 0, U('subagents'), P('definition.subagents', [])),
+        ('release_depth_at_max', HOST, 'AgentRelease', 0, P('definition.limits.maxSubagentDepth', 5)),
+        ('release_resource_inline_only', HOST, 'AgentRelease', 0, P('skills.0.definition.resources.1.onDemand', False)),
+        ('run_awaiting_subagent', HOST, 'AgentRun', 0, S(status='AWAITING_SUBAGENT')),
+        ('run_child', HOST, 'AgentRun', 0, S(parentRunId='run_01JD7Q3Z8M8T0G3C6N4V9S2A1E', depth=1)),
     ]
     NEGATIVE += [
         ('host_wrong_schema_version', HOST, 'AgentRelease', 0, S(schemaVersion='idp.host.agent/v2')),
@@ -230,6 +237,24 @@ if HOST in schemas:
         ('host_options_execution_ref_tab', HOST, 'RunOptions', 0, S(**{'idp.host/executionRef': 'tab\there'})),
         # a caller's own forwardedProps keys are outside the contract object (the API ignores them)
         ('host_options_foreign_key', HOST, 'RunOptions', 0, S(**{'app/theme': 'dark'})),
+        # 1.3.0 (D22-D24)
+        ('host_subagent_digest_malformed', HOST, 'AgentRelease', 0, P('subagents.0.digest', 'sha256:zz')),
+        ('host_subagent_ref_no_description', HOST, 'AgentRelease', 0, P('definition.subagents.0.description', '')),
+        ('host_subagent_ref_bad_name', HOST, 'AgentRelease', 0, P('definition.subagents.0.name', 'Tariff Expert')),
+        ('host_subagent_embedded_no_agent_id', HOST, 'AgentRelease', 0, P('subagents.0.agentId', '')),
+        ('host_merge_rule_unknown', HOST, 'AgentRelease', 0, P('definition.skillMerge.tools', 'mix')),
+        ('host_merge_rule_incomplete', HOST, 'AgentRelease', 0, P('definition.skillMerge', {'instructions': 'append'})),
+        ('host_depth_out_of_range', HOST, 'AgentRelease', 0, P('definition.limits.maxSubagentDepth', 9)),
+        ('host_depth_zero', HOST, 'AgentRelease', 0, P('definition.limits.maxSubagentDepth', 0)),
+        ('host_resource_bad_media_type', HOST, 'AgentRelease', 0, P('skills.0.definition.resources.0.mediaType', 'image/png')),
+        ('host_resource_empty_content', HOST, 'AgentRelease', 0, P('skills.0.definition.resources.0.content', '')),
+        ('host_resource_bad_name', HOST, 'AgentRelease', 0, P('skills.0.definition.resources.0.name', 'has space')),
+        ('host_reserved_allow_entry', HOST, 'AgentRelease', 0, P('definition.tools.allow.0', 'agent__tariff-expert')),
+        ('host_reserved_skill_tool', HOST, 'AgentRelease', 0, P('skills.0.definition.tools.0', 'resource__read')),
+        ('host_skill_release_reserved_tool', HOST, 'SkillRelease', 0, P('definition.tools.0', 'agent__x')),
+        ('host_skill_release_bad_resource', HOST, 'SkillRelease', 0, P('definition.resources.0.mediaType', 'text/html')),
+        ('host_run_negative_depth', HOST, 'AgentRun', 0, S(depth=-1)),
+        ('host_run_bad_parent_id', HOST, 'AgentRun', 0, S(parentRunId='run 1')),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
