@@ -199,6 +199,10 @@ if HOST in schemas:
         ('release_without_evaluation', HOST, 'AgentRelease', 0, U('definition.evaluation'), P('definition.guards.output', {})),
         ('release_evaluation_minimal', HOST, 'AgentRelease', 0, P('definition.evaluation', {'cases': [{'name': 'a', 'input': 'hi', 'expect': {'noToolCall': True}}]})),
         ('run_evaluation', HOST, 'AgentRun', 0, S(purpose='evaluation')),
+        # 1.5.0 (D29, D30)
+        ('release_without_routing', HOST, 'AgentRelease', 0, U('subagents'), P('definition.subagents', []), P('definition.model', {'provider': 'local', 'model': 'qwen3.8-flash'})),
+        ('release_routing_latency', HOST, 'AgentRelease', 0, P('definition.model.routing.strategy', 'latency')),
+        ('release_candidate_minimal', HOST, 'AgentRelease', 0, P('definition.model.routing.candidates', [{'provider': 'local', 'model': 'qwen3.8-flash'}])),
     ]
     NEGATIVE += [
         ('host_wrong_schema_version', HOST, 'AgentRelease', 0, S(schemaVersion='idp.host.agent/v2')),
@@ -273,6 +277,15 @@ if HOST in schemas:
         ('host_eval_tool_not_a_name', HOST, 'AgentRelease', 0, P('definition.evaluation.cases.1.expect.toolCalled', 'bad name')),
         ('host_eval_unknown_field', HOST, 'AgentRelease', 0, P('definition.evaluation.extra', True)),
         ('host_run_unknown_purpose', HOST, 'AgentRun', 0, S(purpose='test')),
+        # 1.5.0 (D29, D30)
+        ('host_routing_strategy_unknown', HOST, 'AgentRelease', 0, P('definition.model.routing.strategy', 'random')),
+        ('host_routing_no_candidates', HOST, 'AgentRelease', 0, P('definition.model.routing.candidates', [])),
+        ('host_candidate_bad_capability', HOST, 'AgentRelease', 0, P('definition.model.routing.candidates.0.capabilities.0', 'telepathy')),
+        ('host_candidate_negative_price', HOST, 'AgentRelease', 0, P('definition.model.routing.candidates.1.costPer1kInput', -1)),
+        ('host_candidate_no_model', HOST, 'AgentRelease', 0, P('definition.model.routing.candidates.0', {'provider': 'local'})),
+        ('host_a2a_card_not_a_url', HOST, 'AgentRelease', 0, P('definition.subagents.1.a2a.cardUrl', 'carrier-desk')),
+        ('host_a2a_embedded_not_a_url', HOST, 'AgentRelease', 0, P('subagents.1.a2a.cardUrl', 'nope')),
+        ('host_a2a_unknown_field', HOST, 'AgentRelease', 0, P('definition.subagents.1.a2a.token', 'x')),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):

@@ -12,17 +12,17 @@
       "definitions": 12
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.4.0",
-      "version": "1.4.0",
-      "definitions": 24
+      "id": "urn:idp:telos:host:1.5.0",
+      "version": "1.5.0",
+      "definitions": 27
     }
   },
-  "positive_cases": 44,
-  "negative_cases": 104,
-  "passed": 148,
-  "total": 148,
-  "invariants_passed": 20,
-  "invariants_total": 20,
+  "positive_cases": 47,
+  "negative_cases": 112,
+  "passed": 159,
+  "total": 159,
+  "invariants_passed": 21,
+  "invariants_total": 21,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -49,16 +49,19 @@
     "host_definitions_are_closed": {
       "passed": true
     },
-    "idp_telos_host_1_4_0_is_additive_over_1_3_0": {
+    "idp_telos_host_1_5_0_is_additive_over_1_4_0": {
       "passed": true
     },
-    "idp_telos_host_1_4_0_is_additive_over_1_2_0": {
+    "idp_telos_host_1_5_0_is_additive_over_1_3_0": {
       "passed": true
     },
-    "idp_telos_host_1_4_0_is_additive_over_1_1_0": {
+    "idp_telos_host_1_5_0_is_additive_over_1_2_0": {
       "passed": true
     },
-    "idp_telos_host_1_4_0_is_additive_over_1_0_0": {
+    "idp_telos_host_1_5_0_is_additive_over_1_1_0": {
+      "passed": true
+    },
+    "idp_telos_host_1_5_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -435,6 +438,30 @@
       "case": "run_evaluation",
       "namespace": "idp.telos.host",
       "definition": "AgentRun",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_without_routing",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_routing_latency",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_candidate_minimal",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
       "expected_valid": true,
       "passed": true,
       "errors": []
@@ -1477,6 +1504,86 @@
       "passed": true,
       "errors": [
         "purpose: 'test' is not one of ['evaluation']"
+      ]
+    },
+    {
+      "case": "host_routing_strategy_unknown",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/model/routing/strategy: 'random' is not one of ['ordered', 'cost', 'latency', 'capability']"
+      ]
+    },
+    {
+      "case": "host_routing_no_candidates",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/model/routing/candidates: [] should be non-empty"
+      ]
+    },
+    {
+      "case": "host_candidate_bad_capability",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/model/routing/candidates/0/capabilities/0: 'telepathy' is not one of ['tools', 'json', 'reasoning', 'vision', 'longContext']"
+      ]
+    },
+    {
+      "case": "host_candidate_negative_price",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/model/routing/candidates/1/costPer1kInput: -1 is less than the minimum of 0"
+      ]
+    },
+    {
+      "case": "host_candidate_no_model",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/model/routing/candidates/0: 'model' is a required property"
+      ]
+    },
+    {
+      "case": "host_a2a_card_not_a_url",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/subagents/1/a2a/cardUrl: 'carrier-desk' does not match '^https?://[^\\\\s\"\\'<>]{1,500}$'"
+      ]
+    },
+    {
+      "case": "host_a2a_embedded_not_a_url",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "subagents/1/a2a/cardUrl: 'nope' does not match '^https?://[^\\\\s\"\\'<>]{1,500}$'"
+      ]
+    },
+    {
+      "case": "host_a2a_unknown_field",
+      "namespace": "idp.telos.host",
+      "definition": "AgentRelease",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "definition/subagents/1/a2a: Additional properties are not allowed ('token' was unexpected)"
       ]
     }
   ]
