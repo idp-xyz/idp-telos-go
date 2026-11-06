@@ -1,6 +1,6 @@
 # 本机 Kubernetes 测试环境手册
 
-WSL 里的 kind 集群（Calico）、整套平台在集群上的部署与验收、沙箱的 Docker / Kubernetes 后端，以及 gVisor 与 Kata 两种加固运行时。命令都在编写时（2026-11-06）于参考主机上执行过。沙箱本身的运维见 `idp-sandbox/docs/RUNBOOK.md`；compose 版平台见本仓库 README。更完整的带图版本是本地的 `docs/reports/IDP_TELOS_Kubernetes_Test_Environment_Runbook_2026-11-06.html`（`docs/` 不入库）。
+WSL 里的 kind 集群（Calico）、整套平台在集群上的部署与验收、沙箱的 Docker / Kubernetes 后端，以及 gVisor 与 Kata 两种加固运行时。命令都在 2026-11-06 于参考主机上**从一个干净的环境（删掉集群、工具和镜像）按本手册从头执行过一遍**，下面的耗时是那次的实测。沙箱本身的运维见 `idp-sandbox/docs/RUNBOOK.md`；compose 版平台见本仓库 README。更完整的带图版本是本地的 `docs/reports/IDP_TELOS_Kubernetes_Test_Environment_Runbook_2026-11-06.html`（`docs/` 不入库）。
 
 ## 速查
 
@@ -14,10 +14,22 @@ WSL 里的 kind 集群（Calico）、整套平台在集群上的部署与验收�
 
 ```bash
 kubectl get nodes; docker start kind-control-plane            # 重启后恢复集群
-SKIP_BUILD=1 bash tests/kind/full.sh                          # 整平台 PATH A–D，约 5 分钟；SANDBOX_RUNTIME_CLASS=gvisor|kata；TEARDOWN=1
-bash idp-sandbox/tests/kind/smoke.sh                          # 沙箱的集群检查（LOAD_LOCAL_IMAGES=1）
+bash tests/kind/full.sh                                       # 整平台 PATH A–D；镜像已在时加 SKIP_BUILD=1；SANDBOX_RUNTIME_CLASS=gvisor|kata；TEARDOWN=1
+LOAD_LOCAL_IMAGES=1 bash idp-sandbox/tests/kind/smoke.sh      # 沙箱的集群检查
 kind delete cluster --name kind; bash idp-sandbox/tests/kind/local-cluster.sh   # 删除 / 重建
 ```
+
+**从零的顺序与实测耗时**（干净环境，同一台机器）：
+
+| 步骤 | 命令 | 耗时 |
+|---|---|---|
+| 1 建集群 | `bash idp-sandbox/tests/kind/local-cluster.sh` | 约 8 分钟（装工具、拉节点和 Calico 镜像、建集群） |
+| 2 整平台（含构建所有镜像） | `bash tests/kind/full.sh`（第一次不要加 `SKIP_BUILD`，镜像还不存在） | 约 2 分钟（Go 缓存命中；全新机器会更久） |
+| 3 沙箱的集群检查 | `LOAD_LOCAL_IMAGES=1 bash idp-sandbox/tests/kind/smoke.sh` | 约 2.5 分钟，22 项 |
+| 4 gVisor | `bash idp-sandbox/tests/kind/gvisor.sh`，再按下面"加固运行时"换运行时并检查 | 约 1 分钟装 + 2.5 分钟检查 |
+| 5 Docker 后端在 gVisor 下 | `bash idp-sandbox/tests/integration/gvisor.sh` | 约 4 分钟（含取 `docker:dind`），20 项 |
+| 6 Kata | `bash idp-sandbox/tests/kind/kata.sh`，再换运行时并检查 | 约 11 分钟（下载 1.3 GB）+ 2.5 分钟检查 |
+| 7 整平台再跑一遍，沙箱在 gVisor 下 | `SKIP_BUILD=1 SANDBOX_RUNTIME_CLASS=gvisor bash tests/kind/full.sh` | 约 2 分钟 |
 
 ## 环境须知
 
@@ -58,14 +70,23 @@ bash idp-sandbox/tests/kind/local-cluster.sh
 
 ```bash
 cd idp-sandbox
-LOAD_LOCAL_IMAGES=1 bash tests/kind/smoke.sh      # 构建、加载、应用清单、跑 tests/kind/check.py（22 项，约 2 分钟）
+LOAD_LOCAL_IMAGES=1 bash tests/kind/smoke.sh      # 构建、加载、应用清单、跑 tests/kind/check.py（22 项）
+
+# 换运行时后跑同一套检查：先装运行时，再改沙箱的环境变量，开端口转发，跑检查
 bash tests/kind/gvisor.sh                          # gVisor 装进节点，RuntimeClass gvisor
 kubectl -n idp-sandbox set env deploy/idp-sandbox IDP_SANDBOX_RUNTIME_CLASS=gvisor
-EXPECT_GVISOR=1 python3 tests/kind/check.py        # 需要到沙箱的端口转发（脚本里的 8570）
-KATA_TARBALL=kata-go-static-4.3.1-amd64.tar.zst bash tests/kind/kata.sh      # 1.3 GB，GitHub release
-EXPECT_KATA=1 python3 tests/kind/check.py
-bash tests/integration/gvisor.sh                   # Docker 后端全在 runsc 下（docker-in-docker，需要 docker:dind 镜像）
+kubectl -n idp-sandbox rollout status deploy/idp-sandbox
+kubectl -n idp-sandbox port-forward svc/idp-sandbox 8570:8570 &       # check.py 默认连 127.0.0.1:8570（SANDBOX_URL 可改）
+EXPECT_GVISOR=1 python3 tests/kind/check.py        # 集群 IP 它自己用 kubectl 查（也可用 API_IP / SANDBOX_IP 指定）
+
+bash tests/kind/kata.sh                            # 自己下载 kata-go-static（1.3 GB）；已有包时 KATA_TARBALL=路径
+kubectl -n idp-sandbox set env deploy/idp-sandbox IDP_SANDBOX_RUNTIME_CLASS=kata
+EXPECT_KATA=1 python3 tests/kind/check.py          # 端口转发还在；断了就重开
+
+bash tests/integration/gvisor.sh                   # Docker 后端全在 runsc 下（docker-in-docker；docker:dind 镜像脚本会自己取）
 ```
+
+`check.py` 每次检查会创建并删除自己的工作区；**如果它中途崩了（或被中断），留下的工作区要等 30 分钟空闲回收**，期间再跑 `nothing-left-behind` 会失败——`kubectl -n idp-sandbox-runs delete pvc --all` 清掉再跑。
 
 `smoke.sh` 会把 `idp-sandbox` 命名空间里的沙箱换成它自己的清单，和整平台的沙箱重叠，先跑哪个另一个就要重新部署。
 
@@ -92,6 +113,7 @@ kubectl -n keycloak port-forward svc/keycloak 17443:7443 &    # 令牌的 iss �
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | Pod `ImagePullBackOff`，日志 `proxyconnect tcp: 127.0.0.1:45221 … refused` | 节点继承了宿主的代理 | 把镜像加载进节点；`imagePullPolicy: IfNotPresent` 或 `:dev` 标签 |
+| `check.py`：`nothing-left-behind` 失败，列出 `persistentvolumeclaim/…` | 上一次检查崩了或被中断，留下了工作区 | `kubectl -n idp-sandbox-runs delete pvc --all`，或等 30 分钟空闲回收 |
 | `kind load docker-image`：`ctr … images import … failed` | containerd 镜像存储保存了全平台 | `docker save --platform linux/amd64` 再 `kind load image-archive` |
 | Docker 拉 Hub / quay：`TLS handshake timeout` | 守护进程不走 shell 的代理 | `crane pull IMG f.tar` + `docker load` |
 | 运行 Pod 能连外网 | CNI 不执行 NetworkPolicy | 用 Calico |
