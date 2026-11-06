@@ -82,19 +82,24 @@ def main(argv=None):
     namespace_of, labels_of, policies_of = {}, {}, {}
     for name, docs in rendered.items():
         namespaces = [d for d in docs if d["kind"] == "Namespace"]
-        if len(namespaces) != 1:
-            problems.append(f"{name}: {len(namespaces)} namespaces")
+        # a component may own more than one namespace (idp-sandbox: the service, and where it runs untrusted code);
+        # the one named like the component is the one integrations talk to
+        primary = [n for n in namespaces if n["metadata"]["name"] == name] if len(namespaces) > 1 else namespaces
+        if len(primary) != 1:
+            problems.append(f"{name}: {len(namespaces)} namespaces, none named {name}" if namespaces else f"{name}: no namespace")
             continue
-        ns = namespaces[0]
+        ns = primary[0]
         namespace_of[name] = ns["metadata"]["name"]
         labels_of[name] = {**ns["metadata"].get("labels", {}), "kubernetes.io/metadata.name": ns["metadata"]["name"]}
-        if ns["metadata"].get("labels", {}).get("pod-security.kubernetes.io/enforce") != "restricted":
-            problems.append(f"{name}: namespace does not enforce the restricted pod security standard")
-        policies = [d for d in docs if d["kind"] == "NetworkPolicy"]
-        policies_of[name] = policies
-        if not any(p["spec"].get("podSelector") == {} and set(p["spec"].get("policyTypes", [])) == {"Ingress", "Egress"}
-                   and not p["spec"].get("ingress") and not p["spec"].get("egress") for p in policies):
-            problems.append(f"{name}: no default-deny NetworkPolicy")
+        policies_of[name] = [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"].get("namespace") == ns["metadata"]["name"]]
+        for n in namespaces:  # every namespace of the component: restricted pod security and a default-deny policy
+            nname = n["metadata"]["name"]
+            if n["metadata"].get("labels", {}).get("pod-security.kubernetes.io/enforce") != "restricted":
+                problems.append(f"{name}: namespace {nname} does not enforce the restricted pod security standard")
+            if not any(d["kind"] == "NetworkPolicy" and d["metadata"].get("namespace") == nname and d["spec"].get("podSelector") == {}
+                       and set(d["spec"].get("policyTypes", [])) == {"Ingress", "Egress"} and not d["spec"].get("ingress") and not d["spec"].get("egress")
+                       for d in docs):
+                problems.append(f"{name}: no default-deny NetworkPolicy in {nname}")
     # a peer selector that points into another namespace must not carry the policy owner's own
     # app.kubernetes.io/name: that is kustomize commonLabels rewriting selectors (it replaces the
     # peer's label, e.g. postgresql, by the component's), and the rule then matches nothing

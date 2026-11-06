@@ -10,14 +10,14 @@ contracts:
 components:
 - name: idp-mcp
   repository: idp-xyz/idp-mcp
-  commit: 3a75c3815afd01f0b95a23a0d86aad00deb4545d
+  commit: 14abd18be3ac02017df3d891de782f3f3a61f568
   clean: true
   contract:
     namespace: idp.telos.mcp
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:033db7109d2a150d636aad5077bf4f6a91fae2c8c53c299bc6c164f4ac29f754
+    id: sha256:1c9b14a36c8241c80bcd106ca3db6ed6f1dc3b0c00216d753770d0dc247afdb5
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: be42be29d892a524cf9eca6feff7cf2fa7283dc0
@@ -27,14 +27,14 @@ components:
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:d2e3d85872a8e9ccc35565831ff7da27bf718b8d4201ddc3b454afbf845b7f5e
+    id: sha256:ea8c51c00c950d8fc07b2f2de1a53038fc56c0944ed88b8f7283aab69b45c19c
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:fba55f38c185f5e83d2b7831c342edf2ec16cf054975afabd30fafa9fbec75cd
+    id: sha256:15766769171beef1e4029e8f1141aa171563c96bc818bf9059be168ec1f0fe5b
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: dbdb008e9feaeca8d2a243ed5b0e967cf17cef3d
@@ -44,7 +44,7 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:1eccc95b299862f6db462dbef6859b8732887ea990d203b2d9a8b88e8f2052e2
+    id: sha256:d0827107a66a8197fa79b593877795d56fcf60387dec0aa91e2dd49ed12581eb
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: eb5a75a7810efedc257119bb8205fd6e17a175ec
@@ -54,11 +54,11 @@ components:
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:a87057f0fc7f205ffb72524948067aa7e36107f4aafeaab08ee331b23125a3d3
+    id: sha256:d2057f6278aff3eaa58fa96b5007eeb9561c5a6205dda03d637a9a1060509397
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: 46dd69fdae02b9ff7fbaeea601eebf65be83adcd
+  commit: 7517182405c3bbf583bb75b4603a9e866139c8c7
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:8f04fc814491eff44448f4a047bdaa67e45a4ce9f0ef5ab33632d190f4bc4fcc
+    id: sha256:04d7c5eef20e74d27ad051be98a7eb1cf34b848224fe68a25467a6e85976a450

@@ -61,7 +61,6 @@ components:
     adr: docs/adr/ADR-0001-workspace-design.md
     contracts: {produces: idp.telos.workspace, consumes: [idp.telos.host]}
   - name: idp-sandbox
-    kubernetes: not-deployed   # needs a container engine: see its ADR §5
     platform: true   # part of deploy/compose/platform.yaml (P4): PATH D
     title: Agent Execution Sandbox
     repository: idp-xyz/idp-sandbox
