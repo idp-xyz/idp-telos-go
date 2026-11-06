@@ -143,6 +143,13 @@ patches:
     patch: |-
       - {op: replace, path: /spec/egress/0/to/0/ipBlock/cidr, value: "$APIIP/32"}
 EOF
+if [[ -n "${SANDBOX_RUNTIME_CLASS:-}" ]]; then   # e.g. gvisor (idp-sandbox/tests/kind/gvisor.sh installs it): the sandbox's run Pods use it
+  cat >> "$L/overlay/kustomization.yaml" <<YAML
+  - target: {kind: Deployment, name: idp-sandbox, namespace: idp-sandbox}
+    patch: |-
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_SANDBOX_RUNTIME_CLASS, value: "$SANDBOX_RUNTIME_CLASS"}}
+YAML
+fi
 if go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build "$L/overlay" > "$L/platform.yaml" 2>"$L/kustomize.err"; then :; else
   kubectl kustomize "$L/overlay" > "$L/platform.yaml" || { cat "$L/kustomize.err" >&2; echo "BLOCKED: kustomize" >&2; exit 2; }
 fi
