@@ -5,7 +5,7 @@
 # records the image that acceptance used.
 components:
   - name: idp-mcp
-    platform: false   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6)
+    platform: true   # part of deploy/compose/platform.yaml (ADR-0001 T5/T6; P4)
     title: MCP Infrastructure
     repository: idp-xyz/idp-mcp
     visibility: public
@@ -62,7 +62,7 @@ components:
     contracts: {produces: idp.telos.workspace, consumes: [idp.telos.host]}
   - name: idp-sandbox
     kubernetes: not-deployed   # needs a container engine: see its ADR §5
-    platform: false   # an upstream of idp-mcp; its acceptance is idp-sandbox deploy/e2e.sh (behind the real gateway)
+    platform: true   # part of deploy/compose/platform.yaml (P4): PATH D
     title: Agent Execution Sandbox
     repository: idp-xyz/idp-sandbox
     visibility: public

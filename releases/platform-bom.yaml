@@ -5,33 +5,36 @@ release: 0.1.0-dev
 contracts:
   idp.telos.cmi: 1.4.0
   idp.telos.host: 1.7.0
-  idp.telos.mcp: 1.0.0
+  idp.telos.mcp: 1.1.0
   idp.telos.workspace: 1.1.0
 components:
 - name: idp-mcp
   repository: idp-xyz/idp-mcp
-  commit: a2f96795452429c82d657a8c9a4a7bd672e0c0dd
+  commit: 3a75c3815afd01f0b95a23a0d86aad00deb4545d
   clean: true
   contract:
     namespace: idp.telos.mcp
-    version: 1.0.0
+    version: 1.1.0
+  image:
+    reference: idp-mcp:dev
+    id: sha256:033db7109d2a150d636aad5077bf4f6a91fae2c8c53c299bc6c164f4ac29f754
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: 2c7d43c0d01fba7fb24af783df04c3beb22990cc
+  commit: be42be29d892a524cf9eca6feff7cf2fa7283dc0
   clean: true
   contract:
     namespace: idp.telos.host
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:9a6a64eacf0a51c1531248a3f6de6cb715325053bd2c54fadb90dda19527959a
+    id: sha256:d2e3d85872a8e9ccc35565831ff7da27bf718b8d4201ddc3b454afbf845b7f5e
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:4a8c93c746ee43773efb0538325174079695f6bb0f373366f706a7a4166575fa
+    id: sha256:fba55f38c185f5e83d2b7831c342edf2ec16cf054975afabd30fafa9fbec75cd
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: dbdb008e9feaeca8d2a243ed5b0e967cf17cef3d
@@ -41,7 +44,7 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:0f4eabf753d016acea5db43545d2d4f5b312d101741010a527d9043e09a9a51b
+    id: sha256:1eccc95b299862f6db462dbef6859b8732887ea990d203b2d9a8b88e8f2052e2
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: eb5a75a7810efedc257119bb8205fd6e17a175ec
@@ -51,8 +54,11 @@ components:
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:7a934c443b2949ca2cc4fc30b785a74ad9cf9f1b81ebf8435460e3a210854854
+    id: sha256:a87057f0fc7f205ffb72524948067aa7e36107f4aafeaab08ee331b23125a3d3
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: 523d4e00ecf842a2180c88ee42a61b7c6d580417
+  commit: 46dd69fdae02b9ff7fbaeea601eebf65be83adcd
   clean: true
+  image:
+    reference: idp-sandbox:dev
+    id: sha256:8f04fc814491eff44448f4a047bdaa67e45a4ce9f0ef5ab33632d190f4bc4fcc

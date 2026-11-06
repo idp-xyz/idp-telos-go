@@ -1,14 +1,14 @@
 {
   "scope": "FILE_LEVEL_ONLY",
-  "checked_on": "2026-11-04",
+  "checked_on": "2026-11-05",
   "validator": "jsonschema 4.26.0",
   "referencing": "0.37.0",
   "draft": "2020-12",
   "format_checker_enabled": true,
   "namespaces": {
     "idp.telos.mcp": {
-      "id": "urn:idp:telos:mcp:1.0.0",
-      "version": "1.0.0",
+      "id": "urn:idp:telos:mcp:1.1.0",
+      "version": "1.1.0",
       "definitions": 12
     },
     "idp.telos.host": {
@@ -27,12 +27,12 @@
       "definitions": 19
     }
   },
-  "positive_cases": 104,
-  "negative_cases": 171,
-  "passed": 275,
-  "total": 275,
-  "invariants_passed": 32,
-  "invariants_total": 32,
+  "positive_cases": 105,
+  "negative_cases": 173,
+  "passed": 278,
+  "total": 278,
+  "invariants_passed": 33,
+  "invariants_total": 33,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -63,6 +63,9 @@
       "passed": true
     },
     "workspace_definitions_are_closed": {
+      "passed": true
+    },
+    "idp_telos_mcp_1_1_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "idp_telos_host_1_7_0_is_additive_over_1_6_0": {
@@ -551,6 +554,14 @@
     },
     {
       "case": "release_report_drift",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "release_target_forwards_identity",
       "namespace": "idp.telos.mcp",
       "definition": "Release",
       "expected_valid": true,
@@ -1063,6 +1074,26 @@
       "passed": true,
       "errors": [
         "targets/0/network: 'vpn' is not one of ['public', 'private', 'loopback']"
+      ]
+    },
+    {
+      "case": "identity_none_is_omitted_not_written",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/identity: 'forward' was expected"
+      ]
+    },
+    {
+      "case": "identity_unknown_mode",
+      "namespace": "idp.telos.mcp",
+      "definition": "Release",
+      "expected_valid": false,
+      "passed": true,
+      "errors": [
+        "targets/0/identity: 'forward' was expected"
       ]
     },
     {

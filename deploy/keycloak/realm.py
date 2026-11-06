@@ -10,7 +10,9 @@ Clients:
 - svc-eer           idp-eer's projector as an inbox producer (client credentials): aud idp-workspace, ws-producer
 - eer-intelligence  idp-eer's Intelligence worker at the CMI (client credentials): aud idp-cmi, cmi-reader + cmi-writer
 - idp-host-svc      the HOST's own identity at the CMI (client credentials): aud idp-cmi, cmi-reader
-- idp-host, idp-cmi, eer-runtime audiences (bearer only)
+- idp-host          the HOST as RFC 8693 token-exchange requester and delegation actor: a member's token (aud idp-host)
+                    -> a token for the idp-mcp gateway (aud GATEWAY, azp = idp-host)
+- GATEWAY, idp-cmi, eer-runtime audiences (bearer only; GATEWAY = the gateway's canonical MCP URI)
 - e2e-cli           the acceptance script (password grant), aud idp-workspace, idp-host, idp-cmi, eer-runtime
 
   python3 deploy/keycloak/realm.py OUT_DIR TENANT_ID CLIENTS_FILE
@@ -23,6 +25,7 @@ import uuid
 
 out, tenant, clients_file = sys.argv[1:4]
 SHELL = "http://127.0.0.1:8560"
+GATEWAY = "http://mcp-gateway:3320/mcp"   # the idp-mcp gateway as the HOST calls it
 
 
 def hardcoded(name, value, json_type="String"):
@@ -33,6 +36,11 @@ def hardcoded(name, value, json_type="String"):
 def audience(a):
     return {"name": "aud-" + a, "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
             "config": {"included.client.audience": a, "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true"}}
+
+
+def audience_uri(a):  # an audience that is not a client id: a URI
+    return {"name": "aud-" + a[-24:], "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+            "config": {"included.custom.audience": a, "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true"}}
 
 
 tenant_attr = {"name": "tenant_id", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper",
@@ -46,7 +54,7 @@ user_mappers = [tenant_attr, roles_map, username]
 users = {"alice": ["ws-admin", "cmi-admin"], "bob": ["ws-member", "host-user"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
-secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "svc-eer", "eer-intelligence", "e2e-cli")}
+secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "svc-eer", "eer-intelligence", "e2e-cli")}
 realm = {
     "realm": "idp", "enabled": True, "sslRequired": "none", "accessTokenLifespan": 600,
     "roles": {"realm": [{"name": r} for r in ("ws-admin", "ws-member", "ws-producer", "host-user", "host-admin", "host-approver", "cmi-admin", "cmi-writer", "cmi-reader")]},
@@ -68,7 +76,10 @@ realm = {
         {"clientId": "eer-intelligence", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["eer-intelligence"], "standardFlowEnabled": False,
          "serviceAccountsEnabled": True, "fullScopeAllowed": False,
          "protocolMappers": [audience("idp-cmi"), hardcoded("tenant_id", tenant), hardcoded("roles", json.dumps(["cmi-reader", "cmi-writer"]), "JSON"), username]},
-        {"clientId": "idp-host", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
+        {"clientId": "idp-host", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-host"], "standardFlowEnabled": False,
+         "serviceAccountsEnabled": True, "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true"},
+         "protocolMappers": [audience_uri(GATEWAY)] + user_mappers},
+        {"clientId": GATEWAY, "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "idp-cmi", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "eer-runtime", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "e2e-cli", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["e2e-cli"], "standardFlowEnabled": False,

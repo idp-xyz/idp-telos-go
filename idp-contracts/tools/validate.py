@@ -129,6 +129,7 @@ MCP_JWT = {'issuer': 'https://idp.example/realms/idp', 'resource': 'https://mcp.
 POSITIVE = [
     ('release_without_approver', MCP, 'Release', 0, U('approvedBy')),
     ('release_report_drift', MCP, 'Release', 0, S(driftAction='report')),
+    ('release_target_forwards_identity', MCP, 'Release', 0, P('targets.0.identity', 'forward')),
     ('release_grant_prompts_only', MCP, 'Release', 0, P('grants.1', {'target': 'parcel', 'tools': [], 'prompts': ['shipping-label'], 'roles': ['writer']})),
     ('release_grant_resources_only', MCP, 'Release', 0, P('grants.1', {'target': 'parcel', 'tools': [], 'resources': True, 'roles': ['reader']})),
     ('release_jwt_auth', MCP, 'Release', 0, S(auth={'mode': 'jwt', 'jwt': MCP_JWT})),
@@ -148,6 +149,8 @@ NEGATIVE = [
     ('endpoint_not_http', MCP, 'Release', 0, P('targets.0.endpoint', 'ftp://parcel/mcp')),
     ('endpoint_with_query', MCP, 'Release', 0, P('targets.0.endpoint', 'https://parcel/mcp?x=1')),
     ('unknown_network', MCP, 'Release', 0, P('targets.0.network', 'vpn')),
+    ('identity_none_is_omitted_not_written', MCP, 'Release', 0, P('targets.0.identity', 'none')),
+    ('identity_unknown_mode', MCP, 'Release', 0, P('targets.0.identity', 'everyone')),
     ('malformed_snapshot_digest', MCP, 'Release', 0, P('targets.0.snapshotDigest', 'sha256:zz')),
     ('target_without_tools', MCP, 'Release', 0, P('targets.0.tools', [])),
     ('tool_without_input_schema', MCP, 'Release', 0, P('targets.0.tools.0', {'name': 'x'})),

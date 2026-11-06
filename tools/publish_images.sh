@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 REGISTRY="${REGISTRY:-ghcr.io/idp-xyz}"
 OUT="${OUT:-published-images.json}"
 # local image built by e2e.sh -> component in the BOM -> published repository
-IMAGES=("idp-cmi:dev idp-cmi idp-cmi" "idp-host:dev idp-host idp-host" "idp-workspace:dev idp-workspace idp-workspace" "eer-runtime:dev idp-eer eer-runtime")
+IMAGES=("idp-cmi:dev idp-cmi idp-cmi" "idp-host:dev idp-host idp-host" "idp-workspace:dev idp-workspace idp-workspace" "eer-runtime:dev idp-eer eer-runtime" "idp-mcp:dev idp-mcp idp-mcp" "idp-sandbox:dev idp-sandbox idp-sandbox")
 commit_of() { python3 -I -c 'import sys,yaml; print(next(c["commit"] for c in yaml.safe_load(open("releases/platform-bom.yaml"))["components"] if c["name"]==sys.argv[1]))' "$1"; }
 entries=()
 for row in "${IMAGES[@]}"; do

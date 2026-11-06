@@ -10,6 +10,10 @@
 # from the platform's CMI and leaves memory there, authenticated by a Keycloak service account. Nothing
 # in EER's API starts a Decision, so this runs EER's own opt-in test against the platform (needs uv).
 #
+# PATH D (P4): bob asks an agent to run code; the HOST calls the idp-mcp gateway with a token it exchanged for bob
+# (RFC 8693, issued to the client idp-host), the gateway forwards the verified caller to idp-sandbox, which runs the code in an isolated
+# container in a workspace that belongs to bob. The gateway's invocation record names bob and the HOST.
+#
 #   bash deploy/compose/e2e.sh          build the component images from the side-by-side checkouts, run, tear down
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev, idp-host:dev, idp-host-fakemodel:dev, idp-workspace:dev, eer-runtime:dev)
 #   KEEP=1 ...                          leave the platform running
@@ -43,9 +47,10 @@ if [[ ! -f "$ENVF" ]] || ! grep -q EER_RUNTIME_APP_PASSWORD "$ENVF"; then
              EER_RUNTIME_OWNER_PASSWORD EER_RUNTIME_APP_PASSWORD EER_RUNTIME_READONLY_PASSWORD EER_INTELLIGENCE_OWNER_PASSWORD EER_INTELLIGENCE_APP_PASSWORD; do echo "$v=$(openssl rand -hex 16)"; done
     echo "IDP_HOST_CREDENTIAL_KEY=$(openssl rand -hex 32)"; } > "$ENVF"
 fi
+for v in IDP_MCP_DB_PASSWORD IDP_MCP_ADMIN_SECRET; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
 set -a; source "$ENVF"; set +a
 
-for repo in idp-cmi idp-host idp-workspace idp-eer; do
+for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox; do
   [[ -d "$repo/.git" ]] || { echo "BLOCKED: $repo is not checked out next to this repository" >&2; exit 2; }
 done
 if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
@@ -54,15 +59,25 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-host/deploy/fixtures/build-fakemodel.sh >/dev/null
   bash idp-workspace/deploy/build.sh idp-workspace:dev
   bash idp-eer/tools/development/runtime_image_offline.sh eer-runtime:dev
+  bash idp-mcp/deploy/build.sh idp-mcp:dev
+  bash idp-sandbox/deploy/build.sh idp-sandbox:dev
 fi
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev; do
+# the sandbox's runtime images are pulled by the operator (here), never by the service
+for img in public.ecr.aws/docker/library/python:3.12-slim public.ecr.aws/docker/library/alpine:3.22; do
+  docker image inspect "$img" >/dev/null 2>&1 || docker pull -q "$img" >/dev/null
+done
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
 done
 
 "${C[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 cleanup() {
   [[ -n "${FORWARDER:-}" && "${KEEP:-0}" != 1 ]] && kill "$FORWARDER" 2>/dev/null
-  [[ "${KEEP:-0}" == 1 ]] || "${C[@]}" down -v --remove-orphans >/dev/null 2>&1
+  if [[ "${KEEP:-0}" != 1 ]]; then
+    "${C[@]}" down -v --remove-orphans >/dev/null 2>&1
+    docker ps -aq --filter label=idp.sandbox=platform | xargs -r docker rm -fv >/dev/null 2>&1
+    docker volume ls -q --filter label=idp.sandbox=platform | xargs -r docker volume rm -f >/dev/null 2>&1
+  fi
   return 0
 }
 trap cleanup EXIT
@@ -83,6 +98,20 @@ printf 'pending\n' > "$L/cmi.key"
 MODEL_BASE=http://fakemodel:18080/v1 AGENT_MODEL=fake-1
 [[ "$MODEL" == live ]] && MODEL_BASE="http://host.docker.internal:18088$LIVE_PATH" AGENT_MODEL="$LIVE_MODEL"
 printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\ncmi:\n  endpoint: http://cmi:8550\n  auth: {mode: static, apiKeyFile: /etc/idp/cmi.key}\n' "$MODEL_BASE" > "$L/host.yaml"
+# the idp-mcp gateway: the HOST acts for the member (RFC 8693 delegation, its own client credentials as actor_token)
+cat >> "$L/host.yaml" <<'YAML'
+gateways:
+  - name: edge
+    endpoint: http://mcp-gateway:3320/mcp
+    auth:
+      mode: delegation
+      tokenEndpoint: http://keycloak:7080/realms/idp/protocol/openid-connect/token
+      clientId: idp-host
+      clientSecretFile: /etc/idp/host.key
+      audience: http://mcp-gateway:3320/mcp
+      actorToken: true
+YAML
+python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["idp-host"])' > "$L/host.key"
 python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["idp-workspace"])' > "$L/exchange.secret"
 cat > "$L/workspace.yaml" <<'YAML'
 targets:
@@ -125,7 +154,7 @@ for k, v in (("EER_PRINCIPAL_MAPPINGS", mappings), ("EER_AUTHORIZATION_POLICY", 
     print(k + "=" + json.dumps(v, separators=(",", ":")))
 print("SSL_CERT_FILE=/etc/eer/ca.crt")
 PY
-chmod 644 "$L"/keycloak/idp-realm.json "$L/host.yaml" "$L/cmi.key" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
+chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/host.yaml" "$L/cmi.key" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
 token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
@@ -133,7 +162,7 @@ KC=(curl -sf --noproxy '*' --cacert "$L/tls/ca.crt")
 user_token() { "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d "username=$1" -d "password=$(secret_of "$1")" | token_json; }
 
 "${C[@]}" up -d --wait postgres
-for db in idp_cmi idp_host idp_workspace eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
+for db in idp_cmi idp_host idp_workspace idp_mcp eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
 "${C[@]}" up -d keycloak eer-temporal
 for _ in $(seq 1 120); do "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" && break; sleep 1; done
 "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" || { "${C[@]}" logs --tail 30 keycloak; echo "BLOCKED: Keycloak did not come up" >&2; exit 2; }
@@ -154,6 +183,32 @@ for c in cmi host workspace; do
   got="$("${C[@]}" run --rm -T $c-admin seed-tenant acme "$TENANT" | sed -n 's/^TENANT_ID=//p')"
   [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: $c tenant $got != $TENANT" >&2; exit 2; }
 done
+call() { # call EXPECTED METHOD URL TOKEN [BODY]
+  local want="$1" method="$2" url="$3" token="$4" body="${5:-}" out status
+  out="$(mktemp)"
+  status="$(curl -s --noproxy '*' -o "$out" -w '%{http_code}' -X "$method" "$url" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' ${body:+--data "$body"})"
+  if [[ "$status" != "$want" ]]; then echo "FAIL: $method $url -> $status (want $want): $(cat "$out")" >&2; rm -f "$out"; exit 1; fi
+  cat "$out"; rm -f "$out"
+}
+field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
+# idp-mcp: registry, a gateway that verifies Keycloak tokens, and the sandbox as its upstream
+"${C[@]}" run --rm -T mcp-admin migrate >/dev/null
+"${C[@]}" run --rm -T mcp-admin ensure-login idp_mcp_svc >/dev/null
+got="$("${C[@]}" run --rm -T mcp-admin seed-tenant acme "$TENANT" | sed -n 's/^TENANT_ID=//p')"
+[[ "$got" == "$TENANT" ]] || { echo "BLOCKED: mcp tenant $got != $TENANT" >&2; exit 2; }
+"${C[@]}" up -d mcp-registry sandbox
+for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:8250/api/v1/health && break; sleep 0.5; done
+mcp_token() { "${C[@]}" run --rm -T mcp-admin dev-token "$TENANT" "$1" "$2" | tail -1; }
+MADMIN="$(mcp_token carol admin)"; MOPERATOR="$(mcp_token alice operator)"; MREVIEWER="$(mcp_token bob reviewer)"
+GW="$(call 201 POST http://127.0.0.1:8250/api/v1/gateways "$MADMIN" '{"name":"edge-1","authMode":"jwt","jwt":{"issuer":"'"$ISSUER"'","resource":"http://mcp-gateway:3320/mcp","jwksUrl":"http://keycloak:7080/realms/idp/protocol/openid-connect/certs","tenantClaim":"tenant_id","rolesClaim":"roles"}}')"
+GW_ID="$(echo "$GW" | field "['gateway']['gatewayId']")"; GW_TOKEN="$(echo "$GW" | field "['token']")"
+printf 'IDP_GATEWAY_ID=%s\nIDP_GATEWAY_TOKEN=%s\n' "$GW_ID" "$GW_TOKEN" >> "$ENVF"
+set -a; source "$ENVF"; set +a
+"${C[@]}" up -d mcp-gateway
+for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:3320/healthz && break; sleep 0.5; done
+python3 -I deploy/compose/mcp_setup.py http://127.0.0.1:8250 "$GW_ID" "$MADMIN" "$MOPERATOR" "$MREVIEWER" host-user >/dev/null \
+  || { "${C[@]}" logs --tail 30 mcp-registry mcp-gateway sandbox; echo "BLOCKED: the idp-mcp setup failed" >&2; exit 2; }
+
 # the HOST's own identity at the CMI (client credentials), as its static key
 umask 022
 "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=idp-host-svc -d "client_secret=$(secret_of idp-host-svc)" | token_json > "$L/cmi.key"
@@ -164,14 +219,6 @@ for url in "$CMI/healthz" "$HOST/healthz" "$WS/healthz" "$EER/health/ready" http
   curl -sf --noproxy '*' -o /dev/null "$url" || { "${C[@]}" logs --tail 20; echo "BLOCKED: $url" >&2; exit 2; }
 done
 
-call() { # call EXPECTED METHOD URL TOKEN [BODY]
-  local want="$1" method="$2" url="$3" token="$4" body="${5:-}" out status
-  out="$(mktemp)"
-  status="$(curl -s --noproxy '*' -o "$out" -w '%{http_code}' -X "$method" "$url" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' ${body:+--data "$body"})"
-  if [[ "$status" != "$want" ]]; then echo "FAIL: $method $url -> $status (want $want): $(cat "$out")" >&2; rm -f "$out"; exit 1; fi
-  cat "$out"; rm -f "$out"
-}
-field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 ALICE="$(user_token alice)"; BOB="$(user_token bob)"; HADMIN="$(user_token hostadmin)"; HAPPROVER="$(user_token hostapprover)"
 
 # ---- CMI: the enterprise knowledge the answer must draw on ----
@@ -270,6 +317,54 @@ for _ in $(seq 1 120); do
 done
 [[ "$CLOSED" == resolved/approved ]] || { echo "FAIL: the inbox item is $CLOSED" >&2; exit 1; }
 echo "PASS: PATH B — operator -> EER $EXEC (T2) -> Waiting -> bob's inbox (EER projector, svc-eer) -> bob approves in the Workspace (token exchange) -> EER Completed, audit approval.approved by bob -> item $CLOSED by EER"
+
+# ---- PATH D: bob asks an agent to run code; it runs in the sandbox, through the gateway, as bob ----
+if [[ "$MODEL" == live ]]; then
+  echo "NOT_RUN: PATH D uses the model double's scripted sandbox flow (MODEL=fake)"
+else
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"sandbox-assistant","displayName":"Sandbox assistant","definition":{"instructions":"Run the code the user gives you in the sandbox and report the result.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run"]},"confirmation":{"default":"auto"}}}' >/dev/null
+REL="$(call 201 POST "$HOST/api/v1/agents/sandbox-assistant/releases" "$HADMIN" | field "['releaseId']")"
+call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"coder","version":"1.0.0","title":"Coder","publisher":"IDP","capabilities":[],"actions":[{"name":"code.run","title":"Run code","target":{"kind":"host.run","agent":"sandbox-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/coder" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+INV="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" '{"app":"coder","action":"code.run","input":{"message":"run python: print(\"answer\", 6 * 7)"}}')"
+DRUN="$(echo "$INV" | field "['result']['id']")"
+DRESULT=""
+for _ in $(seq 1 600); do
+  DRESULT="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$DRUN' and not it['title'].endswith('running'): print(it['title'])")"
+  [[ -n "$DRESULT" ]] && break; sleep 0.5
+done
+[[ "$DRESULT" == *"— finished" ]] || { "${C[@]}" logs --tail 30 host host-worker mcp-gateway sandbox; echo "FAIL: no finished sandbox run in bob's inbox ('$DRESULT')" >&2; exit 1; }
+DANSWER="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$DRUN': print(it.get('summary',''))")"
+[[ "$DANSWER" == *"exit code 0"* && "$DANSWER" == *"answer 42"* ]] || { echo "FAIL: the sandbox result is not in bob's inbox: $DANSWER" >&2; exit 1; }
+# the gateway's record: the calls were made for bob (the subject) with a token issued to the HOST (the client), and delivered
+BOB_ID="$(python3 -c "import json; print(json.load(open('.local/platform/clients.json'))['ids']['bob'])")"
+for _ in $(seq 1 40); do   # the gateway pushes its call records to the registry in batches
+  INVS="$(call 200 GET http://127.0.0.1:8250/api/v1/invocations "$MREVIEWER")"
+  [[ "$INVS" == *sandbox__sandbox_run* ]] && break; sleep 0.5
+done
+echo "$INVS" | python3 -c "
+import json,sys
+items=json.load(sys.stdin)['items']
+mine=[i for i in items if i.get('tool','').startswith('sandbox__sandbox_')]
+tools={i['tool'] for i in mine}
+assert {'sandbox__sandbox_create','sandbox__sandbox_run'} <= tools, ('the gateway recorded', tools)
+for i in mine:
+    assert i['subject']=='$BOB_ID', ('the call was not made for bob', i)
+    assert i['client']=='idp-host', ('the exchanged token was not issued to the HOST', i)
+    assert i['decision'].lower()=='allow' and i['outcome'].lower()=='ok', i
+print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'])
+" || { echo "FAIL: the gateway's invocation records: $INVS" >&2; exit 1; }
+# and the sandbox knew whose workspace it made: its audit log names the caller (a hash), not the code
+"${C[@]}" logs sandbox 2>/dev/null | grep -q '"tool":"sandbox_run".*caller=' || { "${C[@]}" logs --tail 20 sandbox; echo "FAIL: the sandbox did not see the caller" >&2; exit 1; }
+echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (caller forwarded) -> code ran in an isolated container -> 'answer 42' in bob's inbox"
+fi
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then

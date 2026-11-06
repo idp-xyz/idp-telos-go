@@ -5,6 +5,9 @@
 # Keycloak's issuer is https://127.0.0.1:7443/realms/idp (a CA generated per run in .local/platform/tls),
 # because idp-eer accepts only https issuers; containers fetch keys and tokens from http://keycloak:7080.
 # idp-eer runs from its offline image with Temporal (P2). The browser uses 127.0.0.1:{7443, 8560}.
+# P4: the idp-mcp registry and gateway (jwt mode, Keycloak) and idp-sandbox as an upstream with identity
+# forwarding; the HOST reaches the gateway with RFC 8693 delegation. The sandbox mounts the Docker socket (root on
+# the host): development only, see idp-sandbox ADR-0001 section 5.
 # DEV ONLY: a test realm and CA, plaintext http on private networks.
 name: idp-telos-platform
 
@@ -72,6 +75,61 @@ services:
       IDP_CMI_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
       IDP_CMI_AUDIENCE: idp-cmi
 
+  # ---- idp-mcp (registry, gateway) and idp-sandbox (P4) ----
+  mcp-admin:
+    <<: *hardened
+    image: ${IDP_MCP_IMAGE:-idp-mcp:dev}
+    profiles: [tools]
+    entrypoint: [/usr/local/bin/registry-service]
+    networks: [data]
+    environment:
+      IDP_MIGRATION_DATABASE_URL: postgres://postgres:${IDP_PG_OWNER_PASSWORD}@postgres:5432/idp_mcp?sslmode=disable
+      IDP_APP_DB_PASSWORD: ${IDP_MCP_DB_PASSWORD:?run deploy/compose/e2e.sh}
+      IDP_DEV_MODE: 'true'
+      IDP_DEV_ADMIN_SECRET: ${IDP_MCP_ADMIN_SECRET:?run deploy/compose/e2e.sh}
+  mcp-registry:
+    <<: *hardened
+    image: ${IDP_MCP_IMAGE:-idp-mcp:dev}
+    entrypoint: [/usr/local/bin/registry-service]
+    command: [serve]
+    networks: [edge, upstream, data]
+    ports: ['127.0.0.1:8250:8250']
+    environment:
+      IDP_DATABASE_URL: postgres://idp_mcp_svc:${IDP_MCP_DB_PASSWORD}@postgres:5432/idp_mcp?sslmode=disable
+      IDP_REGISTRY_LISTEN: 0.0.0.0:8250
+      IDP_DEV_MODE: 'true'   # HS256 admin tokens (dev-token); the data plane below verifies Keycloak tokens
+      IDP_DEV_ADMIN_SECRET: ${IDP_MCP_ADMIN_SECRET}
+      IDP_ALLOWED_UPSTREAM_HOSTS: sandbox
+      IDP_PRIVATE_UPSTREAM_HOSTS: sandbox
+  mcp-gateway:
+    <<: *hardened
+    image: ${IDP_MCP_IMAGE:-idp-mcp:dev}
+    entrypoint: [/usr/local/bin/mcp-gateway]
+    networks: [edge, upstream]
+    ports: ['127.0.0.1:3320:3320']
+    tmpfs: ['/var/cache/idp:uid=10001,gid=10001,mode=0700']
+    environment:
+      IDP_GATEWAY_ID: ${IDP_GATEWAY_ID:-pending}
+      IDP_GATEWAY_TOKEN: ${IDP_GATEWAY_TOKEN:-pending}
+      IDP_REGISTRY_URL: http://mcp-registry:8250
+      IDP_GATEWAY_LISTEN: 0.0.0.0:3320
+      IDP_GATEWAY_ALLOWED_HOSTS: mcp-gateway,mcp-gateway:3320   # the HOST calls it by service name
+      IDP_RELEASE_CACHE: /var/cache/idp/release.json
+      IDP_METRICS_LISTEN: 0.0.0.0:9464
+    depends_on: [mcp-registry]
+  sandbox:
+    <<: *hardened
+    image: ${IDP_SANDBOX_IMAGE:-idp-sandbox:dev}
+    networks: [upstream]
+    volumes: [/var/run/docker.sock:/var/run/docker.sock]
+    environment:
+      IDP_SANDBOX_LISTEN: 0.0.0.0:8570
+      IDP_SANDBOX_PRIVATE_NETWORK: 'true'
+      IDP_SANDBOX_METRICS: 0.0.0.0:9570
+      IDP_SANDBOX_OWNER: platform
+      IDP_SANDBOX_PYTHON_IMAGE: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
+      IDP_SANDBOX_SHELL_IMAGE: ${IDP_SANDBOX_SHELL_IMAGE:-public.ecr.aws/docker/library/alpine:3.22}
+
   # ---- idp-host ----
   fakemodel:
     <<: *hardened
@@ -101,7 +159,7 @@ services:
       IDP_HOST_CREDENTIAL_KEY: ${IDP_HOST_CREDENTIAL_KEY:?run deploy/compose/e2e.sh}
       IDP_HOST_CONFIG: /etc/idp/host.yaml
       IDP_HOST_WORKERS: '0'
-    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro']
+    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro', '../../.local/platform/host.key:/etc/idp/host.key:ro']
     extra_hosts: ['host.docker.internal:host-gateway']   # MODEL=live: the model forwarder on the Docker host
     depends_on: [fakemodel, cmi]
   host-worker:
@@ -112,7 +170,7 @@ services:
     environment:
       <<: *host-env
       IDP_HOST_WORKERS: '2'
-    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro']
+    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro', '../../.local/platform/host.key:/etc/idp/host.key:ro']
     extra_hosts: ['host.docker.internal:host-gateway']
     depends_on: [fakemodel, cmi]
 

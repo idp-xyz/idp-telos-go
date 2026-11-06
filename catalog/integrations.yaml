@@ -43,7 +43,7 @@ integrations:
     interface: MCP (streamable HTTP) through mcp-gateway
     contract: null  # the MCP protocol itself; idp.telos.mcp describes the registry's documents, which HOST does not read
     auth: [delegation (RFC 8693, Keycloak)]
-    evidence: [idp-host deploy/e2e.sh MODE=oidc]
+    evidence: [idp-host deploy/e2e.sh MODE=oidc, this repository deploy/compose/e2e.sh (PATH D: the HOST's exchanged token for bob is accepted by the gateway in jwt mode)]
   - id: eer-host-agent-turn
     port: 8450   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
     kubernetes: not-deployed   # made by EER's Python Intelligence worker, which deploy/kubernetes of idp-eer does not run yet
@@ -69,5 +69,5 @@ integrations:
     to: idp-sandbox
     interface: MCP (streamable HTTP) upstream of mcp-gateway; tools sandbox_create / _run / _write_file / _read_file / _list_files / _delete
     contract: null  # the MCP protocol itself
-    auth: [none: a private network that only the gateway reaches (the gateway authenticates and authorizes the caller)]
-    evidence: [idp-sandbox deploy/e2e.sh (the real gateway and registry: discovery, review, grants by role, argument validation, audit), idp-sandbox ADR-0001]
+    auth: [none on the hop: a private network that only the gateway reaches; the gateway authenticates and authorizes the caller and forwards it (identity=forward, idp-mcp ADR-0001 D40)]
+    evidence: [idp-sandbox deploy/e2e.sh (the real gateway and registry: discovery, review, grants by role, argument validation, per-caller isolation, forgery stripped), this repository deploy/compose/e2e.sh (PATH D), idp-sandbox ADR-0001]
