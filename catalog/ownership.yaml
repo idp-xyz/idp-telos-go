@@ -17,6 +17,9 @@ ownership:
   - data: MCP server / tool registry, connection policy, invocation audit
     owner: idp-mcp
     not: business APIs' contracts
+  - data: Sandbox workspace (the ephemeral files an agent's code leaves, in memory, deleted with the workspace)
+    owner: idp-sandbox
+    not: anything that must outlive a run (results go to the caller, durable data to its owner)
   - data: Contract registry, platform BOM, compatibility matrix
     owner: idp-telos-go
     not: any component's source or state

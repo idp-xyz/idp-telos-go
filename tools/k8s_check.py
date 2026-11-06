@@ -68,6 +68,9 @@ def main(argv=None):
     integrations = yaml.safe_load((root / "catalog/integrations.yaml").read_text())["integrations"]
     rendered, problems, not_run, notes = {}, [], [], []
     for c in components:
+        if c.get("kubernetes") == "not-deployed":
+            notes.append(f"{c['name']}: no Kubernetes manifests (catalog: kubernetes: not-deployed)")
+            continue
         path = root / c["name"] / "deploy/kubernetes"
         if not path.exists():
             not_run.append(f"{c['name']}: no deploy/kubernetes in the checkout")

@@ -62,3 +62,12 @@ integrations:
     contract: idp.telos.cmi
     auth: [static, client credentials]
     evidence: [idp-eer ADR-037, CI cmi.yml]
+  - id: mcp-sandbox-tools
+    port: 8570   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
+    kubernetes: not-deployed   # the sandbox has no Kubernetes manifests yet (it needs a container engine: see its ADR §5)
+    from: idp-mcp
+    to: idp-sandbox
+    interface: MCP (streamable HTTP) upstream of mcp-gateway; tools sandbox_create / _run / _write_file / _read_file / _list_files / _delete
+    contract: null  # the MCP protocol itself
+    auth: [none: a private network that only the gateway reaches (the gateway authenticates and authorizes the caller)]
+    evidence: [idp-sandbox deploy/e2e.sh (the real gateway and registry: discovery, review, grants by role, argument validation, audit), idp-sandbox ADR-0001]
