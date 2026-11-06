@@ -16,6 +16,7 @@ resources:
   - ../../../idp-mcp/deploy/kubernetes
   - ../../../idp-sandbox/deploy/kubernetes
   - fakemodel.yaml
+  - assistant.yaml
   - setup-jobs.yaml
   - networkpolicy.yaml
 images:

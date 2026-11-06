@@ -8,14 +8,20 @@
 #   PATH B  operator T2 intent -> EER -> bob's inbox -> approval in the Workspace -> EER Completed
 #   PATH D  bob asks for code: HOST -> idp-mcp gateway -> idp-sandbox (kubernetes backend) -> 'answer 42' in the inbox
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
+# and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
-# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway.
+# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway, 17561 the assistant's page.
 #
 #   bash tests/kind/full.sh             build the images (as deploy/compose/e2e.sh), load them, deploy, run the paths
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev
 #                                       eer-runtime:dev idp-mcp:dev idp-sandbox:dev)
 #   KIND_CLUSTER=kind ...               the cluster (default kind; kubectl context kind-$KIND_CLUSTER)
 #   TEARDOWN=1 ...                      delete the platform's namespaces at the end (default: leave it running)
+#   MODEL=live ...                      the HOST's agents answer with a real OpenAI-compatible model on this host
+#                                       (IDP_LIVE_MODEL_URL, default http://127.0.0.1:8080/v1; IDP_LIVE_MODEL, default the
+#                                       first model it lists) instead of the deterministic double; the pods reach it through
+#                                       a forwarder on the kind network's gateway (container idp-kind-model-forward, which
+#                                       outlives the run so that the platform keeps answering)
 # A run starts by deleting the platform's namespaces (a fresh platform); nothing else in the cluster is touched.
 # Nodes that cannot pull images get every image from the Docker daemon (or, for the infrastructure images, crane).
 set -euo pipefail
@@ -42,6 +48,12 @@ for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox; do
 done
 for tool in kubectl kind docker openssl python3 curl; do command -v "$tool" >/dev/null || { echo "BLOCKED: $tool not found" >&2; exit 2; }; done
 kubectl get nodes >/dev/null || { echo "BLOCKED: no cluster (kubectl context kind-$CLUSTER)" >&2; exit 2; }
+MODEL="${MODEL:-fake}"
+if [[ "$MODEL" == live ]]; then
+  LIVE_URL="${IDP_LIVE_MODEL_URL:-http://127.0.0.1:8080/v1}"
+  LIVE_MODEL="${IDP_LIVE_MODEL:-$(curl -sf --noproxy '*' -m 10 "$LIVE_URL/models" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null || true)}"
+  [[ -n "$LIVE_MODEL" ]] || { echo "BLOCKED: no model at $LIVE_URL" >&2; exit 2; }
+fi
 
 diagnose() {
   echo "== diagnostics" >&2
@@ -106,6 +118,22 @@ ensure_image local/temporal:1.7.3
 # what the sandbox runs (IDP_SANDBOX_PYTHON_IMAGE / _SHELL_IMAGE in its manifest): short names, loaded by the operator
 ensure_image public.ecr.aws/docker/library/python:3.12-slim python:3.12-slim
 ensure_image public.ecr.aws/docker/library/alpine:3.22 alpine:3.22
+if [[ "$MODEL" == live ]]; then
+  # the pods reach the host's model through the kind network's gateway: a forwarder bound to that address only, in a
+  # container on the host's network so that it outlives this script and comes back with Docker
+  KIND_GW="$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1)"
+  [[ -n "$KIND_GW" ]] || { echo "BLOCKED: no IPv4 gateway on the kind network" >&2; exit 2; }
+  TARGET="$(python3 -c "import urllib.parse,sys; u=urllib.parse.urlparse(sys.argv[1]); print(f'{u.hostname}:{u.port or 80}')" "$LIVE_URL")"
+  LIVE_PATH="$(python3 -c "import urllib.parse,sys; print(urllib.parse.urlparse(sys.argv[1]).path.rstrip('/'))" "$LIVE_URL")"
+  PYIMG=python:3.12-slim; docker image inspect "$PYIMG" >/dev/null 2>&1 || PYIMG=public.ecr.aws/docker/library/python:3.12-slim
+  docker rm -f idp-kind-model-forward >/dev/null 2>&1 || true
+  docker run -d --name idp-kind-model-forward --restart unless-stopped --network host -v "$PWD/tools/model_forward.py:/model_forward.py:ro" \
+    "$PYIMG" python /model_forward.py "$KIND_GW:18088" "$TARGET" >/dev/null
+  MODEL_BASE="http://$KIND_GW:18088$LIVE_PATH"
+  for _ in $(seq 1 20); do curl -sf --noproxy '*' -m 5 -o /dev/null "$MODEL_BASE/models" && break; sleep 0.5; done
+  curl -sf --noproxy '*' -m 5 -o /dev/null "$MODEL_BASE/models" || { docker logs idp-kind-model-forward 2>&1 | tail -5; echo "BLOCKED: the model forwarder at $MODEL_BASE does not answer" >&2; exit 2; }
+  log "live model $LIVE_MODEL at $LIVE_URL, for the pods at $MODEL_BASE"
+fi
 
 # ---------------------------------------------------------------- a fresh platform
 log "deleting the platform's namespaces"
@@ -119,7 +147,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=IDP TELOS platform 
 openssl req -newkey rsa:2048 -nodes -subj "/CN=keycloak" -keyout "$L/tls/server.key" -out "$L/tls/server.csr" 2>/dev/null
 printf 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:keycloak,DNS:keycloak.keycloak,DNS:keycloak.keycloak.svc,DNS:%s\n' "$KCS" > "$L/tls/san.ext"
 openssl x509 -req -in "$L/tls/server.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 2 -extfile "$L/tls/san.ext" -out "$L/tls/server.crt" 2>/dev/null
-IDP_REALM_GATEWAY="$GATEWAY_URL" python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
+IDP_REALM_GATEWAY="$GATEWAY_URL" IDP_REALM_SHELL="$WS" python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
 token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
 KC=(curl -sf --noproxy '*' --cacert "$L/tls/ca.crt")
@@ -152,6 +180,23 @@ YAML
 fi
 if go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build "$L/overlay" > "$L/platform.yaml" 2>"$L/kustomize.err"; then :; else
   kubectl kustomize "$L/overlay" > "$L/platform.yaml" || { cat "$L/kustomize.err" >&2; echo "BLOCKED: kustomize" >&2; exit 2; }
+fi
+if [[ "$MODEL" == live ]]; then
+  # the HOST's provider is the host's model through the forwarder, and the HOST's namespace may reach that address
+  python3 - "$L/platform.yaml" "$MODEL_BASE" "$KIND_GW" <<'PY'
+import sys, yaml
+path, base, gw = sys.argv[1:4]
+docs = [d for d in yaml.safe_load_all(open(path)) if d]
+for d in docs:
+    if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "idp-host-providers":
+        host = yaml.safe_load(d["data"]["host.yaml"])
+        host["providers"] = [dict(p, baseUrl=base) if p["name"] == "local" else p for p in host["providers"]]
+        d["data"]["host.yaml"] = yaml.safe_dump(host, sort_keys=False)
+docs.append({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "kind-live-model", "namespace": "idp-host"},
+             "spec": {"podSelector": {}, "policyTypes": ["Egress"],
+                      "egress": [{"to": [{"ipBlock": {"cidr": gw + "/32"}}], "ports": [{"protocol": "TCP", "port": 18088}]}]}})
+yaml.safe_dump_all(docs, open(path, "w"), sort_keys=False)
+PY
 fi
 # split into phases: namespaces; databases (+ keycloak, temporal); the components; their setup Jobs (after the migrations)
 python3 - "$L/platform.yaml" "$L" <<'PY'
@@ -193,6 +238,8 @@ log "secrets"
 mksecret() { local ns="$1" name="$2"; shift 2; kubectl -n "$ns" create secret generic "$name" "$@" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; }
 for c in idp-cmi idp-host idp-workspace; do kubectl apply -f "$c/deploy/kubernetes/secrets.example.yaml" >/dev/null; kubectl -n "$c" create configmap platform-tenant --from-literal=tenant-id="$TENANT" >/dev/null; done
 kubectl -n idp-mcp create configmap platform-tenant --from-literal=tenant-id="$TENANT" >/dev/null
+kubectl -n idp-workspace create configmap assistant-app --from-file=deploy/apps/assistant/index.html \
+  --from-file=deploy/apps/assistant/app.js --from-file=deploy/apps/assistant/style.css >/dev/null
 dbsecret() { # dbsecret NAMESPACE SECRET DATABASE OWNER-LOGIN SERVICE-LOGIN APP-PASSWORD
   mksecret "$1" "$2" --from-literal=owner-url="postgres://postgres:$PG@$PGH/$3?sslmode=disable" \
     --from-literal=service-url="postgres://$5:$6@$PGH/$3?sslmode=disable" --from-literal=app-password="$6"; }
@@ -274,11 +321,14 @@ for url in "http://127.0.0.1:17320/healthz" "$CMI/healthz" "$HOST/healthz" "$WS/
 done
 
 ALICE="$(user_token alice)"; BOB="$(user_token bob)"; HADMIN="$(user_token hostadmin)"; HAPPROVER="$(user_token hostapprover)"
-MODEL=fake AGENT_MODEL=fake-1
+AGENT_MODEL=fake-1
+[[ "$MODEL" == live ]] && AGENT_MODEL="$LIVE_MODEL"
 
 # ---- CMI: the enterprise knowledge the answer must draw on ----
 call 201 POST "$CMI/api/v1/sources" "$ALICE" '{"name":"handbook","displayName":"Handbook","kind":"document-store","trust":"authoritative"}' >/dev/null
 DOC="$(call 201 POST "$CMI/api/v1/knowledge/documents" "$ALICE" '{"source":"handbook","uri":"handbook://pickup","title":"Pickup policy","sensitivity":"internal","acl":{},"text":"Pickup policy.\n\nParcels above 10000 USD need a manager to approve the pickup slot."}' | field "['documentId']")"
+# the same rule in Chinese: a question asked in Chinese (the assistant app's example) does not retrieve the English text
+call 201 POST "$CMI/api/v1/knowledge/documents" "$ALICE" '{"source":"handbook","uri":"handbook://pickup-zh","title":"贵重包裹取件规定","sensitivity":"internal","acl":{},"text":"贵重包裹取件规定。\n\n价值超过 10000 美元的贵重包裹，取件时段需要经理批准。"}' >/dev/null
 
 # ---- HOST: an agent that answers with CMI context, released through four eyes ----
 call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"order-assistant","displayName":"Order assistant","definition":{"instructions":"Answer from the context you are given. Quote the rule that applies.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null
@@ -321,6 +371,15 @@ OWNER="$(echo "$RUNDOC" | field "['owner']")"
 INVLIST="$(call 200 GET "$WS/v1/workspaces/us-ops/invocations" "$BOB" | field "['invocations'][0]['result']['id']")"
 [[ "$INVLIST" == "$RUN" ]] || { echo "FAIL: the Workspace's invocation record names $INVLIST, not $RUN" >&2; exit 1; }
 echo "PASS: PATH A — bob (Keycloak) -> Workspace (token exchange) -> HOST run $RUN (owner $OWNER) -> CMI package $PKG with the pickup policy -> bob's inbox: $RESULT"
+if [[ "$MODEL" == live ]]; then
+  # the real model saw the CMI package: the answer carries the rule only the handbook document states
+  ANSWER="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$RUN': print(it.get('summary',''))")"
+  echo "$ANSWER" | grep -qi "manager" || { echo "FAIL: the live answer does not use the CMI context: $ANSWER" >&2; exit 1; }
+  echo "live answer ($LIVE_MODEL): $(echo "$ANSWER" | tr '\n' ' ' | cut -c1-300)"
+fi
 
 # ---- PATH B: a T2 execution waits for a human; the approver decides in the Workspace ----
 OPERATOR="$(user_token operator)"; BOB="$(user_token bob)"
@@ -364,7 +423,10 @@ done
 echo "PASS: PATH B — operator -> EER $EXEC (T2) -> Waiting -> bob's inbox (EER projector, svc-eer) -> bob approves in the Workspace (token exchange) -> EER Completed, audit approval.approved by bob -> item $CLOSED by EER"
 
 # ---- PATH D: bob asks an agent to run code; it runs in the sandbox, through the gateway, as bob ----
-call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"sandbox-assistant","displayName":"Sandbox assistant","definition":{"instructions":"Run the code the user gives you in the sandbox and report the result.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run"]},"confirmation":{"default":"auto"}}}' >/dev/null
+SANDBOX_INSTRUCTIONS="Run the code the user gives you in the sandbox and report the result."
+# a real model is told how the two tools fit together, and may write the code for what the user asks
+[[ "$MODEL" == live ]] && SANDBOX_INSTRUCTIONS="You run code for the user in an isolated sandbox: create a workspace with sandbox_create, then run the code in it with sandbox_run (python or shell) - the code the user gives you, or code you write for what they ask - and report what it printed."
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"sandbox-assistant","displayName":"Sandbox assistant","definition":{"instructions":"'"$SANDBOX_INSTRUCTIONS"'","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run"]},"confirmation":{"default":"auto"}}}' >/dev/null
 REL="$(call 201 POST "$HOST/api/v1/agents/sandbox-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
 call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"coder","version":"1.0.0","title":"Coder","publisher":"IDP","capabilities":[],"actions":[{"name":"code.run","title":"Run code","target":{"kind":"host.run","agent":"sandbox-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
@@ -384,7 +446,12 @@ DANSWER="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | pytho
 import json,sys
 for it in json.load(sys.stdin)['items']:
     if it['externalRef']=='run:$DRUN': print(it.get('summary',''))")"
-[[ "$DANSWER" == *"exit code 0"* && "$DANSWER" == *"answer 42"* ]] || { echo "FAIL: the sandbox result is not in bob's inbox: $DANSWER" >&2; exit 1; }
+if [[ "$MODEL" == live ]]; then   # the model words the result itself; the gateway's records below prove the tools ran
+  [[ "$DANSWER" == *"42"* ]] || { echo "FAIL: the live answer does not report what the code printed: $DANSWER" >&2; exit 1; }
+  echo "live answer ($LIVE_MODEL): $(echo "$DANSWER" | tr '\n' ' ' | cut -c1-300)"
+else
+  [[ "$DANSWER" == *"exit code 0"* && "$DANSWER" == *"answer 42"* ]] || { echo "FAIL: the sandbox result is not in bob's inbox: $DANSWER" >&2; exit 1; }
+fi
 # the gateway's record: the calls were made for bob (the subject) with a token issued to the HOST (the client), and delivered
 BOB_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['bob'])")"
 for _ in $(seq 1 40); do   # the gateway pushes its call records to the registry in batches
@@ -406,6 +473,14 @@ print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'
 # and the sandbox knew whose workspace it made: its audit log names the caller (a hash), not the code
 kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q '"tool":"sandbox_run".*caller=' || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox did not see the caller" >&2; exit 1; }
 echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (kubernetes backend, caller forwarded) -> code ran in an isolated pod -> 'answer 42' in bob's inbox"
+
+# ---- the assistant app: a chat page in the shell for both agents (deploy/apps/assistant), on its own origin ----
+call 201 POST "$WS/api/v1/apps" "$ALICE" "$(cat deploy/apps/assistant/manifest.json)" >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/assistant" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+pf idp-workspace assistant 17561:8080
+for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:17561/ && break; sleep 0.5; done
+curl -sf --noproxy '*' http://127.0.0.1:17561/app.js | grep -q 'idp.bridge/v1' || { echo "FAIL: the assistant's page is not served" >&2; exit 1; }
+echo "PASS: the assistant app is installed in us-ops, its page served on its own origin (port-forward 17561); the shell is http://127.0.0.1:17560 (alice, bob; deploy/kubernetes/RUNBOOK.md)"
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then

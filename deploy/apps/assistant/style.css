@@ -1,0 +1,25 @@
+:root { --ink: #1d2733; --muted: #6b7785; --line: #dde3ea; --bg: #f5f7fa; --accent: #13315c; --bad: #b42318;
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--ink); background: var(--bg); }
+body { margin: 0; height: 100vh; display: grid; grid-template-rows: auto auto 1fr auto; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--line); }
+.agents { display: flex; gap: 6px; }
+.agents button { font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 16px; padding: 4px 14px; cursor: pointer; }
+.agents button[aria-selected="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.muted { color: var(--muted); }
+#where { margin-left: auto; font-size: 13px; }
+#hint { margin: 8px 16px 0; font-size: 13px; }
+#chat { list-style: none; margin: 0; padding: 12px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+#chat li { max-width: 78%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; line-height: 1.5; }
+#chat .me { align-self: flex-end; background: var(--accent); color: #fff; }
+#chat .bot { align-self: flex-start; background: #fff; border: 1px solid var(--line); }
+#chat .bot.waiting { color: var(--muted); font-style: italic; }
+#chat .bot.failed { border-color: var(--bad); color: var(--bad); }
+#chat .bot.done { white-space: normal; }
+#chat .bot pre { margin: 6px 0; padding: 8px 10px; background: #f0f3f7; border-radius: 6px; overflow-x: auto; white-space: pre; }
+#chat .bot code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+#chat .bot :not(pre) > code { background: #f0f3f7; border-radius: 4px; padding: 0 4px; }
+#chat .bot blockquote { margin: 4px 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
+form { display: flex; gap: 8px; padding: 10px 16px; background: #fff; border-top: 1px solid var(--line); }
+textarea { flex: 1; font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; resize: none; }
+form button { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 0 18px; cursor: pointer; }
+form button:disabled { opacity: .5; cursor: default; }

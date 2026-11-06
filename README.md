@@ -44,7 +44,7 @@ uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py bom      # 
 bash deploy/compose/e2e.sh                                                     # 构建四个组件镜像，跑 PATH A、B、C 验收（KEEP=1 保留运行；MODEL=live 用本机真实模型）
 uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py          # 渲染五个组件的 Kubernetes 清单，核对每条集成两端的 NetworkPolicy
 bash tests/kind/smoke.sh                                                       # 在 kind 集群上按组件清单部署并跑 PATH A（CI: kind.yml）
-bash tests/kind/full.sh                                                        # 整平台上 kind：六个组件的清单 + Keycloak（https 发行者）、PostgreSQL、Temporal，全部命名空间默认拒绝（需要 Calico 等强制执行 NetworkPolicy 的集群），经 port-forward 跑 PATH A、B、C、D（SKIP_BUILD=1 用已有镜像；TEARDOWN=1 结束时删除）
+bash tests/kind/full.sh                                                        # 整平台上 kind：六个组件的清单 + Keycloak（https 发行者）、PostgreSQL、Temporal，全部命名空间默认拒绝（需要 Calico 等强制执行 NetworkPolicy 的集群），经 port-forward 跑 PATH A、B、C、D，再装好"助手"应用，浏览器里可从登录、提问、跑代码到审批完整体验（SKIP_BUILD=1 用已有镜像；MODEL=live 用本机真实模型；TEARDOWN=1 结束时删除）
 uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py --full    # 完整覆盖层：每个命名空间 restricted + 默认拒绝，集成与 Keycloak / PostgreSQL / Temporal 的流量两端放行
 ```
 

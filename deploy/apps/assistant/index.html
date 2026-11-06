@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>助手</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="agents" role="tablist" aria-label="agent">
+    <button type="button" role="tab" data-action="ask" aria-selected="true">订单助手</button>
+    <button type="button" role="tab" data-action="code" aria-selected="false">代码助手</button>
+  </div>
+  <span id="where" class="muted"></span>
+</header>
+<p id="hint" class="muted"></p>
+<ol id="chat" aria-live="polite"></ol>
+<form id="ask">
+  <textarea id="message" rows="3" aria-label="消息"></textarea>
+  <button type="submit" id="send">发送</button>
+</form>
+<script src="app.js"></script>
+</body>
+</html>

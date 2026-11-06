@@ -1,0 +1,40 @@
+# kind only: the page of the assistant app (deploy/apps/assistant), on an origin of its own for the shell's frame
+# (http://127.0.0.1:17561 through a port-forward). A static server that calls no one, so it needs no NetworkPolicy
+# beyond the namespace's default deny. tests/kind/full.sh creates the ConfigMap assistant-app from the app's files.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assistant
+  namespace: idp-workspace
+  labels: {app.kubernetes.io/component: assistant}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/component: assistant}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/component: assistant}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: assistant
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, http.server, "8080", --bind, 0.0.0.0, --directory, /app]
+          env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /, port: http}, periodSeconds: 5}
+          resources: {limits: {cpu: 100m, memory: 64Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: app, mountPath: /app, readOnly: true}]
+      volumes: [{name: app, configMap: {name: assistant-app}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: assistant
+  namespace: idp-workspace
+spec:
+  selector: {app.kubernetes.io/component: assistant}
+  ports: [{name: http, port: 8080, targetPort: http}]

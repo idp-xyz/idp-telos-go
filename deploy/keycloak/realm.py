@@ -24,7 +24,7 @@ import sys
 import uuid
 
 out, tenant, clients_file = sys.argv[1:4]
-SHELL = "http://127.0.0.1:8560"
+SHELL = os.environ.get("IDP_REALM_SHELL", "http://127.0.0.1:8560")   # the Workspace shell's origin as the browser opens it (kind: its port-forward)
 GATEWAY = os.environ.get("IDP_REALM_GATEWAY", "http://mcp-gateway:3320/mcp")   # the idp-mcp gateway as the HOST calls it (kind: its Service URL)
 
 
