@@ -57,7 +57,7 @@ components:
     id: sha256:d2057f6278aff3eaa58fa96b5007eeb9561c5a6205dda03d637a9a1060509397
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: 76fa6c0dc8b169af285149e47145a188b53472ab
+  commit: 83c9716911d20cc124cd714d79ea2403156c6d0b
   clean: true
   image:
     reference: idp-sandbox:dev
