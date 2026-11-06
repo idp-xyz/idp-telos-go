@@ -47,14 +47,14 @@ components:
     id: sha256:a98b79e3c0c9a08e5b8a607f262d6f338f00072cd5456f86b49292c6d4f845a4
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: eb5a75a7810efedc257119bb8205fd6e17a175ec
+  commit: 5d0ebd864ab0a18a590335b63aff20d36277a0d2
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:71dae0962f5595132973aa69e3e60bcc5475edc957efbfb0025766ae2dd534c5
+    id: sha256:82a27e66da3d6d8cf655bbda64f04c0345f4fa5ea02614842d3f5af10f4d7d72
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 2a1fe689dc57e4dcce56ccf412b381b037488330
