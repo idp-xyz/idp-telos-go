@@ -50,6 +50,8 @@ uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py --full    
 
 整平台 kind 部署（`deploy/kubernetes/full`，驱动脚本 `tests/kind/full.sh`）与轻量覆盖层（`deploy/kubernetes/kind`，开发令牌，仅 CMI、HOST、Workspace，CI 用）并存；前者在组件自带清单之上只用补丁与额外的 NetworkPolicy，不改组件仓库。
 
+手册：本机 Kubernetes 测试环境（kind、整平台 PATH A–D、gVisor / Kata）见 [`deploy/kubernetes/RUNBOOK.md`](deploy/kubernetes/RUNBOOK.md)；沙箱的运维见 `idp-sandbox/docs/RUNBOOK.md`。
+
 CI：`ci.yml`（目录、清单、契约、Kubernetes 检查）、`kind.yml`（kind 上的 PATH A）与 `platform.yml`（整平台 PATH A、B、C 验收）。私有的 idp-eer 用只读部署密钥检出（secret `IDP_EER_DEPLOY_KEY`）。`platform.yml` 在 main 上把通过验收的镜像发布为 `ghcr.io/idp-xyz/<镜像>:<组件提交>`（`idp-cmi`、`idp-host`、`idp-workspace`、`eer-runtime`、`idp-mcp`、`idp-sandbox`），并用 cosign 无密钥签名、附 SPDX SBOM 证明（`tools/publish_images.sh`）。校验签名：
 
 ```sh
