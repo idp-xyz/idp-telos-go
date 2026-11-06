@@ -44,5 +44,8 @@ jobs:
         run: python -m unittest discover -s tools/tests -v
       - name: Kubernetes manifests as one platform (NetworkPolicies of every integration)
         run: python -I tools/k8s_check.py ${{ steps.eer.outputs.allow }}
+      - name: Full kind overlay (every namespace restricted and default-deny, the flows to Keycloak, PostgreSQL, Temporal)
+        if: steps.eer.outputs.allow == ''
+        run: python -I tools/k8s_check.py --full
       - name: Contract registry against the producers
         run: python -I idp-contracts/tools/validate.py --report /tmp/validation_report.json

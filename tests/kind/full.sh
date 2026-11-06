@@ -1,0 +1,422 @@
+#!/usr/bin/env bash
+# The WHOLE platform on a kind cluster (docs/adr/ADR-0001-platform-integration.md): idp-cmi, idp-host, idp-workspace,
+# idp-eer, idp-mcp and idp-sandbox from their own Kubernetes manifests, composed by deploy/kubernetes/full with an
+# in-cluster PostgreSQL, Keycloak (https issuer, a per-run CA), Temporal and the HOST's model double; every namespace
+# default-deny (the cluster must enforce NetworkPolicies, e.g. Calico). Then the four paths of deploy/compose/e2e.sh,
+# with the same assertions, through kubectl port-forwards on high local ports:
+#   PATH A  bob via the Workspace -> HOST -> CMI package -> inbox
+#   PATH B  operator T2 intent -> EER -> bob's inbox -> approval in the Workspace -> EER Completed
+#   PATH D  bob asks for code: HOST -> idp-mcp gateway -> idp-sandbox (kubernetes backend) -> 'answer 42' in the inbox
+#   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
+# Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
+# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway.
+#
+#   bash tests/kind/full.sh             build the images (as deploy/compose/e2e.sh), load them, deploy, run the paths
+#   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev
+#                                       eer-runtime:dev idp-mcp:dev idp-sandbox:dev)
+#   KIND_CLUSTER=kind ...               the cluster (default kind; kubectl context kind-$KIND_CLUSTER)
+#   TEARDOWN=1 ...                      delete the platform's namespaces at the end (default: leave it running)
+# A run starts by deleting the platform's namespaces (a fresh platform); nothing else in the cluster is touched.
+# Nodes that cannot pull images get every image from the Docker daemon (or, for the infrastructure images, crane).
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+export PATH="$HOME/.local/bin:$PATH"
+CLUSTER="${KIND_CLUSTER:-kind}"
+kubectl() { command kubectl --context "kind-$CLUSTER" "$@"; }
+L=.local/kind-full
+ISSUER=https://127.0.0.1:17443/realms/idp
+WS=http://127.0.0.1:17560 HOST=http://127.0.0.1:17450 CMI=http://127.0.0.1:17550 EER=http://127.0.0.1:17180 REG=http://127.0.0.1:17250
+KCS=keycloak.keycloak.svc.cluster.local
+GATEWAY_URL=http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/mcp
+SANDBOX_URL=http://idp-sandbox.idp-sandbox.svc.cluster.local:8570/mcp
+NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs databases keycloak temporal)
+log() { echo "== $*"; }
+mkdir -p "$L"
+PFPIDS=()
+# a port-forward that survives its pod being replaced (a rolling restart): re-established until the script ends
+pf() { # pf NAMESPACE SERVICE LOCAL:REMOTE
+  ( while true; do kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null 2>&1; sleep 1; done ) & PFPIDS+=($!)
+}
+for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox; do
+  [[ -d "$repo/.git" ]] || { echo "BLOCKED: $repo is not checked out next to this repository" >&2; exit 2; }
+done
+for tool in kubectl kind docker openssl python3 curl; do command -v "$tool" >/dev/null || { echo "BLOCKED: $tool not found" >&2; exit 2; }; done
+kubectl get nodes >/dev/null || { echo "BLOCKED: no cluster (kubectl context kind-$CLUSTER)" >&2; exit 2; }
+
+diagnose() {
+  echo "== diagnostics" >&2
+  kubectl get pods -A 2>&1 | grep -E 'idp-|databases|keycloak|temporal' | grep -vE 'Running +[0-9]+ .*|Completed' >&2 || true
+  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox keycloak temporal; do
+    for p in $(kubectl -n "$ns" get pods --no-headers 2>/dev/null | awk '$3!="Running" && $3!="Completed" {print $1}'); do
+      echo "-- $ns/$p" >&2; kubectl -n "$ns" describe pod "$p" 2>&1 | tail -8 >&2; kubectl -n "$ns" logs "$p" --all-containers --tail=15 2>&1 >&2 || true
+    done
+  done
+}
+cleanup() {
+  local status=$?
+  for p in "${PFPIDS[@]:-}"; do [[ -n "$p" ]] && { pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; } || true; done
+  [[ $status -ne 0 ]] && diagnose
+  if [[ "${TEARDOWN:-0}" == 1 ]]; then kubectl delete ns "${NAMESPACES[@]}" --wait=false >/dev/null 2>&1 || true; fi
+  return $status
+}
+trap cleanup EXIT
+
+# ---------------------------------------------------------------- images
+if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
+  log "images"
+  bash idp-cmi/deploy/build.sh idp-cmi:dev
+  bash idp-host/deploy/build.sh idp-host:dev
+  bash idp-host/deploy/fixtures/build-fakemodel.sh >/dev/null
+  bash idp-workspace/deploy/build.sh idp-workspace:dev
+  bash idp-eer/tools/development/runtime_image_offline.sh eer-runtime:dev
+  bash idp-mcp/deploy/build.sh idp-mcp:dev
+  bash idp-sandbox/deploy/build.sh idp-sandbox:dev
+fi
+# load an image into the cluster; a Docker with the containerd image store saves all platforms and kind's import fails
+# then, so save the one platform the nodes run
+load_image() {
+  local tar; tar="$(mktemp --suffix=.tar)"
+  docker save --platform linux/amd64 "$1" -o "$tar" 2>/dev/null || docker save "$1" -o "$tar"
+  kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
+}
+NODE="$CLUSTER-control-plane"
+in_node() { docker exec "$NODE" crictl inspecti "$1" >/dev/null 2>&1; }
+# an infrastructure image: from the daemon, else crane (it honours a shell https_proxy; the daemon and the nodes may have none)
+ensure_image() { # ensure_image IMAGE [NODE-NAME]
+  local img="$1" want="${2:-$1}"
+  in_node "$want" && return 0
+  if ! docker image inspect "$img" >/dev/null 2>&1; then
+    if command -v crane >/dev/null; then
+      local tar; tar="$(mktemp --suffix=.tar)"; crane pull --platform linux/amd64 "$img" "$tar" >/dev/null && kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
+      return 0
+    fi
+    docker pull -q "$img" >/dev/null
+  fi
+  [[ "$img" == "$want" ]] || docker tag "$img" "$want"
+  load_image "$want"
+}
+log "loading images into $CLUSTER"
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev; do
+  docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing (run without SKIP_BUILD)" >&2; exit 2; }
+  load_image "$img"
+done
+ensure_image public.ecr.aws/docker/library/postgres:17-alpine
+ensure_image quay.io/keycloak/keycloak:26.8.1
+ensure_image local/temporal:1.7.3
+# what the sandbox runs (IDP_SANDBOX_PYTHON_IMAGE / _SHELL_IMAGE in its manifest): short names, loaded by the operator
+ensure_image public.ecr.aws/docker/library/python:3.12-slim python:3.12-slim
+ensure_image public.ecr.aws/docker/library/alpine:3.22 alpine:3.22
+
+# ---------------------------------------------------------------- a fresh platform
+log "deleting the platform's namespaces"
+kubectl delete ns "${NAMESPACES[@]}" --ignore-not-found --wait=true --timeout=300s >/dev/null
+
+# ---------------------------------------------------------------- identity: one realm, one tenant, a CA
+TENANT="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+rm -rf "$L/tls" "$L/keycloak"; mkdir -p "$L/tls" "$L/keycloak"
+umask 077
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=IDP TELOS platform test CA" -keyout "$L/tls/ca.key" -out "$L/tls/ca.crt" 2>/dev/null
+openssl req -newkey rsa:2048 -nodes -subj "/CN=keycloak" -keyout "$L/tls/server.key" -out "$L/tls/server.csr" 2>/dev/null
+printf 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:keycloak,DNS:keycloak.keycloak,DNS:keycloak.keycloak.svc,DNS:%s\n' "$KCS" > "$L/tls/san.ext"
+openssl x509 -req -in "$L/tls/server.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 2 -extfile "$L/tls/san.ext" -out "$L/tls/server.crt" 2>/dev/null
+IDP_REALM_GATEWAY="$GATEWAY_URL" python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
+secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
+token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
+KC=(curl -sf --noproxy '*' --cacert "$L/tls/ca.crt")
+user_token() { "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d "username=$1" -d "password=$(secret_of "$1")" | token_json; }
+rnd() { openssl rand -hex 16; }
+PG=$(rnd) CMI_DB=$(rnd) HOST_DB=$(rnd) WS_DB=$(rnd) MCP_DB=$(rnd) EER_OWNER=$(rnd) EER_APP=$(rnd) EER_RO=$(rnd) EER_IOWN=$(rnd) EER_IAPP=$(rnd) MCP_ADMIN="$(openssl rand -hex 32)"
+PGH=postgresql.databases.svc.cluster.local:5432
+
+# ---------------------------------------------------------------- render
+log "render"
+APIIP="$(kubectl get endpointslices -l kubernetes.io/service-name=kubernetes -o jsonpath='{.items[0].endpoints[0].addresses[0]}')"
+mkdir -p "$L/overlay"
+cat > "$L/overlay/kustomization.yaml" <<EOF
+# generated by tests/kind/full.sh: the full overlay plus this cluster's API server address for the sandbox's egress rule
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../deploy/kubernetes/full
+patches:
+  - target: {kind: NetworkPolicy, name: sandbox, namespace: idp-sandbox}
+    patch: |-
+      - {op: replace, path: /spec/egress/0/to/0/ipBlock/cidr, value: "$APIIP/32"}
+EOF
+if go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build "$L/overlay" > "$L/platform.yaml" 2>"$L/kustomize.err"; then :; else
+  kubectl kustomize "$L/overlay" > "$L/platform.yaml" || { cat "$L/kustomize.err" >&2; echo "BLOCKED: kustomize" >&2; exit 2; }
+fi
+# split into phases: namespaces; databases (+ keycloak, temporal); the components; their setup Jobs (after the migrations)
+python3 - "$L/platform.yaml" "$L" <<'PY'
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+out = sys.argv[2]
+def ns(d): return d["metadata"].get("namespace")
+def setup(d): return d["kind"] == "Job" and (d["metadata"].get("labels", {}).get("idp-telos/phase") == "setup" or d["metadata"]["name"] == "eer-configure")
+phases = {"0-namespaces": [d for d in docs if d["kind"] == "Namespace"],
+          "1-infra": [d for d in docs if d["kind"] != "Namespace" and ns(d) in ("databases", "keycloak", "temporal")],
+          "3-setup": [d for d in docs if setup(d)]}
+rest = [d for d in docs if not any(d is x for v in phases.values() for x in v)]
+phases["2-components"] = rest
+for k, v in phases.items():
+    yaml.safe_dump_all(v, open(f"{out}/phase-{k}.yaml", "w"))
+PY
+kubectl apply -f "$L/phase-0-namespaces.yaml" >/dev/null
+
+# ---------------------------------------------------------------- PostgreSQL, Keycloak, Temporal
+log "PostgreSQL, Keycloak, Temporal"
+kubectl -n databases create secret generic postgres-owner --from-literal=password="$PG" >/dev/null
+kubectl -n keycloak create secret generic keycloak-admin --from-literal=password="$(rnd)" >/dev/null
+kubectl -n keycloak create secret generic keycloak-realm --from-file=idp-realm.json="$L/keycloak/idp-realm.json" >/dev/null
+kubectl -n keycloak create secret generic keycloak-tls --from-file=server.crt="$L/tls/server.crt" --from-file=server.key="$L/tls/server.key" >/dev/null
+kubectl apply -f "$L/phase-1-infra.yaml" >/dev/null
+kubectl -n databases rollout status deploy/postgresql --timeout=300s
+for db in idp_cmi idp_host idp_workspace idp_mcp eer; do kubectl -n databases exec deploy/postgresql -- psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
+# idp-eer: its roles (deploy/postgres/bootstrap-runtime-roles.sql)
+kubectl -n databases exec -i deploy/postgresql -- psql -U postgres --no-psqlrc -q --set ON_ERROR_STOP=1 \
+  --set "runtime_owner_password=$EER_OWNER" --set "runtime_app_password=$EER_APP" --set "runtime_readonly_password=$EER_RO" \
+  --set "intelligence_owner_password=$EER_IOWN" --set "intelligence_app_password=$EER_IAPP" --dbname eer < idp-eer/deploy/postgres/bootstrap-runtime-roles.sql >/dev/null
+kubectl -n keycloak rollout status deploy/keycloak --timeout=600s
+pf keycloak keycloak 17443:7443
+for _ in $(seq 1 120); do "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" && break; sleep 1; done
+"${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" || { kubectl -n keycloak logs deploy/keycloak --tail 30; echo "BLOCKED: Keycloak did not come up" >&2; exit 2; }
+
+# ---------------------------------------------------------------- secrets and per-run configuration
+log "secrets"
+mksecret() { local ns="$1" name="$2"; shift 2; kubectl -n "$ns" create secret generic "$name" "$@" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; }
+for c in idp-cmi idp-host idp-workspace; do kubectl apply -f "$c/deploy/kubernetes/secrets.example.yaml" >/dev/null; kubectl -n "$c" create configmap platform-tenant --from-literal=tenant-id="$TENANT" >/dev/null; done
+kubectl -n idp-mcp create configmap platform-tenant --from-literal=tenant-id="$TENANT" >/dev/null
+dbsecret() { # dbsecret NAMESPACE SECRET DATABASE OWNER-LOGIN SERVICE-LOGIN APP-PASSWORD
+  mksecret "$1" "$2" --from-literal=owner-url="postgres://postgres:$PG@$PGH/$3?sslmode=disable" \
+    --from-literal=service-url="postgres://$5:$6@$PGH/$3?sslmode=disable" --from-literal=app-password="$6"; }
+dbsecret idp-cmi idp-cmi-db idp_cmi x idp_cmi_svc "$CMI_DB"
+dbsecret idp-host idp-host-db idp_host x idp_host_svc "$HOST_DB"
+dbsecret idp-workspace idp-workspace-db idp_workspace x idp_ws_svc "$WS_DB"
+dbsecret idp-mcp idp-mcp-registry-db idp_mcp x idp_mcp_svc "$MCP_DB"
+mksecret idp-mcp idp-mcp-admin --from-literal=secret="$MCP_ADMIN"
+# idp-host: its key, the model/CMI credentials, the delegation client secret (the HOST's own identity at the CMI is its Keycloak service account)
+mksecret idp-host idp-host-credential-key --from-literal=key="$(openssl rand -hex 32)"
+CMIKEY="$("${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=idp-host-svc -d "client_secret=$(secret_of idp-host-svc)" | token_json)"
+mksecret idp-host idp-host-provider-keys --from-literal=default=unused --from-literal=cmi="$CMIKEY"
+mksecret idp-host idp-host-gateway-client --from-literal=client-secret="$(secret_of idp-host)"
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$L/signing.pem" 2>/dev/null
+mksecret idp-workspace idp-workspace-signing-key --from-file=signing.pem="$L/signing.pem"
+mksecret idp-workspace idp-workspace-exchange --from-literal=client-secret="$(secret_of idp-workspace)"
+mksecret idp-workspace idp-workspace-webhook --from-literal=secret="$(openssl rand -hex 32)"
+mksecret idp-eer eer-db --from-literal=owner-dsn="postgresql://eer_runtime_owner:$EER_OWNER@$PGH/eer?sslmode=disable" \
+  --from-literal=app-dsn="postgresql://eer_runtime_app:$EER_APP@$PGH/eer?sslmode=disable"
+mksecret idp-eer eer-workspace-inbox --from-literal=client-secret="$(secret_of svc-eer)"
+mksecret idp-eer eer-identity-ca --from-file=ca.crt="$L/tls/ca.crt"
+python3 -I deploy/kubernetes/full/eer_identity.py "$L/clients.json" "$ISSUER" "https://$KCS:7443/realms/idp/protocol/openid-connect/certs" > "$L/eer-identity.env"
+kubectl -n idp-eer create configmap eer-identity --from-env-file="$L/eer-identity.env" >/dev/null
+
+# ---------------------------------------------------------------- components, migrations, logins, tenants
+log "components"
+kubectl apply -f "$L/phase-2-components.yaml" >/dev/null
+waitjobs() { # waitjobs SELECTOR: every Job with the selector in the platform's namespaces completes
+  local ns
+  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp; do
+    kubectl -n "$ns" wait --for=condition=complete job -l "$1" --timeout=600s >/dev/null || { kubectl -n "$ns" get pods; kubectl -n "$ns" logs -l "job-name" --all-containers --tail=20 || true; echo "BLOCKED: jobs ($1) in $ns" >&2; exit 2; }
+  done
+}
+log "migrations"
+waitjobs app.kubernetes.io/component=migrate
+log "logins, tenants, idp-eer configuration"
+kubectl apply -f "$L/phase-3-setup.yaml" >/dev/null
+for ns in idp-cmi idp-host idp-workspace idp-mcp; do
+  kubectl -n "$ns" wait --for=condition=complete job -l idp-telos/phase=setup --timeout=600s >/dev/null || { kubectl -n "$ns" logs -l job-name --all-containers --tail=20; echo "BLOCKED: setup jobs in $ns" >&2; exit 2; }
+  got="$(kubectl -n "$ns" logs job/kind-tenant | sed -n 's/^TENANT_ID=//p')"
+  [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: $ns tenant '$got' != $TENANT" >&2; exit 2; }
+done
+kubectl -n idp-eer wait --for=condition=complete job/eer-configure --timeout=600s >/dev/null || { kubectl -n idp-eer logs job/eer-configure --tail=30; echo "BLOCKED: eer-configure" >&2; exit 2; }
+log "rollouts"
+for ns in idp-cmi idp-host idp-workspace idp-eer; do kubectl -n "$ns" rollout restart deploy >/dev/null; done   # pick up the logins and schemas created after the first start
+kubectl -n idp-mcp rollout restart deploy/idp-mcp-registry >/dev/null
+for ns in idp-cmi idp-host idp-workspace idp-eer; do
+  for d in $(kubectl -n "$ns" get deploy -o name); do kubectl -n "$ns" rollout status "$d" --timeout=300s >/dev/null || { echo "BLOCKED: $ns/$d" >&2; exit 2; }; done
+done
+for d in idp-mcp/idp-mcp-registry idp-sandbox/idp-sandbox idp-host/fakemodel temporal/temporal; do kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=300s >/dev/null; done
+
+pf idp-workspace idp-workspace 17560:8560; pf idp-host idp-host 17450:8450; pf idp-cmi idp-cmi 17550:8550
+pf idp-eer eer-api 17180:8080; pf idp-mcp idp-mcp-registry 17250:8250
+call() { # call EXPECTED METHOD URL TOKEN [BODY]
+  local want="$1" method="$2" url="$3" token="$4" body="${5:-}" out status
+  out="$(mktemp)"
+  status="$(curl -s --noproxy '*' -o "$out" -w '%{http_code}' -X "$method" "$url" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' ${body:+--data "$body"})"
+  if [[ "$status" != "$want" ]]; then echo "FAIL: $method $url -> $status (want $want): $(cat "$out")" >&2; rm -f "$out"; exit 1; fi
+  cat "$out"; rm -f "$out"
+}
+field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
+
+# ---------------------------------------------------------------- idp-mcp: a gateway that verifies Keycloak tokens, the sandbox as its upstream
+log "idp-mcp"
+for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null "$REG/api/v1/health" && break; sleep 1; done
+mcp_token() { kubectl -n idp-mcp exec deploy/idp-mcp-registry -- /usr/local/bin/registry-service dev-token "$TENANT" "$1" "$2" | tail -1; }
+MADMIN="$(mcp_token carol admin)"; MOPERATOR="$(mcp_token alice operator)"; MREVIEWER="$(mcp_token bob reviewer)"
+GW="$(call 201 POST "$REG/api/v1/gateways" "$MADMIN" '{"name":"edge-1","authMode":"jwt","jwt":{"issuer":"'"$ISSUER"'","resource":"'"$GATEWAY_URL"'","jwksUrl":"http://'"$KCS"':7080/realms/idp/protocol/openid-connect/certs","tenantClaim":"tenant_id","rolesClaim":"roles"}}')"
+GW_ID="$(echo "$GW" | field "['gateway']['gatewayId']")"; GW_TOKEN="$(echo "$GW" | field "['token']")"
+mksecret idp-mcp idp-mcp-gateway-edge-1 --from-literal=gateway-id="$GW_ID" --from-literal=token="$GW_TOKEN"
+python3 -I deploy/compose/mcp_setup.py "$REG" "$GW_ID" "$MADMIN" "$MOPERATOR" "$MREVIEWER" host-user "$SANDBOX_URL" >/dev/null \
+  || { kubectl -n idp-mcp logs deploy/idp-mcp-registry --tail 20; kubectl -n idp-mcp logs deploy/idp-mcp-gateway-edge-1 --tail 20; echo "BLOCKED: the idp-mcp setup failed" >&2; exit 2; }
+# the gateway is Ready only once a release is deployed (mcp_setup.py above)
+kubectl -n idp-mcp rollout status deploy/idp-mcp-gateway-edge-1 --timeout=300s >/dev/null
+pf idp-mcp idp-mcp-gateway-edge-1 17320:3220
+for url in "http://127.0.0.1:17320/healthz" "$CMI/healthz" "$HOST/healthz" "$WS/healthz" "$EER/health/ready"; do
+  for _ in $(seq 1 120); do curl -sf --noproxy '*' -o /dev/null "$url" && break; sleep 0.5; done
+  curl -sf --noproxy '*' -o /dev/null "$url" || { echo "BLOCKED: $url" >&2; exit 2; }
+done
+
+ALICE="$(user_token alice)"; BOB="$(user_token bob)"; HADMIN="$(user_token hostadmin)"; HAPPROVER="$(user_token hostapprover)"
+MODEL=fake AGENT_MODEL=fake-1
+
+# ---- CMI: the enterprise knowledge the answer must draw on ----
+call 201 POST "$CMI/api/v1/sources" "$ALICE" '{"name":"handbook","displayName":"Handbook","kind":"document-store","trust":"authoritative"}' >/dev/null
+DOC="$(call 201 POST "$CMI/api/v1/knowledge/documents" "$ALICE" '{"source":"handbook","uri":"handbook://pickup","title":"Pickup policy","sensitivity":"internal","acl":{},"text":"Pickup policy.\n\nParcels above 10000 USD need a manager to approve the pickup slot."}' | field "['documentId']")"
+
+# ---- HOST: an agent that answers with CMI context, released through four eyes ----
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"order-assistant","displayName":"Order assistant","definition":{"instructions":"Answer from the context you are given. Quote the rule that applies.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null
+REL="$(call 201 POST "$HOST/api/v1/agents/order-assistant/releases" "$HADMIN" | field "['releaseId']")"
+call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
+
+# ---- Workspace: a workspace, bob, an app whose action runs the agent ----
+call 201 POST "$WS/api/v1/workspaces" "$ALICE" '{"name":"us-ops","displayName":"US operations"}' >/dev/null
+call 200 PUT "$WS/api/v1/workspaces/us-ops/members/bob" "$ALICE" '{"roles":[]}' >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"orders","version":"1.0.0","title":"Orders","publisher":"IDP","capabilities":[],"actions":[{"name":"order.review","title":"Ask the order assistant","target":{"kind":"host.run","agent":"order-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/orders" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+
+# ---- PATH A ----
+INV="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" '{"app":"orders","action":"order.review","input":{"message":"What is the pickup policy for expensive parcels?"}}')"
+RUN="$(echo "$INV" | field "['result']['id']")"
+RESULT=""
+for _ in $(seq 1 600); do
+  RESULT="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$RUN' and not it['title'].endswith('running'): print(it['title'])")"
+  [[ -n "$RESULT" ]] && break; sleep 0.5
+done
+[[ "$RESULT" == *"— finished" ]] || { kubectl -n idp-host logs deploy/idp-host --tail=30; kubectl -n idp-workspace logs deploy/idp-workspace --tail=30; kubectl -n idp-cmi logs deploy/idp-cmi --tail=30; echo "FAIL: no finished run in bob's inbox ('$RESULT')" >&2; exit 1; }
+# ---- the three systems agree ----
+RUNDOC="$(call 200 GET "$HOST/v1/runs/$RUN" "$HADMIN")"
+[[ "$(echo "$RUNDOC" | field "['status']")" == COMPLETED ]] || { echo "FAIL: run $RUN: $RUNDOC" >&2; exit 1; }
+PKG="$(echo "$RUNDOC" | field "['contextPackageId']")"
+[[ -n "$PKG" ]] || { echo "FAIL: the run has no contextPackageId" >&2; exit 1; }
+PACKAGE="$(call 200 GET "$CMI/v1/context/packages/$PKG" "$ALICE")"
+echo "$PACKAGE" | python3 -c "
+import json,sys
+d=json.load(sys.stdin); p=d.get('package') or d.get('document') or d
+items=p['items']
+assert any(i['id']=='$DOC' and i['source']=='handbook' for i in items), ('the package does not carry the pickup policy', items)
+assert p['purpose']=='assist', p['purpose']
+print('package items:', [(i['kind'], i['ref']) for i in items])
+" || { echo "FAIL: CMI package $PKG: $PACKAGE" >&2; exit 1; }
+OWNER="$(echo "$RUNDOC" | field "['owner']")"
+INVLIST="$(call 200 GET "$WS/v1/workspaces/us-ops/invocations" "$BOB" | field "['invocations'][0]['result']['id']")"
+[[ "$INVLIST" == "$RUN" ]] || { echo "FAIL: the Workspace's invocation record names $INVLIST, not $RUN" >&2; exit 1; }
+echo "PASS: PATH A — bob (Keycloak) -> Workspace (token exchange) -> HOST run $RUN (owner $OWNER) -> CMI package $PKG with the pickup policy -> bob's inbox: $RESULT"
+
+# ---- PATH B: a T2 execution waits for a human; the approver decides in the Workspace ----
+OPERATOR="$(user_token operator)"; BOB="$(user_token bob)"
+call 200 PUT "$WS/api/v1/workspaces/us-ops/members/bob" "$ALICE" '{"roles":["approver"]}' >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" "$(cat idp-workspace/deploy/apps/eer-approvals.json)" >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/eer-approvals" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+SUFFIX="$(date +%s%N)"
+EVENT="event:platform-$SUFFIX" EXEC="execution:platform-$SUFFIX"
+NOW="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+call 201 POST "$EER/v1/events" "$OPERATOR" "{\"tenant_id\":\"pilot\",\"event_id\":\"$EVENT\",\"event_type\":\"parcel.address.rejected\",\"occurred_at\":\"$NOW\",\"source\":\"actor:carrier-connector\",\"subject\":\"parcel:PLATFORM-$SUFFIX\",\"schema_version\":1,\"correlation_id\":\"loop:platform-$SUFFIX\",\"payload\":{\"reason\":\"postal_code_missing\"}}" >/dev/null
+call 202 POST "$EER/v1/intents" "$OPERATOR" "{\"intent\":{\"tenant_id\":\"pilot\",\"intent_id\":\"intent:platform-$SUFFIX\",\"schema_version\":1,\"objective\":\"correct rejected parcel address\",\"originating_events\":[\"$EVENT\"],\"correlation_id\":\"loop:platform-$SUFFIX\",\"constraints\":{\"disposition_tier\":\"T2\"},\"policy_id\":\"address-exception-policy\",\"policy_version\":1,\"created_at\":\"$NOW\"},\"execution_id\":\"$EXEC\",\"plan_id\":\"address-error-actions\",\"plan_version\":1,\"compilation_context\":{\"context\":{\"parcel\":{\"parcel_id\":\"PKG-$SUFFIX\"}},\"request\":{\"oms_action_cost\":0,\"reissue_cost\":120,\"fail_mode\":\"none\"}}}" >/dev/null
+state_of() { call 200 GET "$EER/v1/executions/$EXEC" "$OPERATOR" | field "['state']"; }
+for _ in $(seq 1 120); do [[ "$(state_of)" == Waiting ]] && break; sleep 0.5; done
+[[ "$(state_of)" == Waiting ]] || { echo "FAIL: $EXEC is $(state_of), not Waiting for approval" >&2; exit 1; }
+ITEM=""
+for _ in $(seq 1 120); do
+  ITEM="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=approval" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='$EXEC/approval': print(it['itemId'])")"
+  [[ -n "$ITEM" ]] && break; sleep 0.5
+done
+[[ -n "$ITEM" ]] || { kubectl -n idp-eer logs deploy/eer-projector --tail=30; echo "FAIL: the approval wait of $EXEC never reached bob's inbox" >&2; exit 1; }
+DECIDED="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" "{\"app\":\"eer-approvals\",\"action\":\"approval.approve\",\"itemId\":\"$ITEM\",\"input\":{}}")"
+[[ "$(echo "$DECIDED" | field "['result']['accepted']")" == True ]] || { echo "FAIL: EER did not accept the decision: $DECIDED" >&2; exit 1; }
+for _ in $(seq 1 120); do [[ "$(state_of)" == Completed ]] && break; sleep 0.5; done
+[[ "$(state_of)" == Completed ]] || { kubectl -n idp-eer logs deploy/eer-worker --tail=30; echo "FAIL: $EXEC is $(state_of) after the approval" >&2; exit 1; }
+call 200 GET "$EER/v1/executions/$EXEC" "$OPERATOR" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+audit=[(a.get('action'), a.get('actor_id') or a.get('actor')) for a in d.get('audit',[])]
+assert ('approval.approved','bob') in audit, audit
+print('EER audit:', [a for a in audit if a[0].startswith('approval')])
+" || { echo "FAIL: EER did not record bob's approval" >&2; exit 1; }
+CLOSED=""
+for _ in $(seq 1 120); do
+  CLOSED="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox/$ITEM" "$BOB" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['status']+'/'+((d.get('resolution') or {}).get('outcome') or ''))")"
+  [[ "$CLOSED" == resolved/approved ]] && break; sleep 0.5
+done
+[[ "$CLOSED" == resolved/approved ]] || { echo "FAIL: the inbox item is $CLOSED" >&2; exit 1; }
+echo "PASS: PATH B — operator -> EER $EXEC (T2) -> Waiting -> bob's inbox (EER projector, svc-eer) -> bob approves in the Workspace (token exchange) -> EER Completed, audit approval.approved by bob -> item $CLOSED by EER"
+
+# ---- PATH D: bob asks an agent to run code; it runs in the sandbox, through the gateway, as bob ----
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"sandbox-assistant","displayName":"Sandbox assistant","definition":{"instructions":"Run the code the user gives you in the sandbox and report the result.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run"]},"confirmation":{"default":"auto"}}}' >/dev/null
+REL="$(call 201 POST "$HOST/api/v1/agents/sandbox-assistant/releases" "$HADMIN" | field "['releaseId']")"
+call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"coder","version":"1.0.0","title":"Coder","publisher":"IDP","capabilities":[],"actions":[{"name":"code.run","title":"Run code","target":{"kind":"host.run","agent":"sandbox-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/coder" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+INV="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" '{"app":"coder","action":"code.run","input":{"message":"run python: print(\"answer\", 6 * 7)"}}')"
+DRUN="$(echo "$INV" | field "['result']['id']")"
+DRESULT=""
+for _ in $(seq 1 600); do
+  DRESULT="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$DRUN' and not it['title'].endswith('running'): print(it['title'])")"
+  [[ -n "$DRESULT" ]] && break; sleep 0.5
+done
+[[ "$DRESULT" == *"— finished" ]] || { kubectl -n idp-host logs deploy/idp-host --tail=30; kubectl -n idp-mcp logs deploy/idp-mcp-gateway-edge-1 --tail=30; kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=30; echo "FAIL: no finished sandbox run in bob's inbox ('$DRESULT')" >&2; exit 1; }
+DANSWER="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$DRUN': print(it.get('summary',''))")"
+[[ "$DANSWER" == *"exit code 0"* && "$DANSWER" == *"answer 42"* ]] || { echo "FAIL: the sandbox result is not in bob's inbox: $DANSWER" >&2; exit 1; }
+# the gateway's record: the calls were made for bob (the subject) with a token issued to the HOST (the client), and delivered
+BOB_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['bob'])")"
+for _ in $(seq 1 40); do   # the gateway pushes its call records to the registry in batches
+  INVS="$(call 200 GET "$REG/api/v1/invocations" "$MREVIEWER")"
+  [[ "$INVS" == *sandbox__sandbox_run* ]] && break; sleep 0.5
+done
+echo "$INVS" | python3 -c "
+import json,sys
+items=json.load(sys.stdin)['items']
+mine=[i for i in items if i.get('tool','').startswith('sandbox__sandbox_')]
+tools={i['tool'] for i in mine}
+assert {'sandbox__sandbox_create','sandbox__sandbox_run'} <= tools, ('the gateway recorded', tools)
+for i in mine:
+    assert i['subject']=='$BOB_ID', ('the call was not made for bob', i)
+    assert i['client']=='idp-host', ('the exchanged token was not issued to the HOST', i)
+    assert i['decision'].lower()=='allow' and i['outcome'].lower()=='ok', i
+print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'])
+" || { echo "FAIL: the gateway's invocation records: $INVS" >&2; exit 1; }
+# and the sandbox knew whose workspace it made: its audit log names the caller (a hash), not the code
+kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q '"tool":"sandbox_run".*caller=' || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox did not see the caller" >&2; exit 1; }
+echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (kubernetes backend, caller forwarded) -> code ran in an isolated pod -> 'answer 42' in bob's inbox"
+
+# ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
+if ! command -v uv >/dev/null; then
+  echo "NOT_RUN: PATH C needs uv (EER's Intelligence runs from its locked environment)"
+  exit 0
+fi
+call 201 POST "$CMI/api/v1/sources" "$ALICE" '{"name":"eer","displayName":"EER Intelligence","kind":"agent","trust":"informational"}' >/dev/null
+# the knowledge EER's test expects for its Decision fixture (as idp-eer tools/development/cmi_stack.sh seeds it)
+call 201 POST "$CMI/api/v1/knowledge/documents" "$ALICE" '{"source":"handbook","uri":"handbook://addresses","title":"Address normalization","sensitivity":"internal","acl":{},"entities":[{"type":"city","id":"test-city"}],"text":"Address normalization.\n\nPostal codes of the test city start with 0000; the district office is on Example Road."}' >/dev/null
+INTEL_TOKEN="$("${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=eer-intelligence -d "client_secret=$(secret_of eer-intelligence)" | token_json)"
+ALICE="$(user_token alice)"
+INTEL_SUB="$(python3 -c 'import base64,json,sys; p=sys.argv[1].split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4)))["sub"])' "$INTEL_TOKEN")"
+# a clean environment: the Intelligence plane refuses to start beside Runtime credentials (EER ADR-032)
+(cd idp-eer && env -i HOME="$HOME" PATH="$PATH" UV_CACHE_DIR="${UV_CACHE_DIR:-$HOME/.cache/uv}" EER_CMI_INTEGRATION=1 EER_TENANT_ID=pilot EER_CMI_BASE_URL="$CMI" EER_CMI_BEARER_TOKEN="$INTEL_TOKEN" EER_CMI_ADMIN_TOKEN="$ALICE" EER_CMI_EXPECTED_REQUESTER="$INTEL_SUB" \
+  EER_INTELLIGENCE_ALLOWED_EGRESS_ORIGINS="[\"$CMI\"]" \
+  PYTHONPATH=intelligence/src uv run --project intelligence --frozen --no-python-downloads \
+  python -m unittest intelligence.tests.integration.test_cmi_integration -v) > "$L/path-c.log" 2>&1 \
+  || { tail -30 "$L/path-c.log"; echo "FAIL: PATH C (EER Intelligence with the platform's CMI)" >&2; exit 1; }
+RAN="$(sed -nE 's/^Ran ([0-9]+) tests? in .*/\1/p' "$L/path-c.log")"
+grep -qE "^OK$" "$L/path-c.log" && [[ "${RAN:-0}" -ge 1 ]] || { tail -20 "$L/path-c.log"; echo "FAIL: PATH C did not run its tests (ran ${RAN:-0}, or some were skipped)" >&2; exit 1; }
+echo "PASS: PATH C — EER Intelligence (Keycloak service account eer-intelligence) -> CMI context for a Decision -> memory left in the CMI ($RAN tests)"

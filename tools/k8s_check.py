@@ -7,6 +7,10 @@ security standard and has a default-deny policy. Integrations marked `kubernetes
 reported, not checked.
 
   python tools/k8s_check.py [--root DIR]        exit 0 passed, 1 failed, 2 a component could not be rendered
+  python tools/k8s_check.py --full              the same for the full kind overlay (deploy/kubernetes/full), where the
+                                                policies are those of the composed platform, every namespace (also PostgreSQL,
+                                                Keycloak, Temporal) is restricted and default-deny, and the flows to that
+                                                infrastructure (catalog/infrastructure.yaml) are checked too
 Rendering uses kustomize through `go run sigs.k8s.io/kustomize/kustomize/v5@KUSTOMIZE` (no binary needed).
 """
 import argparse
@@ -57,13 +61,53 @@ def allows(policies, direction, other_labels, port):
     return False
 
 
+def check_full(root):
+    """the composed platform of deploy/kubernetes/full: every namespace restricted and default-deny, every integration of
+    the catalog (between components) and every flow to the in-cluster infrastructure open at both ends"""
+    docs = render(root / "deploy/kubernetes/full")
+    namespaces = {d["metadata"]["name"]: {**d["metadata"].get("labels", {}), "kubernetes.io/metadata.name": d["metadata"]["name"]}
+                  for d in docs if d["kind"] == "Namespace"}
+    policies = {n: [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"].get("namespace") == n] for n in namespaces}
+    problems = []
+    for n, labels in namespaces.items():
+        if labels.get("pod-security.kubernetes.io/enforce") != "restricted":
+            problems.append(f"namespace {n} does not enforce the restricted pod security standard")
+        if not any(p["spec"].get("podSelector") == {} and set(p["spec"].get("policyTypes", [])) == {"Ingress", "Egress"}
+                   and not p["spec"].get("ingress") and not p["spec"].get("egress") for p in policies[n]):
+            problems.append(f"no default-deny NetworkPolicy in {n}")
+    flows = [(i["id"], i["from"], i["to"], i["port"]) for i in
+             yaml.safe_load((root / "catalog/integrations.yaml").read_text())["integrations"] if i.get("kubernetes") != "not-deployed"]
+    flows += [(f["id"], f["from"], f["to"], f["port"]) for f in yaml.safe_load((root / "catalog/infrastructure.yaml").read_text())["flows"]]
+    for fid, a, b, port in flows:
+        if a not in namespaces or b not in namespaces:
+            problems.append(f"{fid}: namespace {a if a not in namespaces else b} is not in the full overlay")
+            continue
+        if not allows(policies[a], "egress", namespaces[b], port):
+            problems.append(f"{fid}: {a} has no egress to {b}:{port}")
+        if not allows(policies[b], "ingress", namespaces[a], port):
+            problems.append(f"{fid}: {b} admits no ingress from {a} on {port}")
+    for line in problems:
+        print("FAIL:", line)
+    if problems:
+        return 1
+    print(f"PASSED: the full overlay has {len(namespaces)} namespaces, all restricted and default-deny; {len(flows)} flows are allowed at both ends")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", type=Path, default=HERE)
+    ap.add_argument("--full", action="store_true", help="check the composed platform of deploy/kubernetes/full instead of each component")
     ap.add_argument("--allow-missing", action="append", default=[], metavar="NAME",
                     help="a component that cannot be checked out here (a private repository in CI) is reported, not failed")
     args = ap.parse_args(argv)
     root = args.root
+    if args.full:
+        try:
+            return check_full(root)
+        except RuntimeError as e:
+            print("FAIL: kustomize:", e)
+            return 2
     components = yaml.safe_load((root / "catalog/components.yaml").read_text())["components"]
     integrations = yaml.safe_load((root / "catalog/integrations.yaml").read_text())["integrations"]
     rendered, problems, not_run, notes = {}, [], [], []

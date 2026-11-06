@@ -25,7 +25,7 @@ import uuid
 
 out, tenant, clients_file = sys.argv[1:4]
 SHELL = "http://127.0.0.1:8560"
-GATEWAY = "http://mcp-gateway:3320/mcp"   # the idp-mcp gateway as the HOST calls it
+GATEWAY = os.environ.get("IDP_REALM_GATEWAY", "http://mcp-gateway:3320/mcp")   # the idp-mcp gateway as the HOST calls it (kind: its Service URL)
 
 
 def hardcoded(name, value, json_type="String"):

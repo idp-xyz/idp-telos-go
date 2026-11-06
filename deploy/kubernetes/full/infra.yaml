@@ -1,0 +1,171 @@
+# full overlay: the platform's own infrastructure on kind - PostgreSQL (a database per component, created by
+# tests/kind/full.sh), Keycloak (https, a per-run test CA, the realm of deploy/keycloak/realm.py) and Temporal
+# (idp-eer). DEV ONLY. All three namespaces enforce the restricted pod security standard; their NetworkPolicies
+# are in networkpolicy.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: databases
+  labels: {pod-security.kubernetes.io/enforce: restricted, pod-security.kubernetes.io/enforce-version: latest}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+  labels: {pod-security.kubernetes.io/enforce: restricted, pod-security.kubernetes.io/enforce-version: latest}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: temporal
+  labels: {pod-security.kubernetes.io/enforce: restricted, pod-security.kubernetes.io/enforce-version: latest}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: databases
+  labels: {app.kubernetes.io/name: postgresql}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: postgresql}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: postgresql}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, fsGroup: 70, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: postgres
+          image: public.ecr.aws/docker/library/postgres:17-alpine
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres-owner, key: password}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{name: pg, containerPort: 5432}]
+          readinessProbe:
+            exec: {command: [pg_isready, -h, 127.0.0.1, -U, postgres]}
+            periodSeconds: 2
+          resources: {limits: {cpu: "2", memory: 1Gi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: run, mountPath: /var/run/postgresql}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: data, emptyDir: {}}
+        - {name: run, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: databases
+spec:
+  selector: {app.kubernetes.io/name: postgresql}
+  ports: [{name: pg, port: 5432, targetPort: pg}]
+---
+# Keycloak: the issuer is https://127.0.0.1:17443/realms/idp (tokens are fetched through a port-forward on local
+# port 17443); in the cluster the components fetch keys and tokens from http://keycloak.keycloak.svc.cluster.local:7080
+# and idp-eer, which accepts only https key URLs, from https://...:7443 (certificate from the run's CA).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: keycloak
+  labels: {app.kubernetes.io/name: keycloak}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: keycloak}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: keycloak}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.8.1
+          args: [start-dev, --import-realm, --features, token-exchange-standard]
+          env:
+            - {name: KC_HTTP_ENABLED, value: "true"}
+            - {name: KC_HTTP_PORT, value: "7080"}
+            - {name: KC_HTTPS_PORT, value: "7443"}
+            - {name: KC_HTTPS_CERTIFICATE_FILE, value: /opt/keycloak/tls/server.crt}
+            - {name: KC_HTTPS_CERTIFICATE_KEY_FILE, value: /opt/keycloak/tls/server.key}
+            - {name: KC_HOSTNAME, value: "https://127.0.0.1:17443"}
+            - {name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC, value: "true"}
+            - {name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin}
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: keycloak-admin, key: password}}
+          ports:
+            - {name: http, containerPort: 7080}
+            - {name: https, containerPort: 7443}
+          readinessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          resources: {requests: {cpu: 200m, memory: 512Mi}, limits: {cpu: "2", memory: 2Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}   # start-dev builds into /opt/keycloak: no read-only root
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import, readOnly: true}
+            - {name: tls, mountPath: /opt/keycloak/tls, readOnly: true}
+      volumes:
+        - {name: realm, secret: {secretName: keycloak-realm}}
+        - {name: tls, secret: {secretName: keycloak-tls}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  selector: {app.kubernetes.io/name: keycloak}
+  ports:
+    - {name: http, port: 7080, targetPort: http}
+    - {name: https, port: 7443, targetPort: https}
+---
+# Temporal for idp-eer (the dev server, as in compose); idp-eer's manifests expect temporal-frontend.temporal:7233
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal
+  namespace: temporal
+  labels: {app.kubernetes.io/name: temporal}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: temporal}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: temporal}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: temporal
+          image: local/temporal:1.7.3
+          args: [server, start-dev, --ip, 0.0.0.0, --headless]
+          ports: [{name: frontend, containerPort: 7233}]
+          readinessProbe:
+            tcpSocket: {port: frontend}
+            periodSeconds: 3
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "2", memory: 1Gi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-frontend
+  namespace: temporal
+spec:
+  selector: {app.kubernetes.io/name: temporal}
+  ports: [{name: frontend, port: 7233, targetPort: frontend}]

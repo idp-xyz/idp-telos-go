@@ -1,0 +1,17 @@
+# In-cluster infrastructure the components depend on when the platform runs on Kubernetes with its own IdP, database
+# and workflow engine (deploy/kubernetes/full). Not component-to-component integrations (catalog/integrations.yaml), so
+# not contracts; tools/k8s_check.py --full checks that the rendered NetworkPolicies of both ends allow each flow.
+# "to" is a namespace of the full overlay, "port" the pod port the NetworkPolicies must open.
+flows:
+  - {id: keycloak-keys-cmi, from: idp-cmi, to: keycloak, port: 7080, what: JWKS}
+  - {id: keycloak-keys-host, from: idp-host, to: keycloak, port: 7080, what: "JWKS and the token endpoint (delegation to the idp-mcp gateway)"}
+  - {id: keycloak-keys-workspace, from: idp-workspace, to: keycloak, port: 7080, what: "JWKS and token exchange (RFC 8693)"}
+  - {id: keycloak-keys-eer, from: idp-eer, to: keycloak, port: 7443, what: JWKS over https (idp-eer accepts no other)}
+  - {id: keycloak-token-eer, from: idp-eer, to: keycloak, port: 7080, what: svc-eer client credentials (Workspace inbox)}
+  - {id: keycloak-keys-mcp, from: idp-mcp, to: keycloak, port: 7080, what: JWKS of the gateway in jwt mode}
+  - {id: postgres-cmi, from: idp-cmi, to: databases, port: 5432, what: PostgreSQL}
+  - {id: postgres-host, from: idp-host, to: databases, port: 5432, what: PostgreSQL}
+  - {id: postgres-workspace, from: idp-workspace, to: databases, port: 5432, what: PostgreSQL}
+  - {id: postgres-eer, from: idp-eer, to: databases, port: 5432, what: PostgreSQL}
+  - {id: postgres-mcp, from: idp-mcp, to: databases, port: 5432, what: PostgreSQL}
+  - {id: temporal-eer, from: idp-eer, to: temporal, port: 7233, what: Temporal frontend (api and worker)}

@@ -1,0 +1,211 @@
+# The WHOLE platform (paths A, B, C, D) on a kind cluster from the components' own manifests: idp-cmi, idp-host,
+# idp-workspace, idp-eer, idp-mcp and idp-sandbox, plus PostgreSQL, Keycloak (OIDC, https issuer) and Temporal in
+# the cluster, the HOST's model double, setup Jobs and the NetworkPolicies the integrations need
+# (networkpolicy.yaml; every namespace stays default-deny). Everything cluster-specific is a patch here.
+# Secrets and the per-run configuration (idp-eer's identity ConfigMap) are NOT in this overlay: tests/kind/full.sh
+# generates them. tests/kind/full.sh drives it. DEV ONLY (a test realm and CA, plain http inside the cluster).
+# deploy/kubernetes/kind (the lightweight overlay with development tokens) is separate and unchanged.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - infra.yaml
+  - ../../../idp-cmi/deploy/kubernetes
+  - ../../../idp-host/deploy/kubernetes
+  - ../../../idp-workspace/deploy/kubernetes
+  - ../../../idp-eer/deploy/kubernetes
+  - ../../../idp-mcp/deploy/kubernetes
+  - ../../../idp-sandbox/deploy/kubernetes
+  - fakemodel.yaml
+  - setup-jobs.yaml
+  - networkpolicy.yaml
+images:
+  - {name: registry.example.com/idp/idp-cmi, newName: idp-cmi, newTag: dev}
+  - {name: registry.example.com/idp/idp-host, newName: idp-host, newTag: dev}
+  - {name: registry.example.com/idp/idp-workspace, newName: idp-workspace, newTag: dev}
+  - {name: registry.example.com/idp/eer-runtime, newName: eer-runtime, newTag: dev}
+  - {name: registry.example.com/idp/idp-mcp, newName: idp-mcp, newTag: dev}
+  - {name: registry.example.com/idp/idp-sandbox, newName: idp-sandbox, newTag: dev}
+  - {name: idp-cmi, newTag: dev}         # the setup Jobs name the images directly
+  - {name: idp-host, newTag: dev}
+  - {name: idp-workspace, newTag: dev}
+  - {name: idp-mcp, newTag: dev}
+patches:
+  # ================= idp-cmi: Keycloak tokens (keys over http inside the cluster), plain http, no model endpoints =================
+  - target: {kind: ConfigMap, name: idp-cmi-env}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          IDP_CMI_LISTEN: "0.0.0.0:8550"
+          IDP_CMI_CONFIG: "/etc/idp/config/cmi.yaml"
+          IDP_DEV_MODE: "false"
+          IDP_CMI_ISSUER: "https://127.0.0.1:17443/realms/idp"
+          IDP_CMI_AUDIENCE: "idp-cmi"
+          IDP_CMI_JWKS_URL: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/certs"
+          IDP_LOG_LEVEL: "info"
+          IDP_METRICS_LISTEN: "0.0.0.0:9565"
+  - target: {kind: ConfigMap, name: idp-cmi-config}
+    patch: |-
+      - op: replace
+        path: /data
+        value: {cmi.yaml: ""}
+  - target: {kind: Deployment, name: idp-cmi}
+    patch: &http-probes |-
+      - {op: replace, path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme, value: HTTP}
+      - {op: replace, path: /spec/template/spec/containers/0/livenessProbe/httpGet/scheme, value: HTTP}
+  # ================= idp-host: Keycloak tokens, the model double, context from the CMI, delegation to the idp-mcp gateway =================
+  - target: {kind: ConfigMap, name: idp-host-env}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          IDP_HOST_LISTEN: "0.0.0.0:8450"
+          IDP_HOST_CONFIG: "/etc/idp/config/host.yaml"
+          IDP_HOST_WORKERS: "2"
+          IDP_HOST_LEASE: "30s"
+          IDP_DEV_MODE: "true"        # only so the HOST talks plain http to its model double and the gateway (as in compose); tokens are Keycloak's
+          IDP_HOST_ISSUER: "https://127.0.0.1:17443/realms/idp"
+          IDP_HOST_AUDIENCE: "idp-host"
+          IDP_HOST_JWKS_URL: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/certs"
+          IDP_HOST_CREDENTIAL_KEY_FILE: "/etc/idp/credential-key/key"
+          IDP_LOG_LEVEL: "info"
+          IDP_METRICS_LISTEN: "0.0.0.0:9465"
+  - target: {kind: ConfigMap, name: idp-host-providers}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          host.yaml: |
+            providers:
+              - name: local
+                kind: openai
+                baseUrl: http://fakemodel.idp-host.svc.cluster.local:18080/v1
+                insecure: true
+            cmi:
+              endpoint: http://idp-cmi.idp-cmi.svc.cluster.local:8550
+              auth: {mode: static, apiKeyFile: /etc/idp/provider-keys/cmi}
+            gateways:
+              - name: edge
+                endpoint: http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/mcp
+                auth:
+                  mode: delegation
+                  tokenEndpoint: http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token
+                  clientId: idp-host
+                  clientSecretFile: /etc/idp/gateway-client/client-secret
+                  audience: http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/mcp
+                  actorToken: true
+  - target: {kind: Deployment, name: idp-host}
+    patch: *http-probes
+  # ================= idp-workspace: Keycloak tokens, token exchange to the HOST and idp-eer =================
+  - target: {kind: ConfigMap, name: idp-workspace-env}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          IDP_WORKSPACE_LISTEN: "0.0.0.0:8560"
+          IDP_WORKSPACE_CONFIG: "/etc/idp/config/workspace.yaml"
+          IDP_WORKSPACE_ISSUER: "https://127.0.0.1:17443/realms/idp"
+          IDP_WORKSPACE_AUDIENCE: "idp-workspace"
+          IDP_WORKSPACE_JWKS_URL: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/certs"
+          IDP_WORKSPACE_SUBJECT_CLAIM: "preferred_username"
+          IDP_WORKSPACE_OIDC_CLIENT_ID: "workspace-shell"
+          IDP_WORKSPACE_PUBLIC_URL: "http://127.0.0.1:17560"
+          IDP_WORKSPACE_SIGNING_KEY_FILE: "/etc/idp/signing/signing.pem"
+          IDP_LOG_LEVEL: "info"
+          IDP_METRICS_LISTEN: "0.0.0.0:9566"
+  - target: {kind: ConfigMap, name: idp-workspace-config}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          workspace.yaml: |
+            targets:
+              host:
+                endpoint: "http://idp-host.idp-host.svc.cluster.local:8450"
+                auth: exchange
+                exchange: {tokenUrl: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange/client-secret, audience: idp-host}
+              eer:
+                endpoint: "http://eer-api.idp-eer.svc.cluster.local:8080"
+                auth: exchange
+                exchange: {tokenUrl: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange/client-secret, audience: eer-runtime}
+                tenantId: pilot
+            webhooks:
+              secretFile: /etc/idp/webhook/secret
+  - target: {kind: Deployment, name: idp-workspace}
+    patch: *http-probes
+  # ================= idp-eer: Keycloak (https key URL, the run's CA), Temporal, the Workspace inbox =================
+  - target: {kind: ConfigMap, name: eer-env}
+    patch: |-
+      - {op: replace, path: /data/EER_EXECUTION_INVOKER_MODE, value: "conformance"}   # EER's deterministic Actor harness; no real connectors in the platform
+      - {op: remove, path: /data/OTEL_EXPORTER_OTLP_ENDPOINT}
+  # eer-identity (issuers, principal mappings, authorization policy) holds the per-run user ids: tests/kind/full.sh creates it
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: eer-identity
+        namespace: idp-eer
+  - target: {kind: ConfigMap, name: eer-workspace-inbox}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          EER_WORKSPACE_INBOX_URL: "http://idp-workspace.idp-workspace.svc.cluster.local:8560"
+          EER_WORKSPACE_INBOX_WORKSPACE: "us-ops"
+          EER_WORKSPACE_INBOX_APP: "eer-approvals"
+          EER_WORKSPACE_INBOX_ROLES: "approver"
+          EER_WORKSPACE_INBOX_TOKEN_URL: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token"
+          EER_WORKSPACE_INBOX_CLIENT_ID: "svc-eer"
+          EER_WORKSPACE_INBOX_CLIENT_SECRET_FILE: "/etc/eer/workspace-inbox/client-secret"
+  - target: {kind: Deployment, name: eer-api}
+    patch: |-
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: SSL_CERT_FILE, value: /etc/eer/ca/ca.crt}}   # EER fetches keys over https only
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts, value: [{name: identity-ca, mountPath: /etc/eer/ca, readOnly: true}]}
+      - {op: add, path: /spec/template/spec/volumes, value: [{name: identity-ca, secret: {secretName: eer-identity-ca}}]}
+  # ================= idp-mcp: dev admin tokens at the registry, the gateway in jwt mode; plain http inside the cluster =================
+  - target: {kind: ConfigMap, name: idp-mcp-registry}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          IDP_REGISTRY_LISTEN: "0.0.0.0:8250"
+          IDP_DEV_MODE: "true"          # HS256 admin tokens (registry-service dev-token); the data plane verifies Keycloak tokens
+          IDP_ALLOWED_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local"
+          IDP_PRIVATE_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local"
+          IDP_DEPLOY_TIMEOUT: "60s"
+          IDP_LOG_LEVEL: "info"
+  - target: {kind: Deployment, name: idp-mcp-registry}
+    patch: |-
+      - {op: replace, path: /spec/replicas, value: 1}
+      - {op: replace, path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme, value: HTTP}
+      - {op: replace, path: /spec/template/spec/containers/0/livenessProbe/httpGet/scheme, value: HTTP}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_DEV_ADMIN_SECRET, valueFrom: {secretKeyRef: {name: idp-mcp-admin, key: secret}}}}
+      - {op: replace, path: /spec/template/spec/containers/0/volumeMounts, value: []}
+      - {op: replace, path: /spec/template/spec/volumes, value: []}
+  - target: {kind: ConfigMap, name: idp-mcp-gateway-edge-1}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          IDP_GATEWAY_LISTEN: "0.0.0.0:3220"
+          IDP_REGISTRY_URL: "http://idp-mcp-registry.idp-mcp.svc.cluster.local:8250"
+          IDP_GATEWAY_TOKEN_FILE: "/etc/idp/credential/token"
+          IDP_GATEWAY_ALLOWED_HOSTS: "idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local,idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220"
+          IDP_RELEASE_CACHE: "/var/cache/idp/release.json"
+          IDP_CALL_TIMEOUT: "60s"
+          IDP_DRIFT_INTERVAL: "60s"
+          IDP_LOG_LEVEL: "info"
+  - target: {kind: Deployment, name: idp-mcp-gateway-edge-1}
+    patch: |-
+      - {op: replace, path: /spec/replicas, value: 1}
+      - {op: replace, path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme, value: HTTP}
+      - {op: replace, path: /spec/template/spec/containers/0/livenessProbe/httpGet/scheme, value: HTTP}
+      - op: replace
+        path: /spec/template/spec/containers/0/volumeMounts
+        value: [{name: credential, mountPath: /etc/idp/credential, readOnly: true}, {name: cache, mountPath: /var/cache/idp}]
+      - op: replace
+        path: /spec/template/spec/volumes
+        value:
+          - {name: credential, secret: {secretName: idp-mcp-gateway-edge-1, items: [{key: token, path: token}]}}
+          - {name: cache, emptyDir: {sizeLimit: 64Mi}}

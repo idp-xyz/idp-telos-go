@@ -3,7 +3,8 @@ sandbox as an upstream that receives the verified caller (identity=forward), hav
 grant its tools to the role the HOST's delegated tokens carry, compile, review and deploy a release, and wait
 until the gateway attests it.
 
-Usage: python3 -I deploy/compose/mcp_setup.py REGISTRY_URL GATEWAY_ID ADMIN_TOKEN OPERATOR_TOKEN REVIEWER_TOKEN ROLE
+Usage: python3 -I deploy/compose/mcp_setup.py REGISTRY_URL GATEWAY_ID ADMIN_TOKEN OPERATOR_TOKEN REVIEWER_TOKEN ROLE [SANDBOX_ENDPOINT]
+(SANDBOX_ENDPOINT defaults to the compose service; tests/kind/full.sh passes the sandbox's Service URL.)
 """
 import json
 import sys
@@ -12,6 +13,7 @@ import urllib.error
 import urllib.request
 
 reg, gateway_id, admin, operator, reviewer, role = sys.argv[1:7]
+sandbox = sys.argv[7] if len(sys.argv) > 7 else 'http://sandbox:8570/mcp'
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -36,7 +38,7 @@ def must(token, method, path, body=None, want=(200, 201)):
     return out
 
 
-s = must(operator, 'POST', '/api/v1/servers', {'displayName': 'sandbox', 'targetName': 'sandbox', 'endpoint': 'http://sandbox:8570/mcp', 'identity': 'forward'})
+s = must(operator, 'POST', '/api/v1/servers', {'displayName': 'sandbox', 'targetName': 'sandbox', 'endpoint': sandbox, 'identity': 'forward'})
 sid = s['serverId']
 must(operator, 'POST', f'/api/v1/servers/{sid}/discover')
 must(reviewer, 'POST', f'/api/v1/servers/{sid}/approve')

@@ -1,0 +1,222 @@
+# full overlay: the NetworkPolicies the platform needs beyond what the components' manifests allow (those stay as shipped:
+# default deny in every namespace, DNS, the integrations between components). Calico enforces them on the kind cluster,
+# so every missing allow is a real failure. tools/k8s_check.py --full checks them. The components' IPBlock placeholders for
+# the IdP (203.0.113.10) are replaced by the Keycloak rules here.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: databases
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: databases
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: keycloak
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: keycloak
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: temporal
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: temporal
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgresql
+  namespace: databases
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: postgresql}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-cmi}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-host}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-workspace}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-eer}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp}}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-cmi}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-host}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-workspace}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-eer}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp}}
+      ports: [{protocol: TCP, port: 7080}, {protocol: TCP, port: 7443}]   # 7080 keys and tokens, 7443 idp-eer's https keys
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: temporal
+  namespace: temporal
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: temporal}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-eer}}
+      ports: [{protocol: TCP, port: 7233}]
+
+# Keycloak: keys (JWKS) and tokens, from every component that verifies or fetches tokens
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-cmi
+  namespace: idp-cmi
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: cmi}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+      ports: [{protocol: TCP, port: 7080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-host
+  namespace: idp-host
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: host}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+      ports: [{protocol: TCP, port: 7080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-workspace
+  namespace: idp-workspace
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: workspace}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+      ports: [{protocol: TCP, port: 7080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-eer-api
+  namespace: idp-eer
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: api}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+      ports: [{protocol: TCP, port: 7443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-eer-projector
+  namespace: idp-eer
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: projector}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+      ports: [{protocol: TCP, port: 7080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-mcp-gateway
+  namespace: idp-mcp
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: gateway}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+      ports: [{protocol: TCP, port: 7080}]
+
+# the idp-mcp registry discovers the sandbox's tools (the sandbox's own policy admits only the gateway)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-registry
+  namespace: idp-sandbox
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: sandbox}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: registry}}
+      ports: [{protocol: TCP, port: 8570}]
