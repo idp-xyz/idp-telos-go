@@ -13,7 +13,7 @@ IDP TELOS 的 Go 实现。本仓库是平台仓库（仓库工程架构中的 id
 | `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.1.0、`idp.telos.host` 1.7.0、`idp.telos.cmi` 1.4.0、`idp.telos.workspace` 1.1.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
 | `catalog/` | 组件目录、允许的跨系统调用及其证据、状态权威归属 | 本仓库 |
 | `releases/` | 平台发布清单 `platform-bom.yaml`（组件提交、镜像、契约版本）与兼容性矩阵 `compatibility-matrix.yaml`，由 `tools/platform.py` 生成与校验 | 本仓库 |
-| `deploy/` | 整平台组装（`deploy/compose/platform.yaml`：Keycloak（https 发行者）、idp-cmi、idp-host、idp-workspace、idp-eer、idp-mcp 的注册服务与网关、idp-sandbox 与 Temporal）与跨系统验收（`deploy/compose/e2e.sh`：PATH A 问答经 Workspace→HOST→CMI；PATH B T2 审批经 EER→Workspace 收件箱→成员批准→EER 完成；PATH D 成员让 Agent 运行代码：Workspace→HOST→idp-mcp 网关（HOST 为成员换来的令牌）→idp-sandbox（网关转发调用者）→隔离容器；PATH C EER Intelligence 经平台 CMI） | 本仓库 |
+| `deploy/` | 整平台组装（`deploy/compose/platform.yaml`：Keycloak（https 发行者）、idp-cmi、idp-host、idp-workspace、idp-eer、idp-mcp 的注册服务与网关、idp-sandbox 与 Temporal）与跨系统验收（`deploy/compose/e2e.sh`：PATH A 问答经 Workspace→HOST→CMI；PATH B T2 审批经 EER→Workspace 收件箱→成员批准→EER 完成；PATH D 成员让 Agent 运行代码：Workspace→HOST→idp-mcp 网关（HOST 为成员换来的令牌）→idp-sandbox（网关转发调用者）→隔离容器；PATH E 记忆：成员说过的话由 HOST 写进 CMI（情景记忆，作用域为该成员），新对话的上下文包里能取回，同一对话保留历史；PATH C EER Intelligence 经平台 CMI） | 本仓库 |
 | `docs/` | 平台 ADR、建设记录与运维手册（`docs/reports/`）、架构蓝图、系统架构、仓库工程架构——只保存在本地，不纳入版本库（`.gitignore`） | 本地 |
 | `brand/` | 品牌资源 | 本仓库 |
 
