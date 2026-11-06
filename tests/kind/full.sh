@@ -7,6 +7,7 @@
 #   PATH A  bob via the Workspace -> HOST -> CMI package -> inbox
 #   PATH B  operator T2 intent -> EER -> bob's inbox -> approval in the Workspace -> EER Completed
 #   PATH D  bob asks for code: HOST -> idp-mcp gateway -> idp-sandbox (kubernetes backend) -> 'answer 42' in the inbox
+#   PATH E  memory: bob's words are remembered by the HOST in the CMI, found again in a new conversation, kept in the same one
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
 # and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
@@ -325,6 +326,7 @@ AGENT_MODEL=fake-1
 [[ "$MODEL" == live ]] && AGENT_MODEL="$LIVE_MODEL"
 
 # ---- CMI: the enterprise knowledge the answer must draw on ----
+call 201 POST "$CMI/api/v1/sources" "$ALICE" '{"name":"idp-host","displayName":"Conversations (idp-host)","kind":"agent","trust":"informational"}' >/dev/null
 call 201 POST "$CMI/api/v1/sources" "$ALICE" '{"name":"handbook","displayName":"Handbook","kind":"document-store","trust":"authoritative"}' >/dev/null
 DOC="$(call 201 POST "$CMI/api/v1/knowledge/documents" "$ALICE" '{"source":"handbook","uri":"handbook://pickup","title":"Pickup policy","sensitivity":"internal","acl":{},"text":"Pickup policy.\n\nParcels above 10000 USD need a manager to approve the pickup slot."}' | field "['documentId']")"
 # the same rule in Chinese: a question asked in Chinese (the assistant app's example) does not retrieve the English text
@@ -421,6 +423,87 @@ for _ in $(seq 1 120); do
 done
 [[ "$CLOSED" == resolved/approved ]] || { echo "FAIL: the inbox item is $CLOSED" >&2; exit 1; }
 echo "PASS: PATH B — operator -> EER $EXEC (T2) -> Waiting -> bob's inbox (EER projector, svc-eer) -> bob approves in the Workspace (token exchange) -> EER Completed, audit approval.approved by bob -> item $CLOSED by EER"
+
+# ---- PATH E: memory. bob tells the assistant something; the HOST remembers it in the CMI; in a NEW conversation the CMI brings it back ----
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"memory-assistant","displayName":"Assistant with memory","definition":{"instructions":"You are a helpful assistant with a memory. The context you are given may contain things the user told you earlier: use it. Answer briefly.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null
+REL="$(call 201 POST "$HOST/api/v1/agents/memory-assistant/releases" "$HADMIN" | field "['releaseId']")"
+call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"assistant","version":"1.0.0","title":"Assistant","publisher":"IDP","capabilities":[],"actions":[{"name":"ask","title":"Ask the assistant","target":{"kind":"host.run","agent":"memory-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/assistant" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+ask() { # ask MESSAGE [THREAD]: bob asks; prints "RUN THREAD ANSWER" once the run finished
+  local body inv run thr res=""
+  body="$(python3 -c "import json,sys; d={'app':'assistant','action':'ask','input':{'message':sys.argv[1]}}; (d.update(threadId=sys.argv[2]) if sys.argv[2] else None); print(json.dumps(d))" "$1" "${2:-}")"
+  inv="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" "$body")"
+  run="$(echo "$inv" | field "['result']['id']")"; thr="$(echo "$inv" | field "['result']['threadId']")"
+  for _ in $(seq 1 600); do
+    res="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$run' and not it['title'].endswith('running'): print(it.get('summary','').replace(chr(10),' '))")"
+    [[ -n "$res" ]] && break; sleep 0.5
+  done
+  [[ -n "$res" ]] || { kubectl -n idp-host logs deploy/idp-host --tail=30; kubectl -n idp-cmi logs deploy/idp-cmi --tail=30; echo "FAIL: no answer for '$1'" >&2; exit 1; }
+  echo "$run $thr $res"
+}
+read -r R1 T1 A1 <<<"$(ask "My favourite colour is teal.")"
+# the HOST writes the exchange into the CMI after the run completes
+MEM=""
+for _ in $(seq 1 60); do
+  MEM="$(call 200 GET "$CMI/v1/memory/records" "$BOB" | python3 -c "
+import json,sys
+for r in json.load(sys.stdin)['records']:
+    if r['provenance']['ref']=='run:$R1': print(json.dumps(r))")"
+  [[ -n "$MEM" ]] && break; sleep 0.5
+done
+[[ -n "$MEM" ]] || { kubectl -n idp-host logs deploy/idp-host --tail=30; kubectl -n idp-cmi logs deploy/idp-cmi --tail=30; echo "FAIL: the HOST did not remember run $R1 in the CMI" >&2; exit 1; }
+echo "$MEM" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+assert r['scope']['kind']=='subject' and r['kind']=='episodic', r
+assert 'teal' in r['content'] and r['content'].startswith('The user said: My favourite colour is teal.'), r['content']
+assert r['provenance']['source']=='idp-host' and r['provenance']['recordedBy'], r['provenance']
+assert 'conversation' in r['tags'] and r['sensitivity']=='internal' and r['validity']['validUntil'], r
+" || { echo "FAIL: the remembered record is not as specified: $MEM" >&2; exit 1; }
+# the CMI indexes new memory with a small delay (its outbox projection): wait until a resolve as bob finds it
+READY=""
+for _ in $(seq 1 90); do
+  READY="$(call 200 POST "$CMI/v1/context/resolve" "$BOB" '{"query":"What is my favourite colour?","purpose":"assist"}' | python3 -c "
+import json,sys
+d=json.load(sys.stdin); p=d.get('package') or d.get('document') or d
+print('yes' if [i for i in p['items'] if i['kind']=='memory' and 'teal' in (i.get('excerpt') or '')] else '')")"
+  [[ -n "$READY" ]] && break; sleep 1
+done
+[[ -n "$READY" ]] || { kubectl -n idp-cmi logs deploy/idp-cmi --tail=30; echo "FAIL: the CMI never retrieved bob's memory for a question about it" >&2; exit 1; }
+# a NEW conversation (no thread): the context package of the run carries the memory
+read -r R2 T2 A2 <<<"$(ask "What is my favourite colour?")"
+[[ "$T2" != "$T1" ]] || { echo "FAIL: a new conversation reused the thread" >&2; exit 1; }
+PKG2="$(call 200 GET "$HOST/v1/runs/$R2" "$HADMIN" | field "['contextPackageId']")"
+call 200 GET "$CMI/v1/context/packages/$PKG2" "$BOB" | python3 -c "
+import json,sys
+d=json.load(sys.stdin); p=d.get('package') or d.get('document') or d
+mem=[i for i in p['items'] if i['kind']=='memory' and 'teal' in (i.get('excerpt') or '')]
+assert mem, ('the package of the new conversation does not carry the memory', [(i['kind'], i['ref']) for i in p['items']])
+print('package items:', [(i['kind'], i['ref']) for i in p['items']])
+" || { echo "FAIL: the new conversation did not get the memory" >&2; exit 1; }
+if [[ "$MODEL" == live ]]; then
+  echo "$A2" | grep -qi teal || { echo "FAIL: the live answer does not use the memory: $A2" >&2; exit 1; }
+  echo "live answer ($LIVE_MODEL): $(echo "$A2" | cut -c1-200)"
+fi
+# the same conversation: the thread keeps both exchanges
+read -r R3 T3 A3 <<<"$(ask "And my favourite fruit is mango." "$T1")"
+[[ "$T3" == "$T1" ]] || { echo "FAIL: the run did not join thread $T1 (got $T3)" >&2; exit 1; }
+call 200 GET "$HOST/v1/threads/$T1/messages" "$BOB" | python3 -c "
+import json,sys
+d=json.load(sys.stdin); msgs=d.get('messages') or d.get('items') or d
+text=json.dumps(msgs)
+assert 'teal' in text and 'mango' in text, ('the thread lost the first exchange', text[:300])
+" || { echo "FAIL: the thread does not hold the whole conversation" >&2; exit 1; }
+# memory is private: alice, who is not bob, is not given bob's records
+call 200 GET "$CMI/v1/memory/records" "$ALICE" | python3 -c "
+import json,sys
+assert not [r for r in json.load(sys.stdin)['records'] if r['provenance']['ref'].startswith('run:')], 'alice sees conversation memory that is not hers'
+" || { echo "FAIL: alice sees bob's memory" >&2; exit 1; }
+echo "PASS: PATH E — bob: 'My favourite colour is teal.' -> HOST run $R1 -> remembered in the CMI (episodic, scope subject, source idp-host) -> a NEW conversation ($T2) gets it in its context package; the same conversation ($T1) keeps both exchanges; alice does not see it"
 
 # ---- PATH D: bob asks an agent to run code; it runs in the sandbox, through the gateway, as bob ----
 SANDBOX_INSTRUCTIONS="Run the code the user gives you in the sandbox and report the result."

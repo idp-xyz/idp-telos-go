@@ -84,7 +84,19 @@ patches:
                 insecure: true
             cmi:
               endpoint: http://idp-cmi.idp-cmi.svc.cluster.local:8550
-              auth: {mode: static, apiKeyFile: /etc/idp/provider-keys/cmi}
+              # reads AS THE MEMBER (RFC 8693 exchange for the CMI audience), so a member's own memories are the ones retrieved
+              auth:
+                mode: delegation
+                tokenEndpoint: http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token
+                clientId: idp-host
+                clientSecretFile: /etc/idp/gateway-client/client-secret
+                audience: idp-cmi
+              # writes the conversation memory with its own identity (idp-host-svc: cmi-writer; a client-credentials token, one hour)
+              remember:
+                enabled: true
+                source: idp-host
+                ttlDays: 30
+                auth: {mode: static, apiKeyFile: /etc/idp/provider-keys/cmi}
             gateways:
               - name: edge
                 endpoint: http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/mcp
