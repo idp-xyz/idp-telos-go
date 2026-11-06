@@ -20,7 +20,21 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-host/deploy/fixtures/build-fakemodel.sh >/dev/null
   bash idp-workspace/deploy/build.sh idp-workspace:dev
 fi
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev; do kind load docker-image "$img" --name "$CLUSTER" >/dev/null; done
+# load an image into the cluster; a Docker with the containerd image store saves all platforms and kind's import
+# then fails, so save the one platform the nodes run
+load_image() {
+  local tar; tar="$(mktemp --suffix=.tar)"
+  docker save --platform linux/amd64 "$1" -o "$tar" 2>/dev/null || docker save "$1" -o "$tar"
+  kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
+}
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev; do load_image "$img"; done
+# LOAD_BASE_IMAGES=1: nodes that cannot reach the registries (a machine behind a proxy) get the base images from the daemon
+if [[ "${LOAD_BASE_IMAGES:-0}" == 1 ]]; then
+  for img in public.ecr.aws/docker/library/postgres:17-alpine public.ecr.aws/docker/library/busybox:1.37; do
+    docker image inspect "$img" >/dev/null 2>&1 || docker pull -q "$img" >/dev/null 2>&1 || { echo "skipped $img (not available)"; continue; }
+    load_image "$img"
+  done
+fi
 
 log "render"
 go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build deploy/kubernetes/kind 2>/dev/null > "$OUT/platform.yaml"
