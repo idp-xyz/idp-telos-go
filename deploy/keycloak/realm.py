@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The development Keycloak realm of the whole platform (ADR-0001 T5). TEST DOUBLE: dev secrets only.
 
-Users: alice (ws-admin, cmi-admin), bob (ws-member, host-user; EER actor bob), operator (submits EER
+Users: alice (ws-admin, cmi-admin, host-user), bob (ws-member, host-user; EER actor bob), operator (submits EER
 intents), hostadmin, hostapprover. User ids are fixed here and written to CLIENTS_FILE, because idp-eer
 maps principals by (issuer, sub).
 Clients:
@@ -51,7 +51,7 @@ username = {"name": "preferred_username", "protocol": "openid-connect", "protoco
             "config": {"user.attribute": "username", "claim.name": "preferred_username", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "true"}}
 user_mappers = [tenant_attr, roles_map, username]
 
-users = {"alice": ["ws-admin", "cmi-admin"], "bob": ["ws-member", "host-user"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"]}
+users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "host-user"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
 secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "svc-eer", "eer-intelligence", "e2e-cli")}
