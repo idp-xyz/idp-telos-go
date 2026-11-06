@@ -63,7 +63,7 @@ jobs:
         run: |
           set -o pipefail
           bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
-          for p in A B C; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
+          for p in A B C D; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
       - name: PATH C output on failure
         if: failure()
         run: cat .local/platform/path-c.log 2>/dev/null || true
