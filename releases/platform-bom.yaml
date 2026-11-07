@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:3a40f4d8a75bd8e4e1197fbfdbb0e3f953030b54daa2a5fd2c51346268e8694b
+    id: sha256:6af4f59978ed2fe098549d9191a928e26c5a8e257438c57cb74aaebb67d1e698
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: c020034a9348b5786da12a5a8d8be601433fee39
@@ -27,14 +27,14 @@ components:
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:3f81fbc90cafecb337a432f0b6991193846fac576cf0e1cce16568328ccbbec0
+    id: sha256:3247e4fbc24faf50d6e13c33c0adbf58948d196904addf873ba0d1d603ecd2b8
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:9cb1fdf3f0fbd7d517eb698b036f7fe48aa0c2f02ff07336f1242cb0b41a585d
+    id: sha256:b91a31eb0eaf03dc10bdda96f845f4a5ae30283e8c648c6edee538249034ca47
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: fa962db8d533b6b6a7a8ab7d7a43be6889c09257
@@ -44,21 +44,21 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:7d4aaa31fc8a84f6866d766206318e118a49f051e2049768ada6a7300ea407d1
+    id: sha256:da16ba821b570a394521e5717d48e3257c74d562b170e3f37f20d29ca64eee5d
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: 2fd89a3cc1ff0a37172a406ea92a19f5bfc1b87b
+  commit: 6ea35641414a585136bd61b60ecf30f346c4aeec
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:a26ec369e46fe3e49d4fb9d24711e6b2c1feb1246a14f7438f85170f11954012
+    id: sha256:a7e4c272009c61f132988fe70424df7f50983ee129d3c1ff1b501e25fc59b2c4
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 2a1fe689dc57e4dcce56ccf412b381b037488330
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:015557a3343c94247dc5b96e162e5ac6187187533a2899aac9889744c7dbc804
+    id: sha256:d41a8eb3dbc8c0013caf49125ec512d770d397b9360f161aa5755a379026fad1

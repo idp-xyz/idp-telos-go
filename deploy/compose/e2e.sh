@@ -392,11 +392,11 @@ fi
 call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"memory-assistant","displayName":"Assistant with memory","definition":{"instructions":"You are a helpful assistant with a memory. The context you are given may contain things the user told you earlier: use it. Answer briefly.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null
 REL="$(call 201 POST "$HOST/api/v1/agents/memory-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
-call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"assistant","version":"1.0.0","title":"Assistant","publisher":"IDP","capabilities":[],"actions":[{"name":"ask","title":"Ask the assistant","target":{"kind":"host.run","agent":"memory-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"assistant","version":"1.0.0","title":"Assistant","publisher":"IDP","capabilities":[],"actions":[{"name":"chat","title":"Chat with the memory assistant","target":{"kind":"host.run","agent":"memory-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
 call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/assistant" "$ALICE" '{"version":"1.0.0"}' >/dev/null
 ask() { # ask MESSAGE [THREAD]: bob asks; prints "RUN THREAD ANSWER" once the run finished
   local body inv run thr res=""
-  body="$(python3 -c "import json,sys; d={'app':'assistant','action':'ask','input':{'message':sys.argv[1]}}; (d.update(threadId=sys.argv[2]) if sys.argv[2] else None); print(json.dumps(d))" "$1" "${2:-}")"
+  body="$(python3 -c "import json,sys; d={'app':'assistant','action':'chat','input':{'message':sys.argv[1]}}; (d.update(threadId=sys.argv[2]) if sys.argv[2] else None); print(json.dumps(d))" "$1" "${2:-}")"
   inv="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" "$body")"
   run="$(echo "$inv" | field "['result']['id']")"; thr="$(echo "$inv" | field "['result']['threadId']")"
   for _ in $(seq 1 600); do

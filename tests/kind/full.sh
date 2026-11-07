@@ -8,6 +8,7 @@
 #   PATH B  operator T2 intent -> EER -> bob's inbox -> approval in the Workspace -> EER Completed
 #   PATH D  bob asks for code: HOST -> idp-mcp gateway -> idp-sandbox (kubernetes backend) -> 'answer 42' in the inbox
 #   PATH E  memory: bob's words are remembered by the HOST in the CMI, found again in a new conversation, kept in the same one
+#   PATH F  my memory: bob lists and erases what was remembered about him, through the Workspace; alice cannot
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
 # and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
@@ -424,15 +425,17 @@ done
 [[ "$CLOSED" == resolved/approved ]] || { echo "FAIL: the inbox item is $CLOSED" >&2; exit 1; }
 echo "PASS: PATH B — operator -> EER $EXEC (T2) -> Waiting -> bob's inbox (EER projector, svc-eer) -> bob approves in the Workspace (token exchange) -> EER Completed, audit approval.approved by bob -> item $CLOSED by EER"
 
+# the assistant app (deploy/apps/assistant): a chat page in the shell for the three agents; PATH E and F use its `chat` action
+call 201 POST "$WS/api/v1/apps" "$ALICE" "$(cat deploy/apps/assistant/manifest.json)" >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/assistant" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+
 # ---- PATH E: memory. bob tells the assistant something; the HOST remembers it in the CMI; in a NEW conversation the CMI brings it back ----
 call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"memory-assistant","displayName":"Assistant with memory","definition":{"instructions":"You are a helpful assistant with a memory. The context you are given may contain things the user told you earlier: use it. Answer briefly.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null
 REL="$(call 201 POST "$HOST/api/v1/agents/memory-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
-call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"assistant","version":"1.0.0","title":"Assistant","publisher":"IDP","capabilities":[],"actions":[{"name":"ask","title":"Ask the assistant","target":{"kind":"host.run","agent":"memory-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
-call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/assistant" "$ALICE" '{"version":"1.0.0"}' >/dev/null
 ask() { # ask MESSAGE [THREAD]: bob asks; prints "RUN THREAD ANSWER" once the run finished
   local body inv run thr res=""
-  body="$(python3 -c "import json,sys; d={'app':'assistant','action':'ask','input':{'message':sys.argv[1]}}; (d.update(threadId=sys.argv[2]) if sys.argv[2] else None); print(json.dumps(d))" "$1" "${2:-}")"
+  body="$(python3 -c "import json,sys; d={'app':'assistant','action':'chat','input':{'message':sys.argv[1]}}; (d.update(threadId=sys.argv[2]) if sys.argv[2] else None); print(json.dumps(d))" "$1" "${2:-}")"
   inv="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" "$body")"
   run="$(echo "$inv" | field "['result']['id']")"; thr="$(echo "$inv" | field "['result']['threadId']")"
   for _ in $(seq 1 600); do
@@ -505,6 +508,38 @@ assert not [r for r in json.load(sys.stdin)['records'] if r['provenance']['ref']
 " || { echo "FAIL: alice sees bob's memory" >&2; exit 1; }
 echo "PASS: PATH E — bob: 'My favourite colour is teal.' -> HOST run $R1 -> remembered in the CMI (episodic, scope subject, source idp-host) -> a NEW conversation ($T2) gets it in its context package; the same conversation ($T1) keeps both exchanges; alice does not see it"
 
+# ---- PATH F: my memory. bob sees what is remembered about him and erases it; nobody else can ----
+MY="$(call 200 GET "$WS/v1/me/memory" "$BOB")"
+echo "$MY" | python3 -c "
+import json,sys
+m=json.load(sys.stdin)['memories']
+assert any('teal' in x['content'] for x in m), ('bob does not see his memory', m)
+assert all(x['id'] and x['createdAt'] for x in m), m
+" || { echo "FAIL: bob's memory list: $MY" >&2; exit 1; }
+TEAL_ID="$(echo "$MY" | python3 -c "
+import json,sys
+print([x['id'] for x in json.load(sys.stdin)['memories'] if 'teal' in x['content']][0])")"
+# another person cannot erase it, even knowing the id
+call 404 DELETE "$WS/v1/me/memory/$TEAL_ID" "$ALICE" >/dev/null
+call 200 GET "$WS/v1/me/memory" "$BOB" | grep -q teal || { echo "FAIL: alice's attempt erased bob's memory" >&2; exit 1; }
+# bob erases what mentions it (the assistant's answers in later runs repeat it, so several records do): gone from his list and no longer retrieved
+for ID in $(call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "
+import json,sys
+print(' '.join(x['id'] for x in json.load(sys.stdin)['memories'] if 'teal' in x['content']))"); do
+  call 200 DELETE "$WS/v1/me/memory/$ID" "$BOB" | python3 -c "import json,sys; assert json.load(sys.stdin)['revoked']==1"
+done
+call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "
+import json,sys
+assert not [x for x in json.load(sys.stdin)['memories'] if x['id']=='$TEAL_ID' or 'teal' in x['content']], 'an erased memory is still listed'" || { echo "FAIL: an erased memory is still listed" >&2; exit 1; }
+call 200 POST "$CMI/v1/context/resolve" "$BOB" '{"query":"What is my favourite colour?","purpose":"assist"}' | python3 -c "
+import json,sys
+p=json.load(sys.stdin)['package']
+assert not [i for i in p['items'] if i['kind']=='memory' and 'teal' in (i.get('excerpt') or '')], 'the erased memory is still retrieved'" || { echo "FAIL: the erased memory is still retrieved" >&2; exit 1; }
+# erase everything
+N="$(call 200 DELETE "$WS/v1/me/memory" "$BOB" | field "['revoked']")"
+[[ "$(call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['memories']))")" == 0 ]] || { echo "FAIL: bob still has memories after erasing all" >&2; exit 1; }
+echo "PASS: PATH F — bob lists his memory through the Workspace (his own token exchanged for the CMI), alice cannot erase it, bob erases one (gone from the list and from retrieval) and then all ($N more)"
+
 # ---- PATH D: bob asks an agent to run code; it runs in the sandbox, through the gateway, as bob ----
 SANDBOX_INSTRUCTIONS="Run the code the user gives you in the sandbox and report the result."
 # a real model is told how the two tools fit together, and may write the code for what the user asks
@@ -558,8 +593,6 @@ kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q '"tool":"sa
 echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (kubernetes backend, caller forwarded) -> code ran in an isolated pod -> 'answer 42' in bob's inbox"
 
 # ---- the assistant app: a chat page in the shell for both agents (deploy/apps/assistant), on its own origin ----
-call 201 POST "$WS/api/v1/apps" "$ALICE" "$(cat deploy/apps/assistant/manifest.json)" >/dev/null
-call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/assistant" "$ALICE" '{"version":"1.0.0"}' >/dev/null
 pf idp-workspace assistant 17561:8080
 for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:17561/ && break; sleep 0.5; done
 curl -sf --noproxy '*' http://127.0.0.1:17561/app.js | grep -q 'idp.bridge/v1' || { echo "FAIL: the assistant's page is not served" >&2; exit 1; }

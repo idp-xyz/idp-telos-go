@@ -23,3 +23,6 @@ form { display: flex; gap: 8px; padding: 10px 16px; background: #fff; border-top
 textarea { flex: 1; font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; resize: none; }
 form button { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 0 18px; cursor: pointer; }
 form button:disabled { opacity: .5; cursor: default; }
+
+#chat .sep { list-style: none; text-align: center; color: #8a94a3; font-size: 12px; margin: 10px 0; }
+#fresh { margin-left: auto; margin-right: 10px; font-size: 12px; }

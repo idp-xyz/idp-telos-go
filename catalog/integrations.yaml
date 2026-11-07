@@ -70,3 +70,11 @@ integrations:
     contract: null  # the MCP protocol itself
     auth: [none on the hop: a private network that only the gateway reaches; the gateway authenticates and authorizes the caller and forwards it (identity=forward, idp-mcp ADR-0001 D40)]
     evidence: [idp-sandbox deploy/e2e.sh (the real gateway and registry: discovery, review, grants by role, argument validation, per-caller isolation, forgery stripped), this repository deploy/compose/e2e.sh (PATH D), idp-sandbox ADR-0001]
+  - id: workspace-cmi-memory
+    port: 8550   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
+    from: idp-workspace
+    to: idp-cmi
+    interface: GET /v1/memory/records, POST /v1/memory/revoke (a member's own memory, with the member's token exchanged for the CMI audience)
+    contract: idp.telos.cmi
+    auth: [exchange (RFC 8693)]
+    evidence: [idp-workspace ADR-0001 D21 (TestMyMemory), idp-cmi ADR-0001 D26, this repository deploy/compose/e2e.sh (PATH F)]

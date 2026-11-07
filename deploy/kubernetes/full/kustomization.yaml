@@ -142,6 +142,10 @@ patches:
                 auth: exchange
                 exchange: {tokenUrl: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange/client-secret, audience: eer-runtime}
                 tenantId: pilot
+              cmi:
+                endpoint: "http://idp-cmi.idp-cmi.svc.cluster.local:8550"
+                auth: exchange
+                exchange: {tokenUrl: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange/client-secret, audience: idp-cmi}
             webhooks:
               secretFile: /etc/idp/webhook/secret
   - target: {kind: Deployment, name: idp-workspace}

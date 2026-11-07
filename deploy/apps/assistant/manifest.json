@@ -3,22 +3,84 @@
   "name": "assistant",
   "version": "1.0.0",
   "title": "助手",
-  "description": "和平台上的 agent 对话：订单助手按企业知识作答，代码助手在隔离的沙箱里写代码并运行。",
+  "description": "和平台上的 agent 对话：订单助手按企业知识作答，代码助手在隔离的沙箱里写代码并运行，记忆助手记得你说过的事（同一次对话里有历史，之后的新对话里由企业记忆想起来；在工作台的\"记忆\"页可以查看和删除）。",
   "publisher": "IDP",
-  "entry": {"url": "http://127.0.0.1:17561/?shell=http://127.0.0.1:17560"},
-  "capabilities": ["actions.invoke", "inbox.read"],
+  "entry": {
+    "url": "http://127.0.0.1:17561/?shell=http://127.0.0.1:17560"
+  },
+  "capabilities": [
+    "actions.invoke",
+    "inbox.read"
+  ],
   "actions": [
     {
       "name": "ask",
       "title": "问订单助手",
-      "target": {"kind": "host.run", "agent": "order-assistant"},
-      "input": {"type": "object", "required": ["message"], "properties": {"message": {"type": "string", "title": "问题", "minLength": 1, "maxLength": 4000}}, "additionalProperties": false}
+      "target": {
+        "kind": "host.run",
+        "agent": "order-assistant"
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "问题",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": false
+      }
     },
     {
       "name": "code",
       "title": "让代码助手跑代码",
-      "target": {"kind": "host.run", "agent": "sandbox-assistant"},
-      "input": {"type": "object", "required": ["message"], "properties": {"message": {"type": "string", "title": "要做的事", "minLength": 1, "maxLength": 4000}}, "additionalProperties": false}
+      "target": {
+        "kind": "host.run",
+        "agent": "sandbox-assistant"
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "要做的事",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "chat",
+      "title": "和记忆助手聊天",
+      "target": {
+        "kind": "host.run",
+        "agent": "memory-assistant"
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "想说的话",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": false
+      }
     }
   ]
 }

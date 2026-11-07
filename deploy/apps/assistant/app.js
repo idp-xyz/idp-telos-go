@@ -7,6 +7,7 @@ const SHELL = new URLSearchParams(location.search).get('shell') || 'http://127.0
 const AGENTS = {
   ask: { hint: '按企业知识回答订单、取件与政策问题。', placeholder: '例如：贵重包裹的取件有什么规定？' },
   code: { hint: '在隔离的沙箱里写代码并运行，告诉你结果。', placeholder: '例如：用 Python 算一下 2 的 100 次方' },
+  chat: { hint: '同一次对话里它记得你说过的话；点“新对话”后，它靠企业记忆（CMI）想起你以前告诉过它的事。记忆可在工作台的“记忆”页查看和删除。', placeholder: '例如：我最喜欢的颜色是青色' },
 };
 const POLL_MS = 2000;
 const GIVE_UP_MS = 10 * 60 * 1000; // the shell follows a run for 10 minutes (idp-workspace D11)
@@ -34,7 +35,14 @@ const $ = (id) => document.getElementById(id);
 let agent = 'ask';
 let workspace = '';
 let history = [];
+// a conversation per agent: the thread of its last run, so the agent has this conversation's history (the HOST keeps the
+// thread); "新对话" forgets the thread, the CMI's memory of the member stays
+let threads = {};
+let convos = {};
 const storageKey = () => 'assistant.' + workspace;
+const threadsKey = () => 'assistant.threads.' + workspace;
+function saveThreads() { try { localStorage.setItem(threadsKey(), JSON.stringify({ threads, convos })); } catch { /* ignore */ } }
+function loadThreads() { try { const s = JSON.parse(localStorage.getItem(threadsKey()) || '{}'); threads = s.threads || {}; convos = s.convos || {}; } catch { threads = {}; convos = {}; } }
 function save() {
   try { localStorage.setItem(storageKey(), JSON.stringify(history.slice(-50))); } catch { /* storage blocked: the chat still works */ }
 }
@@ -73,7 +81,15 @@ function renderAnswer(el, text) {
 function render() {
   const chat = $('chat');
   chat.replaceChildren();
+  let lastConvo = null;
   for (const t of history.filter((x) => x.agent === agent)) {
+    if (lastConvo !== null && (t.convo || 0) !== lastConvo) {
+      const sep = document.createElement('li');
+      sep.className = 'sep';
+      sep.textContent = '— 新对话 —';
+      chat.append(sep);
+    }
+    lastConvo = t.convo || 0;
     const q = document.createElement('li');
     q.className = 'me';
     q.textContent = t.question;
@@ -121,11 +137,11 @@ async function follow(turn) {
 }
 
 async function ask(question) {
-  const turn = { agent, question, state: 'waiting', answer: '', startedAt: Date.now() };
+  const turn = { agent, question, state: 'waiting', answer: '', startedAt: Date.now(), convo: convos[agent] || 0 };
   history.push(turn);
   save();
   render();
-  const r = await call('actions.invoke', { action: agent, input: { message: question } });
+  const r = await call('actions.invoke', { action: agent, input: { message: question }, ...(threads[agent] ? { threadId: threads[agent] } : {}) });
   const inv = r.result;
   if (r.error || !inv || inv.status !== 'succeeded' || !inv.result || typeof inv.result.id !== 'string') {
     turn.state = 'failed';
@@ -135,6 +151,7 @@ async function ask(question) {
     return;
   }
   turn.runId = inv.result.id;
+  if (typeof inv.result.threadId === 'string') { threads[turn.agent] = inv.result.threadId; saveThreads(); }
   save();
   await follow(turn);
 }
@@ -150,6 +167,7 @@ $('message').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('ask').requestSubmit(); }
 });
 for (const b of document.querySelectorAll('[data-action]')) b.addEventListener('click', () => select(b.dataset.action));
+$('fresh').addEventListener('click', () => { delete threads[agent]; convos[agent] = (convos[agent] || 0) + 1; saveThreads(); render(); });
 
 (async () => {
   $('send').disabled = true;
@@ -159,6 +177,7 @@ for (const b of document.querySelectorAll('[data-action]')) b.addEventListener('
   workspace = hello.result.workspace.name;
   $('where').textContent = '工作空间 ' + workspace;
   load();
+  loadThreads();
   for (const t of history) {
     if (t.state === 'waiting' && !t.runId) { t.state = 'failed'; t.answer = '页面关闭前没有发起成功。'; }
   }
