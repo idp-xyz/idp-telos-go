@@ -141,6 +141,10 @@ targets:
     auth: exchange
     exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: eer-runtime}
     tenantId: pilot
+  cmi:
+    endpoint: "http://cmi:8550"
+    auth: exchange
+    exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: idp-cmi}
 YAML
 python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["svc-eer"])' > "$L/svc-eer.secret"
 # idp-eer: Keycloak as its issuer; operator submits, bob approves as actor bob; its own workloads
@@ -464,6 +468,38 @@ import json,sys
 assert not [r for r in json.load(sys.stdin)['records'] if r['provenance']['ref'].startswith('run:')], 'alice sees conversation memory that is not hers'
 " || { echo "FAIL: alice sees bob's memory" >&2; exit 1; }
 echo "PASS: PATH E — bob: 'My favourite colour is teal.' -> HOST run $R1 -> remembered in the CMI (episodic, scope subject, source idp-host) -> a NEW conversation ($T2) gets it in its context package; the same conversation ($T1) keeps both exchanges; alice does not see it"
+
+# ---- PATH F: my memory. bob sees what is remembered about him and erases it; nobody else can ----
+MY="$(call 200 GET "$WS/v1/me/memory" "$BOB")"
+echo "$MY" | python3 -c "
+import json,sys
+m=json.load(sys.stdin)['memories']
+assert any('teal' in x['content'] for x in m), ('bob does not see his memory', m)
+assert all(x['id'] and x['createdAt'] for x in m), m
+" || { echo "FAIL: bob's memory list: $MY" >&2; exit 1; }
+TEAL_ID="$(echo "$MY" | python3 -c "
+import json,sys
+print([x['id'] for x in json.load(sys.stdin)['memories'] if 'teal' in x['content']][0])")"
+# another person cannot erase it, even knowing the id
+call 404 DELETE "$WS/v1/me/memory/$TEAL_ID" "$ALICE" >/dev/null
+call 200 GET "$WS/v1/me/memory" "$BOB" | grep -q teal || { echo "FAIL: alice's attempt erased bob's memory" >&2; exit 1; }
+# bob erases what mentions it (the assistant's answers in later runs repeat it, so several records do): gone from his list and no longer retrieved
+for ID in $(call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "
+import json,sys
+print(' '.join(x['id'] for x in json.load(sys.stdin)['memories'] if 'teal' in x['content']))"); do
+  call 200 DELETE "$WS/v1/me/memory/$ID" "$BOB" | python3 -c "import json,sys; assert json.load(sys.stdin)['revoked']==1"
+done
+call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "
+import json,sys
+assert not [x for x in json.load(sys.stdin)['memories'] if x['id']=='$TEAL_ID' or 'teal' in x['content']], 'an erased memory is still listed'" || { echo "FAIL: an erased memory is still listed" >&2; exit 1; }
+call 200 POST "$CMI/v1/context/resolve" "$BOB" '{"query":"What is my favourite colour?","purpose":"assist"}' | python3 -c "
+import json,sys
+p=json.load(sys.stdin)['package']
+assert not [i for i in p['items'] if i['kind']=='memory' and 'teal' in (i.get('excerpt') or '')], 'the erased memory is still retrieved'" || { echo "FAIL: the erased memory is still retrieved" >&2; exit 1; }
+# erase everything
+N="$(call 200 DELETE "$WS/v1/me/memory" "$BOB" | field "['revoked']")"
+[[ "$(call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['memories']))")" == 0 ]] || { echo "FAIL: bob still has memories after erasing all" >&2; exit 1; }
+echo "PASS: PATH F — bob lists his memory through the Workspace (his own token exchanged for the CMI), alice cannot erase it, bob erases one (gone from the list and from retrieval) and then all ($N more)"
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then

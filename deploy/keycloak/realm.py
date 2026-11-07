@@ -6,7 +6,7 @@ intents), hostadmin, hostapprover. User ids are fixed here and written to CLIENT
 maps principals by (issuer, sub).
 Clients:
 - workspace-shell   the Workspace shell (public, authorization code + PKCE), aud idp-workspace
-- idp-workspace     the Workspace as token-exchange requester: a member's token -> aud idp-host / eer-runtime
+- idp-workspace     the Workspace as token-exchange requester: a member's token -> aud idp-host / eer-runtime / idp-cmi (a member's own memory)
 - svc-eer           idp-eer's projector as an inbox producer (client credentials): aud idp-workspace, ws-producer
 - eer-intelligence  idp-eer's Intelligence worker at the CMI (client credentials): aud idp-cmi, cmi-reader + cmi-writer
 - idp-host-svc      the HOST's own identity at the CMI (client credentials): aud idp-cmi, cmi-reader + cmi-writer (it writes conversation memory)
@@ -67,7 +67,7 @@ realm = {
          "redirectUris": [SHELL + "/callback"], "webOrigins": [SHELL], "fullScopeAllowed": True,
          "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": SHELL + "/"}, "protocolMappers": [audience("idp-workspace")] + user_mappers},
         {"clientId": "idp-workspace", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-workspace"], "standardFlowEnabled": False,
-         "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true"}, "protocolMappers": [audience("idp-host"), audience("eer-runtime")] + user_mappers},
+         "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true"}, "protocolMappers": [audience("idp-host"), audience("eer-runtime"), audience("idp-cmi")] + user_mappers},
         {"clientId": "svc-eer", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["svc-eer"], "standardFlowEnabled": False,
          "serviceAccountsEnabled": True, "fullScopeAllowed": False,
          "protocolMappers": [audience("idp-workspace"), hardcoded("tenant_id", tenant), hardcoded("roles", json.dumps(["ws-producer"]), "JSON"), username]},
