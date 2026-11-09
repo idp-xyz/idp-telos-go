@@ -115,7 +115,8 @@ for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing (run without SKIP_BUILD)" >&2; exit 2; }
   load_image "$img"
 done
-ensure_image public.ecr.aws/docker/library/postgres:17-alpine
+ensure_image docker.io/pgvector/pgvector:0.8.7-pg17
+ensure_image public.ecr.aws/docker/library/postgres:17-alpine   # the backup Jobs' client tools
 ensure_image quay.io/keycloak/keycloak:26.8.1
 ensure_image local/temporal:1.7.3
 # what the sandbox runs (IDP_SANDBOX_PYTHON_IMAGE / _SHELL_IMAGE in its manifest): short names, loaded by the operator
@@ -553,6 +554,10 @@ assert not [i for i in p['items'] if i['kind']=='memory' and 'teal' in (i.get('e
 N="$(call 200 DELETE "$WS/v1/me/memory" "$BOB" | field "['revoked']")"
 [[ "$(call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['memories']))")" == 0 ]] || { echo "FAIL: bob still has memories after erasing all" >&2; exit 1; }
 echo "PASS: PATH F — bob lists his memory through the Workspace (his own token exchanged for the CMI), alice cannot erase it, bob exports it (alice's export has none of it), bob erases one (gone from the list and from retrieval) and then all ($N more)"
+# pgvector (idp-cmi D38): the CMI's migration installed the extension and the trigger that keeps the vector copy in step
+PGV="$(kubectl -n databases exec deploy/postgresql -- psql -U postgres -d idp_cmi -Atc "select (select extversion from pg_extension where extname='vector') || ' ' || (select count(*) from pg_trigger where tgname in ('memory_records_embedding_v','knowledge_chunks_embedding_v'))" 2>&1)"
+[[ "$PGV" == "0.8.7 2" ]] || { echo "FAIL: pgvector not installed by the CMI migration (got: $PGV)" >&2; exit 1; }
+echo "PASS: pgvector $PGV — the CMI's migration installed the extension and the vector-copy triggers"
 
 # ---- PATH D: bob asks an agent to run code; it runs in the sandbox, through the gateway, as bob ----
 SANDBOX_INSTRUCTIONS="Run the code the user gives you in the sandbox and report the result."

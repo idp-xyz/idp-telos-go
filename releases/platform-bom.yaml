@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:fbc157fa5242c1389886e1c0e2e3c398d24f04c4dfb2868aad3e91c38c08bc8a
+    id: sha256:2bdf997b991afe9091ff0a3e32b1113a04ce2bc6a969e677223969027385bdbe
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: c020034a9348b5786da12a5a8d8be601433fee39
@@ -27,24 +27,24 @@ components:
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:b000ab004c5905ce28143fb7f8b3af97587e9173bc2a6fa5be7b0931acc27153
+    id: sha256:71b96a8c42b2610589ae7bc27a790db1c0d4628e7388d4f30a5b37a58d0c0465
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:224c5f0a168c3955729c85d4632ad6002ee243519c5a50328b23e5bd29222860
+    id: sha256:92cb784344d78d3e36d0630632f2a83040cdad955acfeaedc71506cf7f4a513d
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: c04f857ac1c7d1288a4b34940b06f635c7a7f1d4
+  commit: ba8ae1fb42aebf37ee9c85bfca6de781b336b419
   clean: true
   contract:
     namespace: idp.telos.cmi
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:37cd590e3f019a32ad45824c0e461492485aae397a4412b66360d924b896980d
+    id: sha256:2988af869159dc169b2b093062a2633d3ea8571fdbcd6233a062ef127c1548ae
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 837631ad498776584fe2c6c3f3375ea3fd29c886
@@ -54,11 +54,11 @@ components:
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:b684a0d62fd6ab55c15253ea068aaad569bdb5f6b6c2d71c616dd9838e03f6c1
+    id: sha256:e28cbed06276d2aa11566433778067dbba4b43602fc71f79a640a04824a5348c
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 2a1fe689dc57e4dcce56ccf412b381b037488330
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:18ec74c75c39a344b848ff97d8c81778da23c48046b32c4bf9ef8c01e129601b
+    id: sha256:33816a3ff251ea3d0daf98e48818378bfe03d5e7977a901d8c620a80c6097323

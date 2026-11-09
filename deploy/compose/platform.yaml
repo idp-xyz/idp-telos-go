@@ -29,7 +29,7 @@ volumes:
 
 services:
   postgres:
-    image: ${IDP_PG_IMAGE:-public.ecr.aws/docker/library/postgres:17-alpine}
+    image: ${IDP_PG_IMAGE:-pgvector/pgvector:0.8.7-pg17}
     networks: [data]
     environment: {POSTGRES_PASSWORD: '${IDP_PG_OWNER_PASSWORD:?run deploy/compose/e2e.sh}'}
     volumes: [pgdata:/var/lib/postgresql/data]
