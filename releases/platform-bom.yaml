@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:2bdf997b991afe9091ff0a3e32b1113a04ce2bc6a969e677223969027385bdbe
+    id: sha256:3a2bb4d9faae37a5e19ecee4d04f2bab102a85ff3acf724b6e6a12dc24e71cc8
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: c020034a9348b5786da12a5a8d8be601433fee39
@@ -27,24 +27,24 @@ components:
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:71b96a8c42b2610589ae7bc27a790db1c0d4628e7388d4f30a5b37a58d0c0465
+    id: sha256:feeeac697c21fb97b87893f956da5963ac3e9c728e744641a0f6370f3d443f90
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:92cb784344d78d3e36d0630632f2a83040cdad955acfeaedc71506cf7f4a513d
+    id: sha256:099e782e99c969bcf2bb8ef22953c8f34eced64c3fe21bd3b8aa9495561f96e1
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: fddceaa68dce3b678e885fa7878c4c0295a2930e
+  commit: 5088338bc62afe4bbceec25957b8f24b66edcedc
   clean: true
   contract:
     namespace: idp.telos.cmi
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:2988af869159dc169b2b093062a2633d3ea8571fdbcd6233a062ef127c1548ae
+    id: sha256:134793827b28854cd7e9d6e48d01423916c23179e5e75ac15fa8972071cb7919
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 837631ad498776584fe2c6c3f3375ea3fd29c886
@@ -54,11 +54,11 @@ components:
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:e28cbed06276d2aa11566433778067dbba4b43602fc71f79a640a04824a5348c
+    id: sha256:35da38060dafa817371abea52218fc3477c81b9d75a4ce29804766b76f5d358b
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 2a1fe689dc57e4dcce56ccf412b381b037488330
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:33816a3ff251ea3d0daf98e48818378bfe03d5e7977a901d8c620a80c6097323
+    id: sha256:99984b274fc53e24f181ddcc78efb1be329b29519ff94cb2c3c4e5d9473f2e2c

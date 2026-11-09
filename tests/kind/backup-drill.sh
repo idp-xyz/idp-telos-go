@@ -4,11 +4,13 @@
 # secrets in .local/kind-full; the CMI source `idp-host` registered).
 #
 #   1  write a marker memory for bob (as the HOST does: idp-host-svc, cmi-writer) and read it back as bob
-#   2  take a backup now (the CronJob pg-backup, started by hand) and check its manifest
+#   2  take a backup now (the CronJob pg-backup, started by hand): every file age-encrypted, no plaintext on the volume or in
+#      the bucket (a MinIO container on the host), the set shipped
 #   3  restart PostgreSQL's Pod: the memory is still there (the data directory is a PersistentVolumeClaim)
 #   4  NODE_RESTART=1: restart the kind node container too (what a WSL or Docker restart does)
-#   5  lose the CMI database (DROP DATABASE), see that the memory is gone, restore it from the backup, restart the CMI
-#      Pods, and read the memory back as bob
+#   5  lose the CMI database (DROP DATABASE), see that the memory is gone, restore it FROM THE BUCKET with the private key
+#      (which lives only in .local/kind-full and is put into the cluster just for this Job; DRILL_SOURCE=local restores from
+#      the volume instead), restart the CMI Pods, and read the memory back as bob
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
@@ -75,9 +77,22 @@ log "2 a backup"
 JOB="drill-backup-$(date +%s)"
 kubectl -n databases create job --from=cronjob/pg-backup "$JOB" >/dev/null
 kubectl -n databases wait --for=condition=complete "job/$JOB" --timeout=300s >/dev/null || { kubectl -n databases logs "job/$JOB" --tail=30; echo "FAIL: the backup job did not complete" >&2; exit 1; }
-kubectl -n databases logs "job/$JOB" | tail -12
-kubectl -n databases logs "job/$JOB" | grep -q "idp_cmi.dump" || { echo "FAIL: the backup holds no idp_cmi dump" >&2; exit 1; }
-echo "PASS: a backup was taken (every database as pg_dump -Fc, the roles, a sha256 manifest)"
+kubectl -n databases logs "job/$JOB" | tail -14
+kubectl -n databases logs "job/$JOB" | grep -q "idp_cmi.dump.age" || { echo "FAIL: the backup holds no encrypted idp_cmi dump" >&2; exit 1; }
+kubectl -n databases logs "job/$JOB" | grep -q "shipped " || { echo "FAIL: the backup was not shipped to the bucket" >&2; exit 1; }
+kubectl -n databases logs "job/$JOB" | grep -E "\.(dump|sql)\$" | grep -qv "\.age" && { echo "FAIL: a plaintext file is on the backup volume" >&2; exit 1; }
+# what the bucket holds, asked from the host with the target's own credentials
+bucket() { # bucket SHELL-SNIPPET (s3.sh sourced)
+  docker run --rm --network host -e S3_ENDPOINT="$(kubectl -n databases get secret backup-target -o jsonpath='{.data.S3_ENDPOINT}' | base64 -d)" -e S3_BUCKET=backups \
+    -e S3_ACCESS_KEY="$(kubectl -n databases get secret backup-target -o jsonpath='{.data.S3_ACCESS_KEY}' | base64 -d)" -e S3_SECRET_KEY="$(kubectl -n databases get secret backup-target -o jsonpath='{.data.S3_SECRET_KEY}' | base64 -d)" \
+    idp-pg-backup:dev sh -c ". /usr/local/bin/s3.sh; $1"
+}
+KEYS="$(bucket 's3_keys pg/')"
+echo "$KEYS" | grep -q "idp_cmi.dump.age" && echo "$KEYS" | grep -q "MANIFEST.sha256" || { echo "$KEYS"; echo "FAIL: the bucket lacks the encrypted dump or the manifest" >&2; exit 1; }
+echo "$KEYS" | grep -vq "\.age\$\|MANIFEST" && { echo "$KEYS"; echo "FAIL: a plaintext object is in the bucket" >&2; exit 1; }
+LATEST="$(echo "$KEYS" | grep -o 'pg/[0-9TZ]*/' | sort -u | tail -1)"
+[[ "$(bucket "s3_get ${LATEST}idp_cmi.dump.age /tmp/o; head -c 22 /tmp/o")" == "age-encryption.org/v1"* ]] || { echo "FAIL: the dump in the bucket is not an age file" >&2; exit 1; }
+echo "PASS: a backup was taken: every file age-encrypted for a public key that is the only key in the cluster, none in the clear on the volume or in the bucket, shipped with its manifest"
 
 log "3 PostgreSQL restarts"
 kubectl -n databases delete pod -l app.kubernetes.io/name=postgresql --wait=true >/dev/null
@@ -106,9 +121,12 @@ kubectl -n databases exec deploy/postgresql -- psql -U postgres -d postgres -c "
 if has_marker 2>/dev/null; then echo "FAIL: the memory is still readable after its database was dropped" >&2; exit 1; fi
 echo "the database is gone: bob can no longer read his memory"
 RJOB="drill-restore-$(date +%s)"
-python3 - "$RJOB" <<'PY' | kubectl apply -f - >/dev/null
+SRC="${DRILL_SOURCE:-remote}"
+# the private key comes into the cluster for this restore only
+kubectl -n databases create secret generic backup-identity --from-file=identity.txt="$L/backup-identity.txt" >/dev/null
+python3 - "$RJOB" "$SRC" <<'PY' | kubectl apply -f - >/dev/null
 import sys
-job = sys.argv[1]
+job, src = sys.argv[1:3]
 print(f"""apiVersion: batch/v1
 kind: Job
 metadata: {{name: {job}, namespace: databases}}
@@ -123,33 +141,36 @@ spec:
       securityContext: {{runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, fsGroup: 70, seccompProfile: {{type: RuntimeDefault}}}}
       containers:
         - name: restore
-          image: public.ecr.aws/docker/library/postgres:17-alpine
-          command: [sh, -ec]
-          args:
-            - |
-              export PGHOST=postgresql PGUSER=postgres
-              D="$(ls -1dt /backup/2* | head -n1)"; echo "restoring from $D"
-              (cd "$D" && sha256sum -c MANIFEST.sha256)
-              createdb idp_cmi
-              pg_restore -d idp_cmi --exit-on-error "$D/idp_cmi.dump"
-              psql -d idp_cmi -tAc "SELECT 'restored memory_records: ' || count(*) FROM memory_records"
+          image: idp-pg-backup:dev
+          imagePullPolicy: IfNotPresent
+          command: [restore.sh, idp_cmi]
+          envFrom:
+            - secretRef: {{name: backup-target}}
           env:
+            - {{name: PGHOST, value: postgresql}}
+            - {{name: SOURCE, value: {src}}}
+            - {{name: AGE_IDENTITY_FILE, value: /identity/identity.txt}}
             - name: PGPASSWORD
               valueFrom: {{secretKeyRef: {{name: postgres-owner, key: password}}}}
           resources: {{limits: {{cpu: "1", memory: 512Mi}}}}
           securityContext: {{allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {{drop: [ALL]}}}}
           volumeMounts:
             - {{name: backups, mountPath: /backup, readOnly: true}}
+            - {{name: identity, mountPath: /identity, readOnly: true}}
+            - {{name: work, mountPath: /work}}
             - {{name: tmp, mountPath: /tmp}}
       volumes:
         - {{name: backups, persistentVolumeClaim: {{claimName: postgres-backups}}}}
+        - {{name: identity, secret: {{secretName: backup-identity}}}}
+        - {{name: work, emptyDir: {{sizeLimit: 2Gi}}}}
         - {{name: tmp, emptyDir: {{}}}}""")
 PY
-kubectl -n databases wait --for=condition=complete "job/$RJOB" --timeout=300s >/dev/null || { kubectl -n databases logs "job/$RJOB" --tail=30; echo "FAIL: the restore job did not complete" >&2; exit 1; }
+kubectl -n databases wait --for=condition=complete "job/$RJOB" --timeout=300s >/dev/null || { kubectl -n databases logs "job/$RJOB" --tail=30; kubectl -n databases delete secret backup-identity >/dev/null 2>&1; echo "FAIL: the restore job did not complete" >&2; exit 1; }
 kubectl -n databases logs "job/$RJOB" | tail -4
+kubectl -n databases delete secret backup-identity >/dev/null   # the private key leaves the cluster again
 kubectl -n idp-cmi rollout restart deploy/idp-cmi >/dev/null   # the pools hold connections to a database that was dropped
 wait_cmi
 RESTORED="$(psql_cmi "SELECT count(*) FROM memory_records")"
 [[ "$RESTORED" -ge "$BEFORE" ]] || { echo "FAIL: $RESTORED records restored, $BEFORE expected" >&2; exit 1; }
 has_marker || { echo "FAIL: bob cannot read the marker after the restore" >&2; exit 1; }
-echo "PASS: the CMI database was dropped and restored from the backup ($RESTORED records), the CMI serves it again and bob reads his memory"
+echo "PASS: the CMI database was dropped and restored from the $SRC encrypted backup with the private key brought in for the purpose ($RESTORED records), the CMI serves it again and bob reads his memory"

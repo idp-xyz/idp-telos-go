@@ -1,8 +1,12 @@
-# Backups of the platform's PostgreSQL (full overlay, DEV ONLY): a CronJob dumps every database (pg_dump -Fc) and the
-# cluster's roles (pg_dumpall --globals-only) into a second volume, with a manifest of sha256 sums, and keeps the last
-# seven. The dumps are NOT encrypted and live on the same node as the database: this proves the mechanism and the
-# restore (tests/kind/backup-drill.sh), it is not a disaster-recovery setup (that needs another failure domain,
-# encryption and an alert on a missed run).
+# Backups of the platform's PostgreSQL (full overlay, DEV): a CronJob dumps every database (pg_dump -Fc) and the cluster's
+# roles (pg_dumpall --globals-only), ENCRYPTS each file with age for the public key in the ConfigMap backup-recipients (the
+# private key is never in the cluster: tests/kind/full.sh keeps it in .local/kind-full/backup-identity.txt and the restore
+# drill brings it in only for the restore), writes a sha256 manifest over the ciphertext, keeps the last seven sets on a
+# second volume and ships each set to an S3-compatible bucket in another failure domain (Secret backup-target: on kind a
+# MinIO container on the host; in production AWS S3, R2, OCI ...), where the last 30 sets are kept. The image is
+# deploy/images/pg-backup (postgres client tools, age, curl). A failed dump, encryption or upload fails the Job, which the
+# missed-backup alert (deploy/observability/backup-alerts.yaml) sees. A bucket on the same node would not be disaster
+# recovery; the host-side MinIO survives the loss of the cluster, not of the machine.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -35,34 +39,30 @@ spec:
           securityContext: {runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, fsGroup: 70, seccompProfile: {type: RuntimeDefault}}
           containers:
             - name: backup
-              image: public.ecr.aws/docker/library/postgres:17-alpine
-              command: [sh, -ec]
-              args:
-                - |
-                  export PGHOST=postgresql PGUSER=postgres
-                  TS="$(date -u +%Y%m%dT%H%M%SZ)"; D="/backup/$TS"; mkdir -p "$D.partial"
-                  pg_dumpall --globals-only > "$D.partial/globals.sql"
-                  for db in $(psql -d postgres -tAc "SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres' ORDER BY 1"); do
-                    pg_dump -Fc -d "$db" -f "$D.partial/$db.dump"
-                    pg_restore -l "$D.partial/$db.dump" >/dev/null   # the dump must be readable, or the backup failed
-                  done
-                  (cd "$D.partial" && sha256sum * > MANIFEST.sha256)
-                  mv "$D.partial" "$D"
-                  ls -1dt /backup/2* | tail -n +8 | xargs -r rm -rf   # keep the last seven
-                  echo "backup $TS:"; ls -l "$D"
+              image: idp-pg-backup:dev
+              imagePullPolicy: IfNotPresent
+              command: [backup.sh]
+              envFrom:
+                - secretRef: {name: backup-target}
               env:
+                - {name: PGHOST, value: postgresql}
+                - {name: AGE_RECIPIENTS_FILE, value: /keys/recipients.txt}
                 - name: PGPASSWORD
                   valueFrom: {secretKeyRef: {name: postgres-owner, key: password}}
               resources: {limits: {cpu: "1", memory: 512Mi}}
               securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
               volumeMounts:
                 - {name: backups, mountPath: /backup}
+                - {name: keys, mountPath: /keys, readOnly: true}
+                - {name: work, mountPath: /work}
                 - {name: tmp, mountPath: /tmp}
           volumes:
             - {name: backups, persistentVolumeClaim: {claimName: postgres-backups}}
+            - {name: keys, configMap: {name: backup-recipients}}
+            - {name: work, emptyDir: {sizeLimit: 2Gi}}   # the plaintext dump exists only here, until it is encrypted
             - {name: tmp, emptyDir: {}}
 ---
-# the backup Pods reach PostgreSQL (same namespace); everything else stays default-deny
+# the backup Pods reach PostgreSQL (same namespace), DNS and the backup bucket; everything else stays default-deny
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -79,6 +79,9 @@ spec:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
           podSelector: {matchLabels: {k8s-app: kube-dns}}
       ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        - ipBlock: {cidr: 203.0.113.30/32}   # the backup bucket's address (tests/kind/full.sh replaces it: the host-side MinIO); in production the object store
+      ports: [{protocol: TCP, port: 19000}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -114,11 +114,19 @@ bash tests/integration/gvisor.sh                   # Docker 后端全在 runsc �
 
 ## 数据持久与备份演练
 
-PostgreSQL 的数据卷是 PVC `postgres-data`（5Gi）；`backup.yaml` 的 CronJob `pg-backup` 每小时（`17 * * * *`）把每个库 `pg_dump -Fc`、全局对象 `pg_dumpall --globals-only` 写进 PVC `postgres-backups`，`pg_restore -l` 校验、写 `MANIFEST.sha256`，先写 `.partial` 再改名，保留 7 份。
+PostgreSQL 的数据卷是 PVC `postgres-data`（5Gi）。`backup.yaml` 的 CronJob `pg-backup` 每小时（`17 * * * *`）做五件事（镜像 `deploy/images/pg-backup`：PostgreSQL 客户端工具 + `age` + `curl`）：
 
-`NODE_RESTART=1 bash tests/kind/backup-drill.sh`（约 1.5 分钟，要先有 `full.sh` 起的集群）：写一条标记记忆 → 备份 → 重启 PostgreSQL Pod → 重启节点 → `DROP DATABASE idp_cmi` → 从备份恢复 → 确认 CMI 又能服务、bob 仍读到标记记忆。不设 `NODE_RESTART` 就跳过节点重启。
+1. 每个库 `pg_dump -Fc`，全局对象 `pg_dumpall --globals-only`，先用 `pg_restore -l` 确认能读；
+2. 用 ConfigMap `backup-recipients` 里的**公钥**逐个文件 `age` 加密，明文只在 `emptyDir` 里短暂存在；**私钥从不进集群**，`full.sh` 把它放在 `.local/kind-full/backup-identity.txt`；
+3. 写 `MANIFEST.sha256`（算在密文上，没有私钥也能校验），本地卷保留最近 7 份；
+4. 推到 S3 兼容存储（Secret `backup-target`；kind 里是宿主机上的 MinIO 容器 `idp-kind-backup-target`，端口 `<kind 网关>:19000`，凭据每次 `full.sh` 重新生成），**最后传清单**，没有清单的集合视为不完整；传完把清单读回来比对；远端保留最近 30 份；
+5. 任何一步失败，Job 就失败，缺备份告警（`deploy/observability/backup-alerts.yaml`）会看到。
 
-范围：数据在 Pod 重启和节点重启后保留；**重跑 `full.sh` 会重建命名空间，数据随之清空**，密钥也每次重新生成。备份未加密、与数据在同一节点，**不是灾备**；生产要用高可用 PostgreSQL、异地加密备份、漏备份告警。
+`NODE_RESTART=1 bash tests/kind/backup-drill.sh`（约 2 分钟，要先有 `full.sh` 起的集群）：写一条标记记忆 → 备份（检查卷上和桶里都只有 `.age`，桶里的对象带 age 头）→ 重启 PostgreSQL Pod → 重启节点 → `DROP DATABASE idp_cmi` → **从桶里下载、校验清单、用私钥解密、恢复**（私钥只在这个 Job 期间作为 Secret 存在，用完删除；`DRILL_SOURCE=local` 改从本地卷恢复）→ 确认 CMI 又能服务、bob 仍读到标记记忆。不设 `NODE_RESTART` 就跳过节点重启。
+
+不起集群也能测镜像：`bash deploy/images/pg-backup/test.sh`（只要 Docker、PostgreSQL、MinIO 镜像）：没有公钥拒绝备份、桶里无明文、错私钥恢复失败且不建库、被篡改的对象被清单拦下、不完整集合被跳过、远端保留。
+
+范围：数据在 Pod 重启和节点重启后保留；**重跑 `full.sh` 会重建命名空间，数据随之清空**，密钥与备份密钥对、MinIO 凭据也每次重新生成。宿主机上的 MinIO 在集群之外，但与集群在同一台机器上，**防得住集群丢失，防不住机器丢失**；生产要用异地的对象存储（AWS S3、R2、OCI 等，改 `backup-target` 即可）、把私钥放进密钥管理或离线保存，并用高可用 PostgreSQL 做主库。
 
 ## 访问集群里的平台
 
