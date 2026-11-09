@@ -37,7 +37,7 @@ components:
     id: sha256:92cb784344d78d3e36d0630632f2a83040cdad955acfeaedc71506cf7f4a513d
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: ba8ae1fb42aebf37ee9c85bfca6de781b336b419
+  commit: fddceaa68dce3b678e885fa7878c4c0295a2930e
   clean: true
   contract:
     namespace: idp.telos.cmi
