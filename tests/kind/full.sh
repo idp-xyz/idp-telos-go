@@ -42,8 +42,9 @@ log() { echo "== $*"; }
 mkdir -p "$L"
 PFPIDS=()
 # a port-forward that survives its pod being replaced (a rolling restart): re-established until the script ends
+# (`|| true`: under set -e one failed kubectl would end the loop for good)
 pf() { # pf NAMESPACE SERVICE LOCAL:REMOTE
-  ( while true; do kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null 2>&1; sleep 1; done ) & PFPIDS+=($!)
+  ( while true; do kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null 2>&1 || true; sleep 1; done ) & PFPIDS+=($!)
 }
 for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox; do
   [[ -d "$repo/.git" ]] || { echo "BLOCKED: $repo is not checked out next to this repository" >&2; exit 2; }

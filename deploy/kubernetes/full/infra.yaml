@@ -55,9 +55,18 @@ spec:
             - {name: run, mountPath: /var/run/postgresql}
             - {name: tmp, mountPath: /tmp}
       volumes:
-        - {name: data, emptyDir: {}}
+        - {name: data, persistentVolumeClaim: {claimName: postgres-data}}   # survives a Pod or node restart (not a re-deploy: tests/kind/full.sh recreates the namespace)
         - {name: run, emptyDir: {}}
         - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: databases
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 5Gi}}
 ---
 apiVersion: v1
 kind: Service

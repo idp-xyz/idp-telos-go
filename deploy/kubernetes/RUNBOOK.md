@@ -112,6 +112,14 @@ bash tests/integration/gvisor.sh                   # Docker 后端全在 runsc �
 - 在记忆助手里说“我最喜欢的颜色是青色”，点“新对话”，再问“我最喜欢什么颜色”：它靠 CMI 里的记忆想起来。同一次对话里问“我刚才说了什么”：靠对话历史。
 - 工作台的**记忆**页列出助手记下的关于你的内容，可逐条删除或全部删除（删除后不再被取回）。
 
+## 数据持久与备份演练
+
+PostgreSQL 的数据卷是 PVC `postgres-data`（5Gi）；`backup.yaml` 的 CronJob `pg-backup` 每小时（`17 * * * *`）把每个库 `pg_dump -Fc`、全局对象 `pg_dumpall --globals-only` 写进 PVC `postgres-backups`，`pg_restore -l` 校验、写 `MANIFEST.sha256`，先写 `.partial` 再改名，保留 7 份。
+
+`NODE_RESTART=1 bash tests/kind/backup-drill.sh`（约 1.5 分钟，要先有 `full.sh` 起的集群）：写一条标记记忆 → 备份 → 重启 PostgreSQL Pod → 重启节点 → `DROP DATABASE idp_cmi` → 从备份恢复 → 确认 CMI 又能服务、bob 仍读到标记记忆。不设 `NODE_RESTART` 就跳过节点重启。
+
+范围：数据在 Pod 重启和节点重启后保留；**重跑 `full.sh` 会重建命名空间，数据随之清空**，密钥也每次重新生成。备份未加密、与数据在同一节点，**不是灾备**；生产要用高可用 PostgreSQL、异地加密备份、漏备份告警。
+
 ## 访问集群里的平台
 
 ```bash

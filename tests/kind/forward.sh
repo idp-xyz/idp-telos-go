@@ -13,7 +13,8 @@ fi
 mkdir -p .local/kind-full
 [[ -f "$PIDF" ]] && while read -r p; do pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; done < "$PIDF" || true
 : > "$PIDF"
-fwd() { ( while true; do kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null 2>&1; sleep 1; done ) >/dev/null 2>&1 & echo $! >> "$PIDF"; disown; }
+# `|| true`: under set -e one failed kubectl (the API server is away for a minute after a node restart) would end the loop for good
+fwd() { ( while true; do kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null 2>&1 || true; sleep 1; done ) >/dev/null 2>&1 & echo $! >> "$PIDF"; disown; }
 fwd keycloak keycloak 17443:7443
 fwd idp-workspace idp-workspace 17560:8560
 fwd idp-workspace assistant 17561:8080
