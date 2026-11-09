@@ -21,7 +21,7 @@ sleep 2
 python3 - <<'PY'
 import json
 c = json.load(open(".local/kind-full/clients.json"))
-print("Trust the test CA first: .local/kind-full/tls/ca.crt (a new one every full.sh run)")
+print("Trust the test CA once (it is kept across full.sh runs): .local/kind-ca/ca.crt  (Windows: certmgr, import into Trusted Root; or open https://127.0.0.1:17443 and accept the warning)")
 print("Shell:      http://127.0.0.1:17560   (sign in at Keycloak https://127.0.0.1:17443)")
 for u in ("alice", "bob"):
     print(f"  {u:6} {c['users'][u]}")

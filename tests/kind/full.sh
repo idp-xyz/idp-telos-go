@@ -145,10 +145,15 @@ kubectl delete ns "${NAMESPACES[@]}" --ignore-not-found --wait=true --timeout=30
 TENANT="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 rm -rf "$L/tls" "$L/keycloak"; mkdir -p "$L/tls" "$L/keycloak"
 umask 077
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=IDP TELOS platform test CA" -keyout "$L/tls/ca.key" -out "$L/tls/ca.crt" 2>/dev/null
+# the test CA is kept across runs (.local/kind-ca): a browser that trusts it once keeps working after every full.sh (the
+# shell's sign-in fetches Keycloak's discovery document itself, and an untrusted certificate stops it); only the server
+# certificate is new each time
+mkdir -p .local/kind-ca
+[[ -f .local/kind-ca/ca.crt && -f .local/kind-ca/ca.key ]] || openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=IDP TELOS platform test CA" -keyout .local/kind-ca/ca.key -out .local/kind-ca/ca.crt 2>/dev/null
+cp .local/kind-ca/ca.key "$L/tls/ca.key"; cp .local/kind-ca/ca.crt "$L/tls/ca.crt"
 openssl req -newkey rsa:2048 -nodes -subj "/CN=keycloak" -keyout "$L/tls/server.key" -out "$L/tls/server.csr" 2>/dev/null
 printf 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:keycloak,DNS:keycloak.keycloak,DNS:keycloak.keycloak.svc,DNS:%s\n' "$KCS" > "$L/tls/san.ext"
-openssl x509 -req -in "$L/tls/server.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 2 -extfile "$L/tls/san.ext" -out "$L/tls/server.crt" 2>/dev/null
+openssl x509 -req -in "$L/tls/server.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 30 -extfile "$L/tls/san.ext" -out "$L/tls/server.crt" 2>/dev/null
 IDP_REALM_GATEWAY="$GATEWAY_URL" IDP_REALM_SHELL="$WS" python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
 token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
