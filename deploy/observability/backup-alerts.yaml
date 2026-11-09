@@ -1,0 +1,24 @@
+# Prometheus rules for the PostgreSQL backup CronJob (deploy/kubernetes/full/backup.yaml); needs
+# kube-state-metrics. Plain rule-file format.
+groups:
+  - name: pg-backup
+    rules:
+      - alert: PgBackupMissed
+        expr: time() - kube_cronjob_status_last_successful_time{cronjob="pg-backup"} > 2 * 3600 + 900
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: no successful PostgreSQL backup for more than 2 h 15 min
+          description: The hourly pg-backup CronJob has not completed. Check its latest Job and Pod logs; a restore is only as recent as the last good dump.
+      - alert: PgBackupNeverRan
+        expr: kube_cronjob_status_active{cronjob="pg-backup"} == 0 unless on (namespace, cronjob) kube_cronjob_status_last_successful_time{cronjob="pg-backup"}
+        for: 3h
+        labels: {severity: critical}
+        annotations:
+          summary: the pg-backup CronJob has never succeeded
+      - alert: PgBackupJobFailed
+        expr: kube_job_status_failed{job_name=~"pg-backup-.*"} > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: a pg-backup Job failed

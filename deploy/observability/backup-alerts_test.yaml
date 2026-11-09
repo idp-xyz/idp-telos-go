@@ -1,0 +1,19 @@
+rule_files: [backup-alerts.yaml]
+evaluation_interval: 1m
+tests:
+  - name: the last successful backup is three hours old
+    interval: 1m
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{cronjob="pg-backup",namespace="postgres"}'
+        values: '0+0x300'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PgBackupMissed
+        exp_alerts: []
+      - eval_time: 200m
+        alertname: PgBackupMissed
+        exp_alerts:
+          - exp_labels: {severity: critical, cronjob: pg-backup, namespace: postgres}
+            exp_annotations:
+              summary: no successful PostgreSQL backup for more than 2 h 15 min
+              description: The hourly pg-backup CronJob has not completed. Check its latest Job and Pod logs; a restore is only as recent as the last good dump.

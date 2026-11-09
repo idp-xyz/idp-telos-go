@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:198d5065bfee18a3f9b3ed3f7189c7de7ca89c7aee27a1392dbc99216bb75736
+    id: sha256:fbc157fa5242c1389886e1c0e2e3c398d24f04c4dfb2868aad3e91c38c08bc8a
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: c020034a9348b5786da12a5a8d8be601433fee39
@@ -27,38 +27,38 @@ components:
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:d28c2ad1c5157ed410d51ace1f113e78b30fc704e06b1ac02666fb41eaf56b0a
+    id: sha256:b000ab004c5905ce28143fb7f8b3af97587e9173bc2a6fa5be7b0931acc27153
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:90dca5ebf1c4a2cced8ea5048ba95a5015e0586bc01205ae2f65934630bcee80
+    id: sha256:224c5f0a168c3955729c85d4632ad6002ee243519c5a50328b23e5bd29222860
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: 7f4113b3af7e9782be9a003899bfa47b76250c51
+  commit: c04f857ac1c7d1288a4b34940b06f635c7a7f1d4
   clean: true
   contract:
     namespace: idp.telos.cmi
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:147ab248f91f6d0241ba6027d8d7ffd9758d0545c7c454f8e52a29d705b4b2c9
+    id: sha256:37cd590e3f019a32ad45824c0e461492485aae397a4412b66360d924b896980d
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: 8ed1541e246ad6586c7a49601138c83b9d1538d8
+  commit: 837631ad498776584fe2c6c3f3375ea3fd29c886
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:3efc6e500e98169f0c2f696535cea560155e074d9aba79262ec0443a27816a7e
+    id: sha256:b684a0d62fd6ab55c15253ea068aaad569bdb5f6b6c2d71c616dd9838e03f6c1
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 2a1fe689dc57e4dcce56ccf412b381b037488330
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:2663518d6e694c214e339fcfdf298c488fba895ee0b9eef1e4ae6b769bc8ad97
+    id: sha256:18ec74c75c39a344b848ff97d8c81778da23c48046b32c4bf9ef8c01e129601b

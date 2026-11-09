@@ -480,6 +480,14 @@ assert all(x['id'] and x['createdAt'] for x in m), m
 TEAL_ID="$(echo "$MY" | python3 -c "
 import json,sys
 print([x['id'] for x in json.load(sys.stdin)['memories'] if 'teal' in x['content']][0])")"
+# the export is the member's own: bob's carries his memory, alice's carries none of it
+call 200 GET "$WS/v1/me/memory/export" "$BOB" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['format']=='idp-cmi.memory-export.v1', d
+assert any('teal' in r['content'] for r in d['records']), ('bob export lacks his memory', d)
+" || { echo "FAIL: bob's memory export" >&2; exit 1; }
+call 200 GET "$WS/v1/me/memory/export" "$ALICE" | grep -q teal && { echo "FAIL: alice's export carries bob's memory" >&2; exit 1; }
 # another person cannot erase it, even knowing the id
 call 404 DELETE "$WS/v1/me/memory/$TEAL_ID" "$ALICE" >/dev/null
 call 200 GET "$WS/v1/me/memory" "$BOB" | grep -q teal || { echo "FAIL: alice's attempt erased bob's memory" >&2; exit 1; }
@@ -499,7 +507,7 @@ assert not [i for i in p['items'] if i['kind']=='memory' and 'teal' in (i.get('e
 # erase everything
 N="$(call 200 DELETE "$WS/v1/me/memory" "$BOB" | field "['revoked']")"
 [[ "$(call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['memories']))")" == 0 ]] || { echo "FAIL: bob still has memories after erasing all" >&2; exit 1; }
-echo "PASS: PATH F — bob lists his memory through the Workspace (his own token exchanged for the CMI), alice cannot erase it, bob erases one (gone from the list and from retrieval) and then all ($N more)"
+echo "PASS: PATH F — bob lists his memory through the Workspace (his own token exchanged for the CMI), alice cannot erase it, bob exports it (alice's export has none of it), bob erases one (gone from the list and from retrieval) and then all ($N more)"
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then
