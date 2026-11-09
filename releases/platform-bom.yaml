@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:6af4f59978ed2fe098549d9191a928e26c5a8e257438c57cb74aaebb67d1e698
+    id: sha256:241647c745a86f1089c6156ff244eb1301d54c0006d1c830ebc70773d747e2f1
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: c020034a9348b5786da12a5a8d8be601433fee39
@@ -27,14 +27,14 @@ components:
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:3247e4fbc24faf50d6e13c33c0adbf58948d196904addf873ba0d1d603ecd2b8
+    id: sha256:c195dec690667df3ceabf8dbf61ad4f0f20f9e5e6da4eb3cbf32aee5a2b9c4ca
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:b91a31eb0eaf03dc10bdda96f845f4a5ae30283e8c648c6edee538249034ca47
+    id: sha256:e0e27f5af7322252974aee413ff447bf3ce715aec357afe482f3f64b766fe771
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: 7f4113b3af7e9782be9a003899bfa47b76250c51
@@ -44,21 +44,21 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:da16ba821b570a394521e5717d48e3257c74d562b170e3f37f20d29ca64eee5d
+    id: sha256:57e5513ae090b4cd361665e3185b1dfb92cd1f75a02535accd8d9d3d13d11b89
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: 5eb93c32838f00bfc0e0b9cda8c0a4e43a03d10e
+  commit: f310bab292c5857546bce8ab6096bb02c80b0548
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:a7e4c272009c61f132988fe70424df7f50983ee129d3c1ff1b501e25fc59b2c4
+    id: sha256:5f82f611f60247392bb6a2fc9a2129675bc2c2d85884370947203d7643f464ea
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 2a1fe689dc57e4dcce56ccf412b381b037488330
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:d41a8eb3dbc8c0013caf49125ec512d770d397b9360f161aa5755a379026fad1
+    id: sha256:cffe905d281914a40d1c1d48eb1cb351a85ac48a5da378896ad16d4a87a7acbe
