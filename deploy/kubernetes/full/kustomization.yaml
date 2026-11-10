@@ -44,6 +44,7 @@ patches:
           IDP_CMI_ISSUER: "https://127.0.0.1:17443/realms/idp"
           IDP_CMI_AUDIENCE: "idp-cmi"
           IDP_CMI_JWKS_URL: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/certs"
+          IDP_CMI_ALLOW_INSECURE_JWKS: "true"   # DEV: Keycloak over plain http in the cluster; production serves the keys over https (idp-cmi D42)
           IDP_LOG_LEVEL: "info"
           IDP_METRICS_LISTEN: "0.0.0.0:9565"
   - target: {kind: ConfigMap, name: idp-cmi-config}

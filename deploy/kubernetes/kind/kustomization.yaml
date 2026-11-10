@@ -26,7 +26,7 @@ patches:
     patch: |-
       - op: replace
         path: /data
-        value: {IDP_CMI_LISTEN: "0.0.0.0:8550", IDP_CMI_CONFIG: "/etc/idp/config/cmi.yaml", IDP_DEV_MODE: "true", IDP_DEV_SECRET_FILE: "/etc/idp/tls/dev-secret", IDP_LOG_LEVEL: "info", IDP_METRICS_LISTEN: "0.0.0.0:9565"}
+        value: {IDP_CMI_LISTEN: "0.0.0.0:8550", IDP_CMI_CONFIG: "/etc/idp/config/cmi.yaml", IDP_DEV_MODE: "true", IDP_DEV_ALLOW_REMOTE: "true", IDP_DEV_SECRET_FILE: "/etc/idp/tls/dev-secret", IDP_LOG_LEVEL: "info", IDP_METRICS_LISTEN: "0.0.0.0:9565"}
   - target: {kind: ConfigMap, name: idp-cmi-config}
     patch: |-
       - op: replace

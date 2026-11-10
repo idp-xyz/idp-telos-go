@@ -73,6 +73,7 @@ services:
       IDP_CMI_LISTEN: 0.0.0.0:8550
       IDP_CMI_ISSUER: https://127.0.0.1:7443/realms/idp
       IDP_CMI_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
+      IDP_CMI_ALLOW_INSECURE_JWKS: 'true'   # DEV: Keycloak over plain http on the compose network; production serves the keys over https (idp-cmi D42)
       IDP_CMI_AUDIENCE: idp-cmi
 
   # ---- idp-mcp (registry, gateway) and idp-sandbox (P4) ----

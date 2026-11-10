@@ -713,6 +713,15 @@ import json,sys
 assert not [f for f in json.load(sys.stdin) if 'Echo' in f['content']], 'a fact carries the assistant answer'" || { echo "FAIL: a fact carries the assistant's answer" >&2; exit 1; }
 echo "PASS: PATH G — bob: 'My favourite colour is vermilion.' (run $RG1) -> the HOST extracted the fact favourite_colour=vermilion (not the assistant's answer); 'Actually ... now teal.' (run $RG2) closed it: one current value, the old one still in the as-of history"
 
+# ---- PATH H: a member's personal memory is private to them, also against a direct request that names it (idp-cmi D42) ----
+ALICE_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['alice'])")"
+BOB_SELF="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['bob'])")"
+call 403 GET "$CMI/v1/memory/records?scopeKind=subject&scopeId=$ALICE_ID" "$BOB" >/dev/null || { echo "FAIL: bob (reader) could list alice's personal memory" >&2; exit 1; }
+call 403 POST "$CMI/v1/context/resolve" "$BOB" '{"query":"anything about alice","purpose":"assist","scope":{"kind":"subject","id":"'"$ALICE_ID"'"}}' >/dev/null || { echo "FAIL: bob (reader) could resolve alice's personal memory" >&2; exit 1; }
+call 403 POST "$CMI/v1/context/resolve" "$BOB" '{"query":"anything about alice","purpose":"assist","scopes":[{"kind":"subject","id":"'"$ALICE_ID"'"}]}' >/dev/null || { echo "FAIL: bob (reader) could resolve alice's scopes" >&2; exit 1; }
+call 200 GET "$CMI/v1/memory/records?scopeKind=subject&scopeId=$BOB_SELF" "$BOB" >/dev/null || { echo "FAIL: bob cannot list his own scope by name" >&2; exit 1; }
+echo "PASS: PATH H - bob (cmi-reader) is refused (403) when he names alice's personal memory in a listing or in a resolve request, and can name his own"
+
 # ---- PostgreSQL over TLS: every client connection of the platform is encrypted; cleartext TCP is refused ----
 SSLSTAT="$(kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d postgres -tAc "SELECT count(*) FILTER (WHERE s.ssl) || ' ' || count(*) FILTER (WHERE NOT s.ssl) || ' ' || coalesce(string_agg(DISTINCT s.version, ','), '-') FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid) WHERE a.client_addr IS NOT NULL AND a.client_addr <> '127.0.0.1'")"
 read -r NSSL NPLAIN VERS <<<"$SSLSTAT"

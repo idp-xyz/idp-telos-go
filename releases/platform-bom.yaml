@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:163e870c3780e64250bc4923ebbee944f0d2d57d885db74b992a4e2d040fa0f8
+    id: sha256:748895a7eb6037c0d949dd5137a32ac583e64b685272e2542093df0729770da1
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: 139a3981789561c395440eea2dc040937310160f
@@ -27,24 +27,24 @@ components:
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:fd4df5bbbb26f1c601b5f54d601d39499dc8fccff2c098cfbb44eda21c99770c
+    id: sha256:cdec47cc63896c53e2cce10da612ff4595c43b611ec4c16e840b08554f665eb2
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 20342cd80e4774cb4bbbb49d2c1cd5eaadf6afde
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:e516347749bfdbb0b6e91b089e5f00735f930b9477c75f2144f72cef6d875ba1
+    id: sha256:de2cc9eeb18d95afa2bb2dd668b1656c91e6e5393296c4d0453230a4fd91afeb
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: bd23ae562b430ee13db68e4b863205950ab42d4d
+  commit: fda0856c7b166140ac32df541e8e5098da18a814
   clean: true
   contract:
     namespace: idp.telos.cmi
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:fdc0896f45317db4e6ec948701ae95422fbdc33c76723a7e52bfe76e70d30372
+    id: sha256:5470192264fa98b428575a47b479e4463c2ca514cea3993e26b582f7ecdd5b75
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 837631ad498776584fe2c6c3f3375ea3fd29c886
@@ -54,11 +54,11 @@ components:
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:26e22a76e99aefd3b688b8df0dea16684b017ef491900da10d3578e4f54419bc
+    id: sha256:b7e3014393a842fa0b8227e654f45da4134d5371e304c00daf77ae3a12e3c86f
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 2a1fe689dc57e4dcce56ccf412b381b037488330
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:cf2602100bb1625d967b2f97003d553b502969d6900fcba9e5072065b135a1ad
+    id: sha256:ee8e9e3f270cd15944afc189070c7f0fd2fae022f400529e12409901eab9912b
