@@ -205,7 +205,7 @@ services:
 
   # ---- idp-eer (image: idp-eer tools/development/runtime_image_offline.sh) ----
   eer-temporal:
-    image: ${EER_TEMPORAL_IMAGE:-local/temporal:1.7.3}
+    image: ${EER_TEMPORAL_IMAGE:-local/temporal:1.10.0}
     command: [server, start-dev, --ip, 0.0.0.0, --headless]
     networks: [data]
   eer-migrate:

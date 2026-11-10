@@ -59,7 +59,7 @@ jobs:
       - run: pip install --disable-pip-version-check 'PyYAML==6.0.3'
       - name: Platform acceptance
         env:
-          EER_TEMPORAL_IMAGE: temporalio/temporal:1.7.3
+          EER_TEMPORAL_IMAGE: temporalio/temporal:1.10.0
         run: |
           set -o pipefail
           bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
