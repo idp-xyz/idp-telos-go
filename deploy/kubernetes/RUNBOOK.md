@@ -136,6 +136,35 @@ PostgreSQL 开启 TLS（1.2 及以上），服务端证书由 `.local/kind-ca` �
 
 生产要求（这里没有、也不能在 kind 里演示）：服务端证书由企业 CA 签发并自动轮换（这里 30 天，`full.sh` 每次重发）；**静态加密靠存储层**——云盘的 KMS 加密或 LUKS，数据库本身不加密落盘数据；备份已经加密（上一节）；服务之间的 HTTP 调用（Workspace 到 HOST、HOST 到 CMI 等）在 kind 里仍是明文，用服务网格或各组件自己的 TLS 配置解决。compose 版本仍是 `sslmode=disable`，只用于开发。
 
+## 镜像漏洞扫描（trivy）
+
+`bash tools/scan_images.sh` 用固定版本的 trivy（`ghcr.io/aquasecurity/trivy:0.76.2`，在 Docker 里运行，经 Docker 套接字读本机的镜像）扫平台的镜像，只报有修复版本的 HIGH / CRITICAL，每个镜像一行，最后一行是数据库的日期。`--own` 只扫我们自己构建的镜像，加 `STRICT=1` 时有发现或没扫成就返回 1（平台 CI 用它卡住发布）；`--third-party` 只报告第三方镜像（我们改不了）；也可以直接给镜像名。没扫成的那行写着 trivy 的原因。
+
+trivy 要两个数据库，放在 `TRIVY_CACHE`（默认 `.local/trivy-cache`，已忽略）：
+
+| 库 | 目录 | 下载 / 解开后 | 谁用 | 到期 |
+|---|---|---|---|---|
+| 漏洞库 | `db/` | 133 MB / 1.6 GB | 每个镜像 | 1 天 |
+| Java 索引 | `java-db/` | 951 MB / 1.5 GB | 带 jar 的镜像：没有它 Keycloak 扫不了（`Unable to initialize the Java DB`） | 3 天 |
+
+联网时 trivy 用到哪个库就下载哪个，到期自己更新，脚本把 shell 的 `HTTPS_PROXY` 传给 trivy 的容器。参考主机的代理慢（2026-11-10 实测 60–120 KB/s）时，下载会撞上 trivy 默认 5 分钟的超时，那行写 `… context deadline exceeded`（加 `--timeout 60m` 后漏洞库下载了 23 分钟，Java 索引按这个速度要三个多小时）。这时在网络好的机器上下载、打包，拷过来离线扫：
+
+```bash
+# 网络好的机器：Docker 和上面的 trivy 镜像；在代理后面给两条 docker run 加 -e HTTPS_PROXY=$HTTPS_PROXY --network host，网络慢再加 --timeout 60m
+mkdir -p trivy-offline && chmod 777 trivy-offline
+docker run --rm -v "$PWD/trivy-offline:/root/.cache/trivy" ghcr.io/aquasecurity/trivy:0.76.2 image --download-db-only
+docker run --rm -v "$PWD/trivy-offline:/root/.cache/trivy" ghcr.io/aquasecurity/trivy:0.76.2 image --download-java-db-only
+tar -C trivy-offline -czf trivy-db.tar.gz db java-db           # 约 1.1 GB，打包约 1 分钟
+
+# 要扫的机器（要扫的镜像先放进 Docker：crane pull IMG f.tar && docker load -i f.tar）
+mkdir -p .local/trivy-cache && tar -C .local/trivy-cache -xzf trivy-db.tar.gz   # 约 20 秒
+TRIVY_OFFLINE=1 bash tools/scan_images.sh
+```
+
+`TRIVY_OFFLINE=1`：两个库缺一个就 `BLOCKED` 退出（退出码 2）；不更新库、不查远端、不检查新版本，trivy 的容器不接网络（`--network none`），所以不会卡在网络上，也确实没有用网络；不拉镜像，Docker 里没有的那行写 `not in Docker`（`STRICT=1` 时算失败）。实测（2026-11-10，库从参考主机的缓存打包、在空目录解开）：同一批镜像离线和联网的结果一样（python:3.12-slim 4、operator 6、Keycloak 1、`idp-postgres-ha` 0），5 个镜像 17 秒。
+
+**库会过期。** 离线的库不再更新，之后公布的漏洞扫不出来，"0" 只说明库里没有。报告最后一行写两个库的日期，超过 7 天的会加粗提醒（`**10 days old**: findings published since are not seen`）；离线用的库至少每周换一次。CI 每次都下载新库，没有这个问题。
+
 ## 高可用 PostgreSQL（可选）
 
 `PG_HA=1 bash tests/kind/full.sh` 把单个 PostgreSQL 换成 CloudNativePG 集群（3 个实例，同步复制，自动故障切换），组件和备份任务连的还是名叫 `postgresql` 的服务，它始终指向当前主库，连接串不变。设计、测量结果、没有覆盖的东西见 `deploy/kubernetes/ha-postgres/README.md`。
@@ -182,6 +211,8 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 | 沙箱：`the request carries no caller identity` | 没有以 `identity: forward` 注册 | 重新注册（不可改，要新建） |
 | 迁移 / 建租户的 Job 显示 `Error` | 数据库还没起来时的重试 | 看最后一次是否 `Completed` |
 | `kustomize: go: … goproxy.cn … EOF` | 代理偶发中断 | 重试 |
+| `scan_images.sh` 一行 `not scanned`：`… context deadline exceeded` | 代理慢，trivy 下载数据库超过默认 5 分钟 | 离线扫（"镜像漏洞扫描"） |
+| `not scanned`：`… Unable to initialize the Java DB … cannot be specified on the first run` | 跳过更新时缺 Java 索引，扫到 Keycloak 这类带 jar 的镜像 | 把 `java-db/` 一起打包解开；`TRIVY_OFFLINE=1` 会先检查两个库 |
 | `gh` 命令 `EOF` / CI 克隆 `403` | GitHub 偶发限流 | 稍后重试；`gh run rerun --failed` |
 
 ## 停止与清理
