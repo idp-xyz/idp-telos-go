@@ -64,10 +64,12 @@ jobs:
           set -o pipefail
           bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
           for p in A B C D E F G H; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
-      - name: Image vulnerabilities (trivy; report only until the first results are reviewed)
+      - name: Image vulnerabilities in our own images (trivy, HIGH and CRITICAL with a fix fail the build)
         run: |
           bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
-          bash tools/scan_images.sh | tee -a "$GITHUB_STEP_SUMMARY"
+          STRICT=1 bash tools/scan_images.sh --own | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Image vulnerabilities in the third-party images (trivy; reported, not gating)
+        run: bash tools/scan_images.sh --third-party | tee -a "$GITHUB_STEP_SUMMARY"
       - name: PATH C output on failure
         if: failure()
         run: cat .local/platform/path-c.log 2>/dev/null || true

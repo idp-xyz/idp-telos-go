@@ -130,7 +130,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: keycloak
-          image: quay.io/keycloak/keycloak:26.8.1
+          image: quay.io/keycloak/keycloak:26.8.2
           args: [start-dev, --import-realm, --features, token-exchange-standard]
           env:
             - {name: KC_HTTP_ENABLED, value: "true"}

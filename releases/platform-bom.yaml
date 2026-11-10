@@ -30,7 +30,7 @@ components:
     id: sha256:cdec47cc63896c53e2cce10da612ff4595c43b611ec4c16e840b08554f665eb2
 - name: idp-eer
   repository: idp-xyz/idp-eer
-  commit: 651fba91b21fa090b332123a823aa143a112a9d6
+  commit: a8fbdaf647313046484f076323aa4e78249070bd
   clean: true
   image:
     reference: eer-runtime:dev

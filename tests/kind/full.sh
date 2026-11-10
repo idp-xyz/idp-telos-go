@@ -118,7 +118,7 @@ for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer
 done
 ensure_image docker.io/pgvector/pgvector:0.8.7-pg17
 ensure_image public.ecr.aws/docker/library/postgres:17-alpine   # the restore drill's client tools
-ensure_image quay.io/keycloak/keycloak:26.8.1
+ensure_image quay.io/keycloak/keycloak:26.8.2
 ensure_image local/temporal:1.7.3
 # what the sandbox runs (IDP_SANDBOX_PYTHON_IMAGE / _SHELL_IMAGE in its manifest): short names, loaded by the operator
 ensure_image public.ecr.aws/docker/library/python:3.12-slim python:3.12-slim

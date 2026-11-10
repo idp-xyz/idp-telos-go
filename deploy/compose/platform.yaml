@@ -36,7 +36,7 @@ services:
     healthcheck: {test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres'], interval: 2s, timeout: 3s, retries: 30}
 
   keycloak:
-    image: ${IDP_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.1}
+    image: ${IDP_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.2}
     command: [start-dev, --import-realm, --features, 'token-exchange-standard']
     networks: [edge, upstream]
     ports: ['127.0.0.1:7443:7443']
