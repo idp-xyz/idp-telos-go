@@ -1,0 +1,38 @@
+# What the platform's full overlay needs around the cluster in HA mode (tests/kind/full.sh with PG_HA=1), next to cluster.yaml.
+#
+# The Service "postgresql" is the name every component and every backup Job already connects to; here it selects whichever instance
+# is the primary at the moment (CloudNativePG moves the label on a failover), so no connection string changes between the single
+# PostgreSQL and the HA cluster. The Services postgresql-rw / -ro / -r are the operator's own.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: databases
+spec:
+  selector: {cnpg.io/cluster: postgresql, cnpg.io/instanceRole: primary}
+  ports: [{name: pg, port: 5432, targetPort: 5432}]
+---
+# The instances talk to each other (streaming replication on 5432, the instance manager's status on 8000), the operator reads their
+# status, and each instance manager talks to the Kubernetes API server (the address is replaced by tests/kind/full.sh, as for the
+# sandbox). The components and the backup Jobs are already allowed in by the "postgresql" and "postgresql-from-backup" policies,
+# which select app.kubernetes.io/name=postgresql, a label CloudNativePG puts on its Pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgresql-ha
+  namespace: databases
+spec:
+  podSelector: {matchLabels: {cnpg.io/cluster: postgresql}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {cnpg.io/cluster: postgresql}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cnpg-system}}
+      ports: [{protocol: TCP, port: 5432}, {protocol: TCP, port: 8000}]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {cnpg.io/cluster: postgresql}}
+      ports: [{protocol: TCP, port: 5432}, {protocol: TCP, port: 8000}]
+    - to:
+        - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server (kubectl get endpoints kubernetes); tests/kind/full.sh replaces it
+      ports: [{protocol: TCP, port: 6443}, {protocol: TCP, port: 443}]

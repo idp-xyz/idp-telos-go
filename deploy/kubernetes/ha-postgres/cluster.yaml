@@ -1,0 +1,55 @@
+# A highly available PostgreSQL for the platform, run by CloudNativePG (operator 1.30.1, deploy/kubernetes/ha-postgres/README.md):
+# one primary and two standbys with streaming replication, SYNCHRONOUS (a transaction is acknowledged only after one standby has
+# it on disk: a failover loses no acknowledged write), automatic promotion when the primary fails, TLS on every connection with
+# verify-full on the clients' side, and no cleartext TCP. Applications connect to the Service postgresql-rw (always the primary);
+# postgresql-ro and postgresql-r are the standbys. The image carries pgvector (deploy/images/postgres-ha).
+#
+# Secrets in this namespace (tests/kind/full.sh and tests/kind/ha-postgres.sh create them for the test CA; production uses
+# cert-manager or the enterprise CA):
+#   postgres-superuser   kubernetes.io/basic-auth  username: postgres, password        (the owner role the migrations use)
+#   postgres-server-ca   ca.crt                     the CA that signed the server certificate (clients trust it)
+#   postgres-tls         kubernetes.io/tls          the server certificate: SAN postgresql-rw, postgresql-ro, postgresql-r (each with
+#                                                   .NAMESPACE, .NAMESPACE.svc and .NAMESPACE.svc.cluster.local)
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgresql
+  namespace: databases
+spec:
+  instances: 3
+  imageName: idp-postgres-ha:17-dev          # CloudNativePG operand + pgvector; pin by digest in production
+  imagePullPolicy: IfNotPresent
+  enableSuperuserAccess: true
+  superuserSecret: {name: postgres-superuser}
+  primaryUpdateStrategy: unsupervised         # a rolling update restarts the standbys first, then switches the primary over
+  storage: {size: 5Gi}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  affinity:
+    enablePodAntiAffinity: true               # spread the instances over nodes; "preferred" so a one-node kind cluster still runs
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: preferred
+  certificates:
+    serverCASecret: postgres-server-ca
+    serverTLSSecret: postgres-tls
+  postgresql:
+    parameters:
+      ssl_min_protocol_version: TLSv1.2
+      password_encryption: scram-sha-256
+      max_connections: "200"
+      log_connections: "on"
+      log_disconnections: "on"
+    synchronous:
+      method: any
+      number: 1                               # one standby must have the commit before the client hears "committed"
+      dataDurability: required                # with no standby the primary blocks writes rather than acknowledge one that could be lost
+      failoverQuorum: true                    # promote only a standby the quorum says holds every acknowledged commit
+    pg_hba:                                   # after CloudNativePG's own replication rules, before its catch-all
+      - hostssl all all 0.0.0.0/0 scram-sha-256
+      - hostssl all all ::/0 scram-sha-256
+      - hostnossl all all all reject
+  bootstrap:
+    initdb:
+      database: idp_bootstrap
+      owner: idp_bootstrap

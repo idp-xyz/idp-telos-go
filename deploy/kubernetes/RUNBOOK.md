@@ -136,6 +136,16 @@ PostgreSQL 开启 TLS（1.2 及以上），服务端证书由 `.local/kind-ca` �
 
 生产要求（这里没有、也不能在 kind 里演示）：服务端证书由企业 CA 签发并自动轮换（这里 30 天，`full.sh` 每次重发）；**静态加密靠存储层**——云盘的 KMS 加密或 LUKS，数据库本身不加密落盘数据；备份已经加密（上一节）；服务之间的 HTTP 调用（Workspace 到 HOST、HOST 到 CMI 等）在 kind 里仍是明文，用服务网格或各组件自己的 TLS 配置解决。compose 版本仍是 `sslmode=disable`，只用于开发。
 
+## 高可用 PostgreSQL（可选）
+
+`PG_HA=1 bash tests/kind/full.sh` 把单个 PostgreSQL 换成 CloudNativePG 集群（3 个实例，同步复制，自动故障切换），组件和备份任务连的还是名叫 `postgresql` 的服务，它始终指向当前主库，连接串不变。设计、测量结果、没有覆盖的东西见 `deploy/kubernetes/ha-postgres/README.md`。
+
+- `bash tests/kind/ha-postgres.sh`：集群单独跑一遍，杀主库时让一个写入程序持续写；
+- `bash tests/kind/failover-drill.sh`：整平台跑在集群上，杀主库时 CMI 持续写入，检查 CMI 自己恢复（Pod 不重启）、超时内重新确认写入、没有被确认的记录丢失、所有客户端连接仍是 TLS；
+- 测得（kind，单节点）：主库被强制删除后新主库接管，写入被拒绝约 26 到 29 秒，被确认的写入 0 丢失，旧主库自己变成备库；
+- operator 与 PostgreSQL 镜像都要先用 crane 放进 Docker 守护进程（`ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1`、`ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie`），`full.sh` 会再构建带 pgvector 的 `idp-postgres-ha:17-dev` 并加载进节点；
+- HA 模式下 `kubectl exec` 要进当前主库：`kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}'`，容器仍写 `-c postgres`。
+
 ## 访问集群里的平台
 
 ```bash

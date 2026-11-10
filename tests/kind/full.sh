@@ -15,6 +15,8 @@
 # 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway, 17561 the assistant's page.
 #
 #   bash tests/kind/full.sh             build the images (as deploy/compose/e2e.sh), load them, deploy, run the paths
+#   PG_HA=1 ...                         PostgreSQL as a CloudNativePG cluster (a primary and two synchronous standbys, deploy/kubernetes/ha-postgres)
+#                                       instead of the single Deployment; tests/kind/failover-drill.sh then kills the primary under load
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev
 #                                       eer-runtime:dev idp-mcp:dev idp-sandbox:dev)
 #   KIND_CLUSTER=kind ...               the cluster (default kind; kubectl context kind-$KIND_CLUSTER)
@@ -95,6 +97,7 @@ load_image() {
   docker save --platform linux/amd64 "$1" -o "$tar" 2>/dev/null || docker save "$1" -o "$tar"
   kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
 }
+PG_HA="${PG_HA:-0}"
 NODE="$CLUSTER-control-plane"
 in_node() { docker exec "$NODE" crictl inspecti "$1" >/dev/null 2>&1; }
 # an infrastructure image: from the daemon, else crane (it honours a shell https_proxy; the daemon and the nodes may have none)
@@ -117,6 +120,12 @@ for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer
   load_image "$img"
 done
 ensure_image docker.io/pgvector/pgvector:0.8.7-pg17
+if [[ "$PG_HA" == 1 ]]; then
+  ensure_image ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1
+  ensure_image ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie
+  docker image inspect idp-postgres-ha:17-dev >/dev/null 2>&1 || bash deploy/images/postgres-ha/build.sh idp-postgres-ha:17-dev >/dev/null
+  in_node idp-postgres-ha:17-dev || load_image idp-postgres-ha:17-dev
+fi
 ensure_image public.ecr.aws/docker/library/postgres:17-alpine   # the restore drill's client tools
 ensure_image quay.io/keycloak/keycloak:26.8.2
 ensure_image local/temporal:1.7.3
@@ -159,7 +168,8 @@ printf 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:keycloak,DNS:keycloak.keyc
 openssl x509 -req -in "$L/tls/server.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 30 -extfile "$L/tls/san.ext" -out "$L/tls/server.crt" 2>/dev/null
 # PostgreSQL's server certificate, from the same CA: the components connect with sslmode=verify-full and PGSSLROOTCERT
 openssl req -newkey rsa:2048 -nodes -subj "/CN=postgresql.databases.svc.cluster.local" -keyout "$L/tls/pg.key" -out "$L/tls/pg.csr" 2>/dev/null
-printf 'subjectAltName=DNS:postgresql,DNS:postgresql.databases,DNS:postgresql.databases.svc,DNS:postgresql.databases.svc.cluster.local\nextendedKeyUsage=serverAuth\n' > "$L/tls/pg-san.ext"
+PGSAN=""; for n in postgresql postgresql-rw postgresql-ro postgresql-r; do PGSAN+="DNS:$n,DNS:$n.databases,DNS:$n.databases.svc,DNS:$n.databases.svc.cluster.local,"; done
+printf 'subjectAltName=%sDNS:localhost\nextendedKeyUsage=serverAuth\n' "$PGSAN" > "$L/tls/pg-san.ext"
 openssl x509 -req -in "$L/tls/pg.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 30 -extfile "$L/tls/pg-san.ext" -out "$L/tls/pg.crt" 2>/dev/null
 IDP_REALM_GATEWAY="$GATEWAY_URL" IDP_REALM_SHELL="$WS" python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
@@ -219,8 +229,8 @@ yaml.safe_dump_all(docs, open(path, "w"), sort_keys=False)
 PY
 fi
 # split into phases: namespaces; databases (+ keycloak, temporal); the components; their setup Jobs (after the migrations)
-python3 - "$L/platform.yaml" "$L" <<'PY'
-import sys, yaml
+PG_HA="$PG_HA" python3 - "$L/platform.yaml" "$L" <<'PY'
+import os, sys, yaml
 docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
 out = sys.argv[2]
 def ns(d): return d["metadata"].get("namespace")
@@ -237,6 +247,9 @@ for d in docs:
         c.setdefault("volumeMounts", []).append({"name": "pg-ca", "mountPath": "/etc/idp/pg-ca", "readOnly": True})
         c.setdefault("env", []).append({"name": "PGSSLROOTCERT", "value": "/etc/idp/pg-ca/ca.crt"})
 def setup(d): return d["kind"] == "Job" and (d["metadata"].get("labels", {}).get("idp-telos/phase") == "setup" or d["metadata"]["name"] == "eer-configure")
+if os.environ.get("PG_HA") == "1":   # the single PostgreSQL gives way to the CloudNativePG cluster (deploy/kubernetes/ha-postgres)
+    single = {("Deployment", "postgresql"), ("Service", "postgresql"), ("PersistentVolumeClaim", "postgres-data"), ("ConfigMap", "postgres-hba")}
+    docs = [d for d in docs if not (ns(d) == "databases" and (d["kind"], d["metadata"]["name"]) in single)]
 phases = {"0-namespaces": [d for d in docs if d["kind"] == "Namespace"],
           "1-infra": [d for d in docs if d["kind"] != "Namespace" and ns(d) in ("databases", "keycloak", "temporal")],
           "3-setup": [d for d in docs if setup(d)]}
@@ -250,7 +263,23 @@ kubectl apply -f "$L/phase-0-namespaces.yaml" >/dev/null
 # ---------------------------------------------------------------- PostgreSQL, Keycloak, Temporal
 log "PostgreSQL, Keycloak, Temporal"
 kubectl -n databases create secret generic postgres-owner --from-literal=password="$PG" >/dev/null
-kubectl -n databases create secret generic postgres-tls --from-file=tls.crt="$L/tls/pg.crt" --from-file=tls.key="$L/tls/pg.key" >/dev/null
+if [[ "$PG_HA" == 1 ]]; then   # HA: the operator, and the cluster's three secrets (the superuser is the same owner role, same password)
+  mkdir -p .local/ha-postgres
+  CNPG_URL=https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.1/cnpg-1.30.1.yaml
+  CNPG_SHA=37237f145d8138256ea25ae830f87759255665ff08f8d552fdd8224a5ec032fb
+  [[ -f .local/ha-postgres/cnpg.yaml ]] || curl -sSL --retry 5 --retry-all-errors -m 180 -o .local/ha-postgres/cnpg.yaml "$CNPG_URL"
+  [[ "$(sha256sum .local/ha-postgres/cnpg.yaml | cut -d' ' -f1)" == "$CNPG_SHA" ]] || { echo "BLOCKED: the operator manifest does not match its pinned checksum" >&2; rm -f .local/ha-postgres/cnpg.yaml; exit 2; }
+  kubectl apply --server-side --force-conflicts -f .local/ha-postgres/cnpg.yaml >/dev/null
+  kubectl -n cnpg-system patch deploy cnpg-controller-manager --type=json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' >/dev/null
+  kubectl -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=300s >/dev/null
+  kubectl -n databases create secret generic postgres-superuser --type=kubernetes.io/basic-auth --from-literal=username=postgres --from-literal=password="$PG" >/dev/null
+  kubectl -n databases create secret generic postgres-server-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null
+  kubectl -n databases create secret tls postgres-tls --cert="$L/tls/pg.crt" --key="$L/tls/pg.key" >/dev/null
+  for s_ in postgres-superuser postgres-server-ca postgres-tls; do kubectl -n databases label secret "$s_" cnpg.io/reload=true >/dev/null; done
+fi
+# the pod to run psql in: the single PostgreSQL's Deployment, or the cluster's current primary
+pgtarget() { if [[ "$PG_HA" == 1 ]]; then echo "pod/$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}')"; else echo deploy/postgresql; fi; }
+[[ "$PG_HA" == 1 ]] || kubectl -n databases create secret generic postgres-tls --from-file=tls.crt="$L/tls/pg.crt" --from-file=tls.key="$L/tls/pg.key" >/dev/null   # HA: created above, as the kubernetes.io/tls type the cluster wants
 for ns_ in databases idp-cmi idp-host idp-workspace idp-mcp idp-eer; do kubectl -n "$ns_" create configmap pg-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null; done
 # the backup target: a MinIO container on the HOST (outside the cluster), reached through the kind network's gateway, and the
 # age key pair whose private half stays in $L and never enters the cluster
@@ -272,10 +301,17 @@ kubectl -n keycloak create secret generic keycloak-admin --from-literal=password
 kubectl -n keycloak create secret generic keycloak-realm --from-file=idp-realm.json="$L/keycloak/idp-realm.json" >/dev/null
 kubectl -n keycloak create secret generic keycloak-tls --from-file=server.crt="$L/tls/server.crt" --from-file=server.key="$L/tls/server.key" >/dev/null
 kubectl apply -f "$L/phase-1-infra.yaml" >/dev/null
-kubectl -n databases rollout status deploy/postgresql --timeout=300s
-for db in idp_cmi idp_host idp_workspace idp_mcp eer; do kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
+if [[ "$PG_HA" == 1 ]]; then
+  kubectl apply -f deploy/kubernetes/ha-postgres/cluster.yaml >/dev/null
+  sed "s#203.0.113.10/32#$APIIP/32#" deploy/kubernetes/ha-postgres/platform.yaml | kubectl apply -f - >/dev/null
+  for _ in $(seq 1 240); do [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}' 2>/dev/null)" == 3 ]] && break; sleep 3; done
+  [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}')" == 3 ]] || { kubectl -n databases get cluster,pods; echo "FAIL: the PostgreSQL cluster did not reach 3 ready instances" >&2; exit 1; }
+else
+  kubectl -n databases rollout status deploy/postgresql --timeout=300s
+fi
+for db in idp_cmi idp_host idp_workspace idp_mcp eer; do kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
 # idp-eer: its roles (deploy/postgres/bootstrap-runtime-roles.sql)
-kubectl -n databases exec -i -c postgres deploy/postgresql -- psql -U postgres --no-psqlrc -q --set ON_ERROR_STOP=1 \
+kubectl -n databases exec -i -c postgres $(pgtarget) -- psql -U postgres --no-psqlrc -q --set ON_ERROR_STOP=1 \
   --set "runtime_owner_password=$EER_OWNER" --set "runtime_app_password=$EER_APP" --set "runtime_readonly_password=$EER_RO" \
   --set "intelligence_owner_password=$EER_IOWN" --set "intelligence_app_password=$EER_IAPP" --dbname eer < idp-eer/deploy/postgres/bootstrap-runtime-roles.sql >/dev/null
 kubectl -n keycloak rollout status deploy/keycloak --timeout=600s
@@ -596,7 +632,7 @@ N="$(call 200 DELETE "$WS/v1/me/memory" "$BOB" | field "['revoked']")"
 [[ "$(call 200 GET "$WS/v1/me/memory" "$BOB" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['memories']))")" == 0 ]] || { echo "FAIL: bob still has memories after erasing all" >&2; exit 1; }
 echo "PASS: PATH F — bob lists his memory through the Workspace (his own token exchanged for the CMI), alice cannot erase it, bob exports it (alice's export has none of it), bob erases one (gone from the list and from retrieval) and then all ($N more)"
 # pgvector (idp-cmi D38): the CMI's migration installed the extension and the trigger that keeps the vector copy in step
-PGV="$(kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d idp_cmi -Atc "select (select extversion from pg_extension where extname='vector') || ' ' || (select count(*) from pg_trigger where tgname in ('memory_records_embedding_v','knowledge_chunks_embedding_v'))" 2>&1)"
+PGV="$(kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d idp_cmi -Atc "select (select extversion from pg_extension where extname='vector') || ' ' || (select count(*) from pg_trigger where tgname in ('memory_records_embedding_v','knowledge_chunks_embedding_v'))" 2>&1)"
 [[ "$PGV" == "0.8.7 2" ]] || { echo "FAIL: pgvector not installed by the CMI migration (got: $PGV)" >&2; exit 1; }
 echo "PASS: pgvector $PGV — the CMI's migration installed the extension and the vector-copy triggers"
 
@@ -723,10 +759,10 @@ call 200 GET "$CMI/v1/memory/records?scopeKind=subject&scopeId=$BOB_SELF" "$BOB"
 echo "PASS: PATH H - bob (cmi-reader) is refused (403) when he names alice's personal memory in a listing or in a resolve request, and can name his own"
 
 # ---- PostgreSQL over TLS: every client connection of the platform is encrypted; cleartext TCP is refused ----
-SSLSTAT="$(kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d postgres -tAc "SELECT count(*) FILTER (WHERE s.ssl) || ' ' || count(*) FILTER (WHERE NOT s.ssl) || ' ' || coalesce(string_agg(DISTINCT s.version, ','), '-') FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid) WHERE a.client_addr IS NOT NULL AND a.client_addr <> '127.0.0.1'")"
+SSLSTAT="$(kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d postgres -tAc "SELECT count(*) FILTER (WHERE s.ssl) || ' ' || count(*) FILTER (WHERE NOT s.ssl) || ' ' || coalesce(string_agg(DISTINCT s.version, ','), '-') FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid) WHERE a.client_addr IS NOT NULL AND a.client_addr <> '127.0.0.1'")"
 read -r NSSL NPLAIN VERS <<<"$SSLSTAT"
 [[ "$NSSL" -gt 0 && "$NPLAIN" == 0 && "$VERS" =~ ^TLSv1\.[23](,TLSv1\.[23])?$ ]] || { echo "FAIL: PostgreSQL client connections (encrypted, in the clear, versions): $SSLSTAT" >&2; exit 1; }
-if kubectl -n databases exec -c postgres deploy/postgresql -- env PGPASSWORD="$PG" psql "host=127.0.0.1 port=5432 user=postgres dbname=postgres sslmode=disable" -c 'select 1' >/dev/null 2>"$L/pg-plain.err"; then
+if kubectl -n databases exec -c postgres $(pgtarget) -- env PGPASSWORD="$PG" psql "host=$([[ "$PG_HA" == 1 ]] && echo postgresql.databases.svc.cluster.local || echo 127.0.0.1) port=5432 user=postgres dbname=postgres sslmode=disable" -c 'select 1' >/dev/null 2>"$L/pg-plain.err"; then
   echo "FAIL: a cleartext TCP connection to PostgreSQL was accepted" >&2; exit 1
 fi
 grep -q "no encryption" "$L/pg-plain.err" || { cat "$L/pg-plain.err"; echo "FAIL: the cleartext connection was refused, but not by pg_hba for lack of encryption" >&2; exit 1; }

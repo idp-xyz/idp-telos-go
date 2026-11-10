@@ -42,8 +42,11 @@ cmi() { # cmi WANT METHOD PATH TOKEN [BODY]
   [[ "$status" == "$1" ]] || { echo "FAIL: $2 $3 -> $status (want $1): $(cat "$out")" >&2; rm -f "$out"; exit 1; }
   cat "$out"; rm -f "$out"
 }
-psql_cmi() { kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d "${2:-idp_cmi}" -tAc "$1"; }
-wait_pg() { kubectl -n databases rollout status deploy/postgresql --timeout=300s >/dev/null; for _ in $(seq 1 120); do kubectl -n databases exec -c postgres deploy/postgresql -- pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && return 0; sleep 1; done; echo "FAIL: PostgreSQL did not come back" >&2; exit 1; }
+# the pod to run psql in: the single PostgreSQL's Deployment, or the HA cluster's current primary (tests/kind/full.sh PG_HA=1)
+HA=0; kubectl -n databases get cluster postgresql >/dev/null 2>&1 && HA=1
+pgtarget() { if [[ "$HA" == 1 ]]; then echo "pod/$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}')"; else echo deploy/postgresql; fi; }
+psql_cmi() { kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d "${2:-idp_cmi}" -tAc "$1"; }
+wait_pg() { if [[ "$HA" == 1 ]]; then for _ in $(seq 1 180); do [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}' 2>/dev/null)" == 3 ]] && return 0; sleep 2; done; echo "FAIL: the PostgreSQL cluster is not whole again" >&2; exit 1; fi; kubectl -n databases rollout status deploy/postgresql --timeout=300s >/dev/null; for _ in $(seq 1 120); do kubectl -n databases exec -c postgres deploy/postgresql -- pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && return 0; sleep 1; done; echo "FAIL: PostgreSQL did not come back" >&2; exit 1; }
 wait_cmi() { # right after a node restart the Deployment still reports the old readiness: ask the CMI itself, with a time limit on every try
   for _ in $(seq 1 180); do
     [[ "$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' -m 3 "$CMI/readyz")" == 200 ]] && [[ "$(kubectl -n idp-cmi get deploy idp-cmi -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" == "$(kubectl -n idp-cmi get deploy idp-cmi -o jsonpath='{.spec.replicas}' 2>/dev/null)" ]] && return 0
@@ -60,7 +63,7 @@ ensure_forward idp-cmi idp-cmi 17550:8550
 ensure_forward keycloak keycloak 17443:7443
 wait_kc() { for _ in $(seq 1 120); do curl -sf --noproxy '*' -m 3 --cacert "$CA" -o /dev/null "$ISSUER/.well-known/openid-configuration" && return 0; sleep 1; done; echo "FAIL: Keycloak does not answer" >&2; exit 1; }
 wait_kc
-kubectl -n databases get pvc postgres-data postgres-backups >/dev/null || { echo "BLOCKED: the PostgreSQL volume claims are missing: redeploy with tests/kind/full.sh" >&2; exit 2; }
+kubectl -n databases get pvc $([[ "$HA" == 1 ]] && echo postgresql-1 || echo postgres-data) postgres-backups >/dev/null || { echo "BLOCKED: the PostgreSQL volume claims are missing: redeploy with tests/kind/full.sh" >&2; exit 2; }
 
 log "1 a marker memory for bob"
 BOB_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['bob'])")"
@@ -95,7 +98,7 @@ LATEST="$(echo "$KEYS" | grep -o 'pg/[0-9TZ]*/' | sort -u | tail -1)"
 echo "PASS: a backup was taken: every file age-encrypted for a public key that is the only key in the cluster, none in the clear on the volume or in the bucket, shipped with its manifest"
 
 log "3 PostgreSQL restarts"
-kubectl -n databases delete pod -l app.kubernetes.io/name=postgresql --wait=true >/dev/null
+if [[ "$HA" == 1 ]]; then kubectl -n databases delete pod "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}')" --wait=true >/dev/null; else kubectl -n databases delete pod -l app.kubernetes.io/name=postgresql --wait=true >/dev/null; fi
 wait_pg
 [[ "$(psql_cmi "SELECT count(*) FROM memory_records")" == "$BEFORE" ]] || { echo "FAIL: records were lost with the Pod" >&2; exit 1; }
 wait_cmi; has_marker || { echo "FAIL: the marker is gone after the restart" >&2; exit 1; }
@@ -116,8 +119,8 @@ if [[ "${NODE_RESTART:-0}" == 1 ]]; then
 fi
 
 log "5 the CMI database is lost and restored from the backup"
-kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'idp_cmi' AND pid <> pg_backend_pid()" >/dev/null
-kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d postgres -c "DROP DATABASE idp_cmi" >/dev/null
+kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'idp_cmi' AND pid <> pg_backend_pid()" >/dev/null
+kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d postgres -c "DROP DATABASE idp_cmi" >/dev/null
 if has_marker 2>/dev/null; then echo "FAIL: the memory is still readable after its database was dropped" >&2; exit 1; fi
 echo "the database is gone: bob can no longer read his memory"
 RJOB="drill-restore-$(date +%s)"

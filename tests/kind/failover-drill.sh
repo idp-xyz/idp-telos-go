@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# The platform on a HA PostgreSQL (tests/kind/full.sh with PG_HA=1): the primary Pod is killed while the CMI is taking writes, and
+# what has to hold: the CMI recovers by itself (its Pods do not restart), writes are acknowledged again from the new primary within
+# a minute, and no write the CMI acknowledged is missing afterwards. DEV ONLY: one kind node, so the failover is shown, not the
+# spreading of the instances over nodes or zones.
+#
+#   1  a numbered memory record per ~0.3 s through the CMI API (as the HOST writes them: idp-host-svc, cmi-writer), the outcome of every try logged
+#   2  the primary Pod of the cluster is killed (--force, no grace)
+#   3  wait for the new primary, the CMI's readiness, three ready instances again
+#   4  every acknowledged record is in the database of the new primary; bob reads his marker; the CMI Pods did not restart; all client
+#      connections are TLS
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+export PATH="$HOME/.local/bin:$PATH"
+L=.local/kind-full
+CA=.local/kind-ca/ca.crt
+ISSUER=https://127.0.0.1:17443/realms/idp
+[[ -f $L/clients.json ]] || { echo "BLOCKED: no $L/clients.json: run tests/kind/full.sh first" >&2; exit 2; }
+log() { echo "== $*"; }
+PFPIDS=()
+cleanup() { for p in "${PFPIDS[@]:-}"; do [[ -n "$p" ]] && { pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; } || true; done; }
+trap cleanup EXIT
+# a port-forward that is there when we need it (the platform's own forwards may or may not be running)
+ensure_forward() { # ensure_forward NAMESPACE SERVICE LOCAL:REMOTE
+  local port="${3%%:*}"
+  if ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+    ( while true; do kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null 2>&1 || true; sleep 1; done ) & PFPIDS+=($!)
+    for _ in $(seq 1 360); do (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null && return 0; sleep 0.5; done   # after a node restart the API server is away for a minute
+    echo "BLOCKED: no forward to $2" >&2; exit 2
+  fi
+}
+secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
+kc() { curl -sf --noproxy '*' --cacert "$CA" "$ISSUER/protocol/openid-connect/token" "$@" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
+bob_token() { kc -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d username=bob -d "password=$(secret_of bob)"; }
+host_token() { kc -d grant_type=client_credentials -d client_id=idp-host-svc -d "client_secret=$(secret_of idp-host-svc)"; }
+CMI=http://127.0.0.1:17550
+cmi() { # cmi WANT METHOD PATH TOKEN [BODY]
+  local out status; out="$(mktemp)"
+  status="$(curl -s --noproxy '*' -o "$out" -w '%{http_code}' -X "$2" "$CMI$3" -H "Authorization: Bearer $4" -H 'Content-Type: application/json' ${5:+--data "$5"})"
+  [[ "$status" == "$1" ]] || { echo "FAIL: $2 $3 -> $status (want $1): $(cat "$out")" >&2; rm -f "$out"; exit 1; }
+  cat "$out"; rm -f "$out"
+}
+psql_cmi() { kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d "${2:-idp_cmi}" -tAc "$1"; }
+wait_pg() { kubectl -n databases rollout status deploy/postgresql --timeout=300s >/dev/null; for _ in $(seq 1 120); do kubectl -n databases exec -c postgres deploy/postgresql -- pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && return 0; sleep 1; done; echo "FAIL: PostgreSQL did not come back" >&2; exit 1; }
+wait_cmi() { # right after a node restart the Deployment still reports the old readiness: ask the CMI itself, with a time limit on every try
+  for _ in $(seq 1 180); do
+    [[ "$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' -m 3 "$CMI/readyz")" == 200 ]] && [[ "$(kubectl -n idp-cmi get deploy idp-cmi -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" == "$(kubectl -n idp-cmi get deploy idp-cmi -o jsonpath='{.spec.replicas}' 2>/dev/null)" ]] && return 0
+    sleep 1
+  done
+  echo "FAIL: the CMI did not become ready" >&2; exit 1
+}
+
+kubectl -n databases get cluster postgresql >/dev/null 2>&1 || { echo "BLOCKED: no PostgreSQL cluster: run PG_HA=1 bash tests/kind/full.sh" >&2; exit 2; }
+primary() { kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}'; }
+psql_cmi() { kubectl -n databases exec -c postgres "pod/$(primary)" -- psql -U postgres -d "${2:-idp_cmi}" -tAc "$1"; }
+CMI=http://127.0.0.1:17550
+ensure_forward idp-cmi idp-cmi 17550:8550
+ensure_forward keycloak keycloak 17443:7443
+BOB_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['bob'])")"
+RESTARTS_BEFORE="$(kubectl -n idp-cmi get pods -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{" "}{end}')"
+
+log "1 a writer through the CMI"
+RUN="$(date +%s)"; WLOG="$L/failover-writer.log"; : > "$WLOG"
+NOW0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+(
+  TOKEN="$(host_token)"; n=0; started=$SECONDS; NOW=""
+  while [[ -f "$WLOG.run" ]]; do
+    [[ -z "$NOW" ]] && { n=$((n+1)); NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }   # a retry resends the SAME request (same key, same body): that is what makes it idempotent
+    [[ $((SECONDS - started)) -gt 100 ]] && TOKEN="$(host_token)" && started=$SECONDS   # tokens last minutes
+    code="$(curl -s -o /dev/null -w '%{http_code}' -m 4 --noproxy '*' -X POST "$CMI/v1/memory/records" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -H "Idempotency-Key: failover-$RUN-$n" \
+      --data "{\"scope\":{\"kind\":\"subject\",\"id\":\"$BOB_ID\"},\"kind\":\"episodic\",\"content\":\"failover marker $RUN-$n\",\"tags\":[\"failover\"],\"provenance\":{\"source\":\"idp-host\",\"ref\":\"failover:$RUN:$n\",\"observedAt\":\"$NOW\",\"recordedBy\":\"idp-host\"},\"sensitivity\":\"internal\"}" 2>/dev/null || echo 000)"
+    if [[ "$code" == 201 || "$code" == 200 ]]; then echo "ack $n $(date +%s.%N)" >> "$WLOG"; NOW=""; else echo "fail $n $(date +%s.%N) $code" >> "$WLOG"; fi
+    sleep 0.2
+  done
+) &
+touch "$WLOG.run"; WPID=$!; PFPIDS+=($WPID)
+for _ in $(seq 1 90); do [[ "$(grep -c '^ack' "$WLOG")" -ge 15 ]] && break; sleep 1; done
+[[ "$(grep -c '^ack' "$WLOG")" -ge 15 ]] || { cat "$WLOG" | tail -5; echo "FAIL: the CMI does not acknowledge writes" >&2; exit 1; }
+echo "PASS: the CMI acknowledges writes ($(grep -c '^ack' "$WLOG") so far) on primary $(primary)"
+
+log "2 the primary Pod is killed"
+OLD="$(primary)"; KILL_AT="$(date +%s.%N)"
+kubectl -n databases delete pod "$OLD" --grace-period=0 --force >/dev/null 2>&1
+NEW=""; for _ in $(seq 1 240); do NEW="$(primary)"; [[ -n "$NEW" && "$NEW" != "$OLD" ]] && break; sleep 0.5; done
+[[ -n "$NEW" && "$NEW" != "$OLD" ]] || { echo "FAIL: no new primary" >&2; exit 1; }
+OUT=""
+for _ in $(seq 1 240); do
+  OUT="$(python3 - "$WLOG" "$KILL_AT" <<'PY'
+import sys
+rows = [l.split() for l in open(sys.argv[1]) if l.strip()]
+kill = float(sys.argv[2])
+fails = [float(r[2]) for r in rows if r[0] == "fail" and float(r[2]) >= kill]
+if not fails: print("0.0"); sys.exit()
+acks = [float(r[2]) for r in rows if r[0] == "ack" and float(r[2]) > max(fails)]
+print(round(acks[0] - kill, 1) if acks else "")
+PY
+)"
+  [[ -n "$OUT" ]] && break; sleep 1
+done
+[[ -n "$OUT" ]] || { tail -8 "$WLOG"; echo "FAIL: the CMI never acknowledged a write after the failover" >&2; exit 1; }
+(( $(python3 -c "print(int(float($OUT) > 90))") == 0 )) || { echo "FAIL: writes were refused for $OUT s (limit 90)" >&2; exit 1; }
+echo "PASS: $OLD killed, $NEW promoted; the CMI refused writes for $OUT s, then acknowledged them again, with no restart"
+
+log "3 the cluster is whole again; nothing acknowledged is missing"
+sleep 3; rm -f "$WLOG.run"; sleep 1; wait "$WPID" 2>/dev/null || true
+for _ in $(seq 1 180); do [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}')" == 3 ]] && break; sleep 2; done
+[[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}')" == 3 ]] || { kubectl -n databases get cluster,pods; echo "FAIL: not back to 3 ready instances" >&2; exit 1; }
+ACKED="$(awk '$1=="ack"{print $2}' "$WLOG" | LC_ALL=C sort -u)"
+PRESENT="$(psql_cmi "SELECT substring(content from 'failover marker [0-9]+-([0-9]+)') FROM memory_records WHERE content LIKE 'failover marker $RUN-%'" | LC_ALL=C sort -u)"
+LOST="$(LC_ALL=C comm -23 <(echo "$ACKED") <(echo "$PRESENT") | wc -l)"
+NACK="$(echo "$ACKED" | wc -l)"; NFAIL="$(grep -c '^fail' "$WLOG" || true)"
+[[ "$LOST" == 0 ]] || { echo "FAIL: $LOST acknowledged records are missing after the failover" >&2; exit 1; }
+echo "PASS: $NACK records were acknowledged (and $NFAIL tries refused during the switch): none is missing on the new primary $(primary)"
+RESTARTS_AFTER="$(kubectl -n idp-cmi get pods -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{" "}{end}')"
+[[ "$RESTARTS_BEFORE" == "$RESTARTS_AFTER" ]] || { echo "FAIL: CMI restarts $RESTARTS_BEFORE -> $RESTARTS_AFTER" >&2; exit 1; }
+echo "PASS: the CMI Pods did not restart (restart counts $RESTARTS_AFTER)"
+BAD="$(psql_cmi "SELECT count(*) FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid) WHERE a.client_addr IS NOT NULL AND NOT s.ssl AND a.backend_type='client backend'" postgres)"
+[[ "$BAD" == 0 ]] || { echo "FAIL: $BAD client connections without TLS" >&2; exit 1; }
+cmi 200 GET "/v1/memory/records?limit=5" "$(bob_token)" >/dev/null && echo "PASS: bob reads his memory through the CMI on the new primary; every client connection is TLS"
+echo "ALL PASS"

@@ -47,5 +47,7 @@ jobs:
       - name: Full kind overlay (every namespace restricted and default-deny, the flows to Keycloak, PostgreSQL, Temporal)
         if: steps.eer.outputs.allow == ''
         run: python -I tools/k8s_check.py --full
+      - name: HA PostgreSQL manifests (synchronous replication, TLS, cleartext rejected, scoped policy)
+        run: python -I tools/ha_check.py
       - name: Contract registry against the producers
         run: python -I idp-contracts/tools/validate.py --report /tmp/validation_report.json
