@@ -5,7 +5,9 @@
 # DEV ONLY: a one-node cluster shows the failover, not the spreading over nodes or zones.
 #
 #   bash tests/kind/ha-postgres.sh            install the operator, create the cluster, run the drill, leave it
-#   TEARDOWN=1 ...                            delete the test namespace at the end
+#   TEARDOWN=1 ...                            delete the test namespace at the end (and the operator's policy for it, below)
+# It runs next to the platform's cluster too (after PG_HA=1 tests/kind/full.sh): the operator's namespace is default-deny then, and
+# the test adds a NetworkPolicy operator-to-ha-test there so that the operator reaches this cluster's instances.
 #   KIND_CLUSTER=kind                         the cluster (kubectl context kind-$KIND_CLUSTER)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -26,9 +28,9 @@ load() { local tar; tar="$(mktemp --suffix=.tar)"; docker save --platform linux/
 for img in "$OPERATOR_IMG" "$OPERAND_BASE"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: $img is not in the Docker daemon (crane pull --platform linux/amd64 $img x.tar && docker load -i x.tar)" >&2; exit 2; }
 done
-docker image inspect "$IMG" >/dev/null 2>&1 || bash deploy/images/postgres-ha/build.sh "$IMG" >/dev/null
+bash deploy/images/postgres-ha/build.sh "$IMG" >/dev/null   # cached: quick when the Dockerfile has not changed
 docker exec "$NODE" crictl inspecti "$OPERATOR_IMG" >/dev/null 2>&1 || load "$OPERATOR_IMG"
-docker exec "$NODE" crictl inspecti "$IMG" >/dev/null 2>&1 || load "$IMG"
+load "$IMG"   # always: the node may hold an older build under the same tag
 
 log "the operator (the release manifest, checked against its pinned checksum)"
 [[ -f "$L/cnpg.yaml" ]] || curl -sSL --retry 5 --retry-all-errors -m 180 -o "$L/cnpg.yaml" "$MANIFEST_URL"
@@ -38,6 +40,25 @@ kubectl apply --server-side --force-conflicts -f "$L/cnpg.yaml" >/dev/null   # t
 kubectl -n cnpg-system patch deploy cnpg-controller-manager --type=json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' >/dev/null
 kubectl -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=300s >/dev/null
 echo "PASS: CloudNativePG 1.30.1 runs in cnpg-system"
+# after PG_HA=1 tests/kind/full.sh the operator's namespace is default-deny (deploy/kubernetes/ha-postgres/platform.yaml) and the
+# operator reaches the instances in databases only: this test's cluster gets the same rule for its namespace. Only then: on a cluster
+# without those policies, an egress policy that selects the operator would cut everything else it reaches (the API server)
+if kubectl -n cnpg-system get networkpolicy operator >/dev/null 2>&1; then
+  kubectl apply -f - >/dev/null <<YAML
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: operator-to-$NS, namespace: cnpg-system, labels: {app.kubernetes.io/part-of: tests-kind-ha-postgres}}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: cloudnative-pg}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: $NS}}
+          podSelector: {matchExpressions: [{key: cnpg.io/cluster, operator: Exists}]}
+      ports: [{protocol: TCP, port: 5432}, {protocol: TCP, port: 8000}]
+YAML
+  echo "PASS: cnpg-system is default-deny; the operator may reach the instances in $NS too (NetworkPolicy operator-to-$NS)"
+fi
 
 log "a restricted namespace, the secrets (test CA) and the cluster"
 kubectl delete ns "$NS" --ignore-not-found --wait=true --timeout=300s >/dev/null
@@ -180,5 +201,5 @@ for _ in $(seq 1 60); do [[ "$(kubectl -n "$NS" get pod plain -o jsonpath='{.sta
 kubectl -n "$NS" logs plain | grep -qi "no encryption\|rejects" || { kubectl -n "$NS" logs plain; echo "FAIL: a cleartext connection was not refused for lack of encryption" >&2; exit 1; }
 kubectl -n "$NS" delete pod plain --wait=false >/dev/null
 echo "PASS: all client connections use TLS; a cleartext connection is rejected by pg_hba"
-[[ -n "${TEARDOWN:-}" ]] && kubectl delete ns "$NS" --wait=false >/dev/null
+[[ -n "${TEARDOWN:-}" ]] && { kubectl delete ns "$NS" --wait=false >/dev/null; kubectl -n cnpg-system delete networkpolicy "operator-to-$NS" --ignore-not-found >/dev/null; }
 echo "ALL PASS"
