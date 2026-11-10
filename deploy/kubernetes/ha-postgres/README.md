@@ -129,7 +129,7 @@ that an image change and a PostgreSQL parameter change cannot go in the same upd
 - **Encryption of the WAL archive and of the base backups.** They go to the object store as gzip, readable by whoever can read the
   bucket. The `pg_dump` backups are age-encrypted (deploy/images/pg-backup); the archive is not. Production uses server-side
   encryption (the `ObjectStore`'s `wal.encryption` and `data.encryption`: `AES256` or `aws:kms`, or a bucket key) and a bucket the
-  instances can write but not delete; here MinIO has no KMS.
+  instances can write but not delete; the RustFS on kind has no KMS.
 - **cert-manager for anything else.** It is here for the plugin's internal certificates only, with a self-signed issuer and no ACME;
   the PostgreSQL server certificate still comes from the secrets of `cluster.yaml`.
 - **A supported upgrade path.** Operator, PostgreSQL minor and major upgrades have their own procedures (rolling update with a switchover

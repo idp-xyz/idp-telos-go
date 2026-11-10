@@ -306,19 +306,24 @@ fi
 pgtarget() { if [[ "$PG_HA" == 1 ]]; then echo "pod/$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}')"; else echo deploy/postgresql; fi; }
 [[ "$PG_HA" == 1 ]] || kubectl -n databases create secret generic postgres-tls --from-file=tls.crt="$L/tls/pg.crt" --from-file=tls.key="$L/tls/pg.key" >/dev/null   # HA: created above, as the kubernetes.io/tls type the cluster wants
 for ns_ in databases idp-cmi idp-host idp-workspace idp-mcp idp-eer; do kubectl -n "$ns_" create configmap pg-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null; done
-# the backup target: a MinIO container on the HOST (outside the cluster), reached through the kind network's gateway, and the
-# age key pair whose private half stays in $L and never enters the cluster
+# the backup target: an S3-compatible store on the HOST (outside the cluster), reached through the kind network's gateway. RustFS
+# (Apache-2.0; MinIO's community edition is no longer maintained or published), the glibc build that the Barman Cloud plugin's own
+# tests run, pinned by digest. And the age key pair whose private half stays in $L and never enters the cluster
+S3_IMG=docker.io/rustfs/rustfs:1.0.4-glibc S3_DIGEST=sha256:a9b705b9256be756802a60f3498abdc543918b5b5a4437a57a541e89e733c74d
 BK_AK="backup$(openssl rand -hex 4)"; BK_SK="$(openssl rand -hex 16)"
 docker rm -f idp-kind-backup-target >/dev/null 2>&1 || true; docker volume rm -f idp-kind-backup-target >/dev/null 2>&1 || true
-docker image inspect quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z >/dev/null 2>&1 || { tar_="$(mktemp --suffix=.tar)"; crane pull --platform linux/amd64 quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z "$tar_" >/dev/null && docker load -i "$tar_" >/dev/null; rm -f "$tar_"; }
+docker image inspect "$S3_IMG" >/dev/null 2>&1 || { tar_="$(mktemp --suffix=.tar)"; crane pull --platform linux/amd64 "${S3_IMG%%:*}@$S3_DIGEST" "$tar_" >/dev/null \
+  && docker tag "$(docker load -i "$tar_" | sed -n 's/^Loaded image: //p' | tail -1)" "$S3_IMG"; rm -f "$tar_"; }   # loaded by digest, named by its tag
 docker run -d --name idp-kind-backup-target --restart unless-stopped -p "$BACKUP_GW:19000:9000" -v idp-kind-backup-target:/data \
-  -e MINIO_ROOT_USER="$BK_AK" -e MINIO_ROOT_PASSWORD="$BK_SK" quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data >/dev/null
+  -e RUSTFS_ACCESS_KEY="$BK_AK" -e RUSTFS_SECRET_KEY="$BK_SK" -e RUSTFS_REGION=us-east-1 -e RUSTFS_CONSOLE_ENABLE=false "$S3_IMG" >/dev/null
 docker run --rm --network host idp-pg-backup:dev age-keygen 2>"$L/backup-age.pub" >"$L/backup-identity.txt"
 sed -n 's/^Public key: //p' "$L/backup-age.pub" > "$L/backup-recipients.txt"; rm -f "$L/backup-age.pub"
+bucket_=""
 for _ in $(seq 1 30); do
   docker run --rm --network host -e S3_ENDPOINT="http://$BACKUP_GW:19000" -e S3_BUCKET=backups -e S3_ACCESS_KEY="$BK_AK" -e S3_SECRET_KEY="$BK_SK" \
-    idp-pg-backup:dev sh -c '. /usr/local/bin/s3.sh; s3_ensure_bucket' 2>/dev/null && break; sleep 1
+    idp-pg-backup:dev sh -c '. /usr/local/bin/s3.sh; s3_ensure_bucket' 2>/dev/null && { bucket_=1; break; }; sleep 1
 done
+[[ -n "$bucket_" ]] || { docker logs --tail 20 idp-kind-backup-target; echo "BLOCKED: the backup target at $BACKUP_GW:19000 has no bucket" >&2; exit 2; }
 kubectl -n databases create secret generic backup-target --from-literal=S3_ENDPOINT="http://$BACKUP_GW:19000" --from-literal=S3_BUCKET=backups \
   --from-literal=S3_ACCESS_KEY="$BK_AK" --from-literal=S3_SECRET_KEY="$BK_SK" >/dev/null
 kubectl -n databases create configmap backup-recipients --from-file=recipients.txt="$L/backup-recipients.txt" >/dev/null

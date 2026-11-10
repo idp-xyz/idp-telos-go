@@ -8,7 +8,7 @@
 # barman-cloud to every instance, which archives the WAL and takes the base backups; the PostgreSQL image carries no backup tool. Three
 # documents, in this order:
 #   1  the ObjectStore: where the archive lives, the credentials (the Secret pitr-s3), the retention. The endpoint is replaced by
-#      tests/kind/full.sh with the MinIO on the host; production writes its own bucket (S3, GCS or Azure).
+#      tests/kind/full.sh with the RustFS on the host; production writes its own bucket (S3, GCS or Azure).
 #   2  a merge patch of the Cluster: the plugin is the WAL archiver. tests/kind/full.sh merges it into cluster.yaml, so a new cluster
 #      archives from its first instance; a running cluster takes it with kubectl patch cluster postgresql --type merge --patch-file.
 #      "backup: null" removes CloudNativePG's in-tree barmanObjectStore in the same change, so a cluster that used it moves to the

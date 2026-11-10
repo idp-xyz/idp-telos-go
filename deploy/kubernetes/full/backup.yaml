@@ -3,10 +3,10 @@
 # private key is never in the cluster: tests/kind/full.sh keeps it in .local/kind-full/backup-identity.txt and the restore
 # drill brings it in only for the restore), writes a sha256 manifest over the ciphertext, keeps the last seven sets on a
 # second volume and ships each set to an S3-compatible bucket in another failure domain (Secret backup-target: on kind a
-# MinIO container on the host; in production AWS S3, R2, OCI ...), where the last 30 sets are kept. The image is
+# RustFS container on the host; in production AWS S3, R2, OCI ...), where the last 30 sets are kept. The image is
 # deploy/images/pg-backup (postgres client tools, age, curl). A failed dump, encryption or upload fails the Job, which the
 # missed-backup alert (deploy/observability/backup-alerts.yaml) sees. A bucket on the same node would not be disaster
-# recovery; the host-side MinIO survives the loss of the cluster, not of the machine.
+# recovery; the host-side store survives the loss of the cluster, not of the machine.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -84,7 +84,7 @@ spec:
           podSelector: {matchLabels: {k8s-app: kube-dns}}
       ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
     - to:
-        - ipBlock: {cidr: 203.0.113.30/32}   # the backup bucket's address (tests/kind/full.sh replaces it: the host-side MinIO); in production the object store
+        - ipBlock: {cidr: 203.0.113.30/32}   # the backup bucket's address (tests/kind/full.sh replaces it: the host-side RustFS); in production the object store
       ports: [{protocol: TCP, port: 19000}]
 ---
 apiVersion: networking.k8s.io/v1

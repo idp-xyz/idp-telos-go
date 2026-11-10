@@ -5,7 +5,7 @@
 #
 #   1  write a marker memory for bob (as the HOST does: idp-host-svc, cmi-writer) and read it back as bob
 #   2  take a backup now (the CronJob pg-backup, started by hand): every file age-encrypted, no plaintext on the volume or in
-#      the bucket (a MinIO container on the host), the set shipped
+#      the bucket (a RustFS container on the host), the set shipped
 #   3  restart PostgreSQL's Pod: the memory is still there (the data directory is a PersistentVolumeClaim)
 #   4  NODE_RESTART=1: restart the kind node container too (what a WSL or Docker restart does)
 #   5  lose the CMI database (DROP DATABASE), see that the memory is gone, restore it FROM THE BUCKET with the private key
@@ -119,8 +119,9 @@ if [[ "${NODE_RESTART:-0}" == 1 ]]; then
 fi
 
 log "5 the CMI database is lost and restored from the backup"
-kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'idp_cmi' AND pid <> pg_backend_pid()" >/dev/null
-kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d postgres -c "DROP DATABASE idp_cmi" >/dev/null
+# WITH (FORCE) ends the sessions and drops in one statement: terminating them first and dropping after left a gap in which the
+# CMI's pool reconnected ("database idp_cmi is being accessed by other users")
+kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d postgres -c "DROP DATABASE idp_cmi WITH (FORCE)" >/dev/null
 if has_marker 2>/dev/null; then echo "FAIL: the memory is still readable after its database was dropped" >&2; exit 1; fi
 echo "the database is gone: bob can no longer read his memory"
 RJOB="drill-restore-$(date +%s)"

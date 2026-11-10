@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Tests the backup image with Docker only (PostgreSQL + MinIO + this image): encryption (no plaintext in the bucket),
+# Tests the backup image with Docker only (PostgreSQL + an S3-compatible store, RustFS + this image): encryption (no plaintext in the bucket),
 # the shipped manifest, restore with the right and with the wrong private key, a tampered object, an incomplete set,
-# local and remote retention. Needs idp-pg-backup:dev, postgres:17-alpine and the MinIO image in the daemon.
+# local and remote retention. Needs idp-pg-backup:dev, postgres:17-alpine and the RustFS image in the daemon (tests/kind/full.sh
+# loads it: crane pull by digest, docker load, tagged docker.io/rustfs/rustfs:1.0.4-glibc).
 set -euo pipefail
 IMG="${IMG:-idp-pg-backup:dev}"; PG_IMG="${PG_IMG:-public.ecr.aws/docker/library/postgres:17-alpine}"
-MINIO_IMG="${MINIO_IMG:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}"
+S3_IMG="${S3_IMG:-docker.io/rustfs/rustfs:1.0.4-glibc}"
 N=idp-bk-test; AK=testaccess; SK=testsecret-0123456789
-cleanup() { docker rm -f $N-pg $N-minio >/dev/null 2>&1 || true; docker network rm $N >/dev/null 2>&1 || true; docker volume rm -f $N-backup >/dev/null 2>&1 || true; rm -rf "${T:-}"; }
+cleanup() { docker rm -f $N-pg $N-s3 >/dev/null 2>&1 || true; docker network rm $N >/dev/null 2>&1 || true; docker volume rm -f $N-backup >/dev/null 2>&1 || true; rm -rf "${T:-}"; }
 trap cleanup EXIT; cleanup; T="$(mktemp -d)"; chmod 755 "$T"
 ok() { echo "PASS: $*"; }; fail() { echo "FAIL: $*" >&2; exit 1; }
 docker network create $N >/dev/null
 docker run -d --name $N-pg --network $N -e POSTGRES_PASSWORD=pw "$PG_IMG" >/dev/null
-docker run -d --name $N-minio --network $N -e MINIO_ROOT_USER=$AK -e MINIO_ROOT_PASSWORD=$SK "$MINIO_IMG" server /data >/dev/null
+docker run -d --name $N-s3 --network $N -e RUSTFS_ACCESS_KEY=$AK -e RUSTFS_SECRET_KEY=$SK -e RUSTFS_REGION=us-east-1 -e RUSTFS_CONSOLE_ENABLE=false "$S3_IMG" >/dev/null
 for _ in $(seq 1 60); do docker exec $N-pg pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
 docker exec $N-pg psql -U postgres -qc "CREATE DATABASE appdb" -c "\c appdb" -c "CREATE TABLE secret_notes (id int, note text)" -c "INSERT INTO secret_notes SELECT g, 'PLAINTEXT-MARKER-' || g FROM generate_series(1,2000) g" >/dev/null
 docker exec $N-pg psql -U postgres -d appdb -qc "CREATE TABLE secret_notes (id int, note text)" >/dev/null 2>&1 || true
@@ -22,7 +23,7 @@ docker run --rm "$IMG" age-keygen 2>/dev/null >"$T/other-identity.txt"
 chmod 644 "$T"/*
 docker volume create $N-backup >/dev/null
 docker run --rm --user 0 --entrypoint chown -v $N-backup:/backup "$IMG" 70:70 /backup   # a Kubernetes PVC gets this from fsGroup
-ENVS=(-e PGHOST=$N-pg -e PGPASSWORD=pw -e S3_ENDPOINT=http://$N-minio:9000 -e S3_BUCKET=backups -e S3_ACCESS_KEY=$AK -e S3_SECRET_KEY=$SK -e AGE_RECIPIENTS_FILE=/keys/recipients.txt)
+ENVS=(-e PGHOST=$N-pg -e PGPASSWORD=pw -e S3_ENDPOINT=http://$N-s3:9000 -e S3_BUCKET=backups -e S3_ACCESS_KEY=$AK -e S3_SECRET_KEY=$SK -e AGE_RECIPIENTS_FILE=/keys/recipients.txt)
 run() { docker run --rm --network $N --read-only --tmpfs /work --tmpfs /tmp -v $N-backup:/backup -v "$T":/keys:ro "${ENVS[@]}" "$@"; }
 for _ in $(seq 1 60); do run --entrypoint sh "$IMG" -c '. /usr/local/bin/s3.sh; s3_ensure_bucket' 2>/dev/null && break; sleep 1; done
 

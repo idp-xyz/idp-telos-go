@@ -2,7 +2,7 @@
 # Point-in-time recovery of the HA PostgreSQL (tests/kind/full.sh with PG_HA=1; deploy/kubernetes/ha-postgres/pitr.yaml): a mistake that
 # replication copies to every standby (here a DELETE of all rows) is undone by recreating the cluster from the base backup and the
 # archived WAL, stopped at the instant before the mistake. Archiving, the base backup and the recovery all go through the Barman Cloud
-# plugin. DEV ONLY: one kind node and a MinIO on the host as the object store.
+# plugin. DEV ONLY: one kind node and a RustFS on the host as the object store.
 #
 #   1  preconditions: continuous archiving is on, a base backup completed
 #   2  a table with 50 rows; the instant T is read from the server; a few seconds later 20 more rows, then DELETE of every row
