@@ -525,30 +525,30 @@ wait_fact() { # wait_fact PYTHON-CONDITION-ON-fs: poll until the condition holds
   echo "FAIL: bob's facts never satisfied: $1 (last: $fs)" >&2; return 1
 }
 read -r RG1 TG1 AG1 <<<"$(ask "My favourite colour is vermilion.")"
-F1="$(wait_fact "any(f['structured']['fact']['value']=='vermilion' for f in fs)")" || exit 1
+F1="$(wait_fact "any(f['structured']['fact']['value'].lower()=='vermilion' for f in fs)")" || exit 1
 echo "$F1" | python3 -c "
 import json,sys
-fs=[f for f in json.load(sys.stdin) if f['structured']['fact']['value']=='vermilion']
+fs=[f for f in json.load(sys.stdin) if f['structured']['fact']['value'].lower()=='vermilion']
 assert len(fs)==1, fs
 f=fs[0]
-assert f['structured']['fact']['key']=='favourite_colour' and f['kind']=='semantic' and f['scope']['kind']=='subject', f
-assert f['provenance']['ref']=='run:$RG1/fact/favourite_colour' and f['provenance']['source']=='idp-host', f['provenance']
+assert 'colo' in f['structured']['fact']['key'] and f['kind']=='semantic' and f['scope']['kind']=='subject', f   # a real model may write favorite_color
+assert f['provenance']['ref'].startswith('run:$RG1/fact/') and f['provenance']['source']=='idp-host', f['provenance']
 assert 'vermilion' in f['content'] and 'Echo' not in f['content'] and 'fact' in f['tags'], f
 " || { echo "FAIL: the first fact is not as specified: $F1" >&2; exit 1; }
 VFROM="$(echo "$F1" | python3 -c "
 import json,sys
-print([f for f in json.load(sys.stdin) if f['structured']['fact']['value']=='vermilion'][0]['validity']['validFrom'])")"
+print([f for f in json.load(sys.stdin) if f['structured']['fact']['value'].lower()=='vermilion'][0]['validity']['validFrom'])")"
 read -r RG2 TG2 AG2 <<<"$(ask "Actually my favourite colour is now teal.")"
-F2="$(wait_fact "any(f['structured']['fact']['value']=='teal' for f in fs) and not any(f['structured']['fact']['value']=='vermilion' for f in fs)")" || exit 1
+F2="$(wait_fact "any(f['structured']['fact']['value']=='teal' for f in fs) and not any(f['structured']['fact']['value'].lower()=='vermilion' for f in fs)")" || exit 1
 echo "$F2" | python3 -c "
 import json,sys
-fs=[f for f in json.load(sys.stdin) if f['structured']['fact']['key']=='favourite_colour']
-assert len(fs)==1 and fs[0]['structured']['fact']['value']=='teal', ('exactly one current value of the key', fs)
+fs=[f for f in json.load(sys.stdin) if 'colo' in f['structured']['fact']['key']]
+assert len(fs)==1 and fs[0]['structured']['fact']['value'].lower()=='teal', ('exactly one current value of the colour fact', fs)
 " || { echo "FAIL: after the update there is not exactly one current favourite_colour: $F2" >&2; exit 1; }
 # the history stays: at a moment between the two statements the old value held (as-of query)
 TFROM="$(echo "$F2" | python3 -c "
 import json,sys
-print([f for f in json.load(sys.stdin) if f['structured']['fact']['value']=='teal'][0]['validity']['validFrom'])")"
+print([f for f in json.load(sys.stdin) if f['structured']['fact']['value'].lower()=='teal'][0]['validity']['validFrom'])")"
 ASOF="$(python3 -c "
 import datetime,sys
 p=lambda s: datetime.datetime.fromisoformat(s.replace('Z','+00:00'))
@@ -558,7 +558,7 @@ print((a+(b-a)/2).strftime('%Y-%m-%dT%H:%M:%S.%fZ'))" "$VFROM" "$TFROM")"
 call 200 GET "$CMI/v1/memory/records?validAt=$ASOF&limit=200" "$BOB" | python3 -c "
 import json,sys
 fs=[r for r in json.load(sys.stdin)['records'] if (r.get('structured') or {}).get('fact')]
-assert any(f['structured']['fact']['value']=='vermilion' for f in fs) and not any(f['structured']['fact']['value']=='teal' for f in fs), ('as of just after the first statement the value was vermilion', fs)
+assert any(f['structured']['fact']['value'].lower()=='vermilion' for f in fs) and not any(f['structured']['fact']['value']=='teal' for f in fs), ('as of just after the first statement the value was vermilion', fs)
 " || { echo "FAIL: the old value is not in the history" >&2; exit 1; }
 # no fact holds the assistant's words
 facts_of_bob | python3 -c "
