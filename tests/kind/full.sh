@@ -198,14 +198,15 @@ if go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build "$L/overlay" > "$L/pla
 fi
 if [[ "$MODEL" == live ]]; then
   # the HOST's provider is the host's model through the forwarder, and the HOST's namespace may reach that address
-  python3 - "$L/platform.yaml" "$MODEL_BASE" "$KIND_GW" <<'PY'
+  python3 - "$L/platform.yaml" "$MODEL_BASE" "$KIND_GW" "$LIVE_MODEL" <<'PY'
 import sys, yaml
-path, base, gw = sys.argv[1:4]
+path, base, gw, live_model = sys.argv[1:5]
 docs = [d for d in yaml.safe_load_all(open(path)) if d]
 for d in docs:
     if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "idp-host-providers":
         host = yaml.safe_load(d["data"]["host.yaml"])
         host["providers"] = [dict(p, baseUrl=base) if p["name"] == "local" else p for p in host["providers"]]
+        host["cmi"]["remember"]["facts"]["model"] = live_model   # the fact extraction uses the same live model
         d["data"]["host.yaml"] = yaml.safe_dump(host, sort_keys=False)
 docs.append({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "kind-live-model", "namespace": "idp-host"},
              "spec": {"podSelector": {}, "policyTypes": ["Egress"],
@@ -638,6 +639,61 @@ pf idp-workspace assistant 17561:8080
 for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:17561/ && break; sleep 0.5; done
 curl -sf --noproxy '*' http://127.0.0.1:17561/app.js | grep -q 'idp.bridge/v1' || { echo "FAIL: the assistant's page is not served" >&2; exit 1; }
 echo "PASS: the assistant app is installed in us-ops, its page served on its own origin (port-forward 17561); the shell is http://127.0.0.1:17560 (alice, bob; deploy/kubernetes/RUNBOOK.md)"
+
+# ---- PATH G: facts. The HOST extracts what bob STATED (never what the assistant answered); a new value closes the old one ----
+facts_of_bob() { call 200 GET "$CMI/v1/memory/records?limit=200" "$BOB" | python3 -c "
+import json,sys
+print(json.dumps([r for r in json.load(sys.stdin)['records'] if (r.get('structured') or {}).get('fact')]))"; }
+wait_fact() { # wait_fact PYTHON-CONDITION-ON-fs: poll until the condition holds on bob's current facts
+  local fs=""
+  for _ in $(seq 1 120); do
+    fs="$(facts_of_bob)"
+    echo "$fs" | python3 -c "import json,sys; fs=json.load(sys.stdin); sys.exit(0 if ($1) else 1)" && { echo "$fs"; return 0; }
+    sleep 1
+  done
+  echo "FAIL: bob's facts never satisfied: $1 (last: $fs)" >&2; return 1
+}
+read -r RG1 TG1 AG1 <<<"$(ask "My favourite colour is vermilion.")"
+F1="$(wait_fact "any(f['structured']['fact']['value']=='vermilion' for f in fs)")" || exit 1
+echo "$F1" | python3 -c "
+import json,sys
+fs=[f for f in json.load(sys.stdin) if f['structured']['fact']['value']=='vermilion']
+assert len(fs)==1, fs
+f=fs[0]
+assert f['structured']['fact']['key']=='favourite_colour' and f['kind']=='semantic' and f['scope']['kind']=='subject', f
+assert f['provenance']['ref']=='run:$RG1/fact/favourite_colour' and f['provenance']['source']=='idp-host', f['provenance']
+assert 'vermilion' in f['content'] and 'Echo' not in f['content'] and 'fact' in f['tags'], f
+" || { echo "FAIL: the first fact is not as specified: $F1" >&2; exit 1; }
+VFROM="$(echo "$F1" | python3 -c "
+import json,sys
+print([f for f in json.load(sys.stdin) if f['structured']['fact']['value']=='vermilion'][0]['validity']['validFrom'])")"
+read -r RG2 TG2 AG2 <<<"$(ask "Actually my favourite colour is now teal.")"
+F2="$(wait_fact "any(f['structured']['fact']['value']=='teal' for f in fs) and not any(f['structured']['fact']['value']=='vermilion' for f in fs)")" || exit 1
+echo "$F2" | python3 -c "
+import json,sys
+fs=[f for f in json.load(sys.stdin) if f['structured']['fact']['key']=='favourite_colour']
+assert len(fs)==1 and fs[0]['structured']['fact']['value']=='teal', ('exactly one current value of the key', fs)
+" || { echo "FAIL: after the update there is not exactly one current favourite_colour: $F2" >&2; exit 1; }
+# the history stays: at a moment between the two statements the old value held (as-of query)
+TFROM="$(echo "$F2" | python3 -c "
+import json,sys
+print([f for f in json.load(sys.stdin) if f['structured']['fact']['value']=='teal'][0]['validity']['validFrom'])")"
+ASOF="$(python3 -c "
+import datetime,sys
+p=lambda s: datetime.datetime.fromisoformat(s.replace('Z','+00:00'))
+a,b=p(sys.argv[1]),p(sys.argv[2])
+assert b>a, ('the second statement is not later than the first', sys.argv[1:])
+print((a+(b-a)/2).strftime('%Y-%m-%dT%H:%M:%S.%fZ'))" "$VFROM" "$TFROM")"
+call 200 GET "$CMI/v1/memory/records?validAt=$ASOF&limit=200" "$BOB" | python3 -c "
+import json,sys
+fs=[r for r in json.load(sys.stdin)['records'] if (r.get('structured') or {}).get('fact')]
+assert any(f['structured']['fact']['value']=='vermilion' for f in fs) and not any(f['structured']['fact']['value']=='teal' for f in fs), ('as of just after the first statement the value was vermilion', fs)
+" || { echo "FAIL: the old value is not in the history" >&2; exit 1; }
+# no fact holds the assistant's words
+facts_of_bob | python3 -c "
+import json,sys
+assert not [f for f in json.load(sys.stdin) if 'Echo' in f['content']], 'a fact carries the assistant answer'" || { echo "FAIL: a fact carries the assistant's answer" >&2; exit 1; }
+echo "PASS: PATH G — bob: 'My favourite colour is vermilion.' (run $RG1) -> the HOST extracted the fact favourite_colour=vermilion (not the assistant's answer); 'Actually ... now teal.' (run $RG2) closed it: one current value, the old one still in the as-of history"
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then
