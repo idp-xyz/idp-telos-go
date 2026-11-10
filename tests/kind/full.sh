@@ -123,8 +123,13 @@ ensure_image docker.io/pgvector/pgvector:0.8.7-pg17
 if [[ "$PG_HA" == 1 ]]; then
   ensure_image ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1
   ensure_image ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie
-  docker image inspect idp-postgres-ha:17-dev >/dev/null 2>&1 || bash deploy/images/postgres-ha/build.sh idp-postgres-ha:17-dev >/dev/null
-  in_node idp-postgres-ha:17-dev || load_image idp-postgres-ha:17-dev
+  ensure_image ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.16.0
+  ensure_image ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.16.0
+  for c_ in controller webhook cainjector; do ensure_image quay.io/jetstack/cert-manager-$c_:v1.21.3; done
+  # built like the components (cached, so quick when the Dockerfile has not changed) and always loaded: the node may hold an older
+  # build under the same tag
+  if [[ "${SKIP_BUILD:-0}" != 1 ]] || ! docker image inspect idp-postgres-ha:17-dev >/dev/null 2>&1; then bash deploy/images/postgres-ha/build.sh idp-postgres-ha:17-dev >/dev/null; fi
+  load_image idp-postgres-ha:17-dev
 fi
 ensure_image public.ecr.aws/docker/library/postgres:17-alpine   # the restore drill's client tools
 ensure_image quay.io/keycloak/keycloak:26.8.2
@@ -263,15 +268,35 @@ kubectl apply -f "$L/phase-0-namespaces.yaml" >/dev/null
 # ---------------------------------------------------------------- PostgreSQL, Keycloak, Temporal
 log "PostgreSQL, Keycloak, Temporal"
 kubectl -n databases create secret generic postgres-owner --from-literal=password="$PG" >/dev/null
-if [[ "$PG_HA" == 1 ]]; then   # HA: the operator, and the cluster's three secrets (the superuser is the same owner role, same password)
+if [[ "$PG_HA" == 1 ]]; then   # HA: the operator, cert-manager, the Barman Cloud plugin, and the cluster's three secrets (the superuser is the same owner role, same password)
   mkdir -p .local/ha-postgres
-  CNPG_URL=https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.1/cnpg-1.30.1.yaml
-  CNPG_SHA=37237f145d8138256ea25ae830f87759255665ff08f8d552fdd8224a5ec032fb
-  [[ -f .local/ha-postgres/cnpg.yaml ]] || curl -sSL --retry 5 --retry-all-errors -m 180 -o .local/ha-postgres/cnpg.yaml "$CNPG_URL"
-  [[ "$(sha256sum .local/ha-postgres/cnpg.yaml | cut -d' ' -f1)" == "$CNPG_SHA" ]] || { echo "BLOCKED: the operator manifest does not match its pinned checksum" >&2; rm -f .local/ha-postgres/cnpg.yaml; exit 2; }
+  pinned() { # pinned URL FILE SHA256: a release manifest, downloaded once and checked against its pinned checksum on every run
+    [[ -f "$2" ]] || curl -sSL --retry 5 --retry-all-errors -m 180 -o "$2" "$1"
+    [[ "$(sha256sum "$2" | cut -d' ' -f1)" == "$3" ]] || { echo "BLOCKED: $2 does not match its pinned checksum" >&2; rm -f "$2"; exit 2; }
+  }
+  pinned https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.1/cnpg-1.30.1.yaml .local/ha-postgres/cnpg.yaml \
+    37237f145d8138256ea25ae830f87759255665ff08f8d552fdd8224a5ec032fb
   kubectl apply --server-side --force-conflicts -f .local/ha-postgres/cnpg.yaml >/dev/null
   kubectl -n cnpg-system patch deploy cnpg-controller-manager --type=json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' >/dev/null
   kubectl -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=300s >/dev/null
+  # the policies of the operator's and cert-manager's namespaces (and the instances') before cert-manager and the plugin start, so
+  # that everything they do from here on runs under them
+  kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  sed -e "s#203.0.113.10/32#$APIIP/32#" -e "s#203.0.113.20/32#$BACKUP_GW/32#" deploy/kubernetes/ha-postgres/platform.yaml | kubectl apply -f - >/dev/null
+  # cert-manager: the plugin's gRPC certificates (a self-signed issuer in cnpg-system)
+  pinned https://github.com/cert-manager/cert-manager/releases/download/v1.21.3/cert-manager.yaml .local/ha-postgres/cert-manager-1.21.3.yaml \
+    c04a51295adda2b1a775146751f973e787190778c7f35180861d9678876e5c74
+  kubectl apply --server-side --force-conflicts -f .local/ha-postgres/cert-manager-1.21.3.yaml >/dev/null
+  for d_ in cert-manager cert-manager-cainjector cert-manager-webhook; do kubectl -n cert-manager rollout status deploy/$d_ --timeout=300s >/dev/null; done
+  # the Barman Cloud plugin (WAL archiving, base backups, recovery; deploy/kubernetes/ha-postgres/pitr.yaml), limited to the
+  # namespace databases (tools/ha_plugin_scope.py); cert-manager's webhook takes a few seconds to serve after its rollout
+  pinned https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.16.0/manifest.yaml .local/ha-postgres/plugin-barman-cloud-0.16.0.yaml \
+    aee614683892dd4b44ff9f7afaca55254f1c28de17abbaa0552bf2e1228f7155
+  python3 -I tools/ha_plugin_scope.py databases < .local/ha-postgres/plugin-barman-cloud-0.16.0.yaml > "$L/plugin-barman-cloud.yaml"
+  for _ in $(seq 1 40); do kubectl apply --server-side --force-conflicts -f "$L/plugin-barman-cloud.yaml" >/dev/null 2>"$L/plugin-apply.err" && break; sleep 3; done
+  kubectl apply --server-side --force-conflicts -f "$L/plugin-barman-cloud.yaml" >/dev/null || { cat "$L/plugin-apply.err" >&2; echo "FAIL: the Barman Cloud plugin could not be installed" >&2; exit 1; }
+  kubectl delete clusterrolebinding plugin-barman-cloud-binding --ignore-not-found >/dev/null   # an unscoped installation's
+  kubectl -n cnpg-system rollout status deploy/barman-cloud --timeout=300s >/dev/null
   kubectl -n databases create secret generic postgres-superuser --type=kubernetes.io/basic-auth --from-literal=username=postgres --from-literal=password="$PG" >/dev/null
   kubectl -n databases create secret generic postgres-server-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null
   kubectl -n databases create secret tls postgres-tls --cert="$L/tls/pg.crt" --key="$L/tls/pg.key" >/dev/null
@@ -302,21 +327,30 @@ kubectl -n keycloak create secret generic keycloak-realm --from-file=idp-realm.j
 kubectl -n keycloak create secret generic keycloak-tls --from-file=server.crt="$L/tls/server.crt" --from-file=server.key="$L/tls/server.key" >/dev/null
 kubectl apply -f "$L/phase-1-infra.yaml" >/dev/null
 if [[ "$PG_HA" == 1 ]]; then
-  kubectl apply -f deploy/kubernetes/ha-postgres/cluster.yaml >/dev/null
-  sed -e "s#203.0.113.10/32#$APIIP/32#" -e "s#203.0.113.20/32#$BACKUP_GW/32#" deploy/kubernetes/ha-postgres/platform.yaml | kubectl apply -f - >/dev/null
-  # continuous archiving of the WAL and a base backup to the same object store (deploy/kubernetes/ha-postgres/pitr.yaml)
+  # the cluster with continuous archiving of the WAL and a base backup to the same object store, through the Barman Cloud plugin
+  # (deploy/kubernetes/ha-postgres/pitr.yaml): the ObjectStore first, then cluster.yaml with pitr.yaml's patch merged in (a new
+  # cluster has the plugin from its first instance; the patch on its own is how a running cluster moves), then the ScheduledBackup.
+  # The policies are in place (above).
   kubectl -n databases create secret generic pitr-s3 --from-literal=ACCESS_KEY_ID="$BK_AK" --from-literal=ACCESS_SECRET_KEY="$BK_SK" >/dev/null
-  python3 - "$BACKUP_GW" deploy/kubernetes/ha-postgres/pitr.yaml > "$L/pitr-patch.json" <<'PY'
-import json, sys, yaml
-docs = [d for d in yaml.safe_load_all(open(sys.argv[2]).read().replace("203.0.113.20", sys.argv[1])) if d]
-json.dump(docs[0], sys.stdout)
-PY
-  kubectl -n databases patch cluster postgresql --type merge --patch-file "$L/pitr-patch.json" >/dev/null
-  python3 - "$BACKUP_GW" deploy/kubernetes/ha-postgres/pitr.yaml <<'PY' | kubectl apply -f - >/dev/null
+  python3 - "$BACKUP_GW" deploy/kubernetes/ha-postgres/pitr.yaml deploy/kubernetes/ha-postgres/cluster.yaml "$L" <<'PY'
 import sys, yaml
-docs = [d for d in yaml.safe_load_all(open(sys.argv[2]).read()) if d]
-print(yaml.safe_dump(docs[1]))
+docs = [d for d in yaml.safe_load_all(open(sys.argv[2]).read().replace("203.0.113.20", sys.argv[1])) if d]
+by = {d.get("kind", "patch"): d for d in docs}
+def merge(target, patch):   # RFC 7386, as kubectl patch --type merge
+    if not isinstance(patch, dict): return patch
+    target = dict(target) if isinstance(target, dict) else {}
+    for k, v in patch.items():
+        if v is None: target.pop(k, None)
+        else: target[k] = merge(target.get(k), v)
+    return target
+cluster = next(d for d in yaml.safe_load_all(open(sys.argv[3])) if d and d["kind"] == "Cluster")
+open(f"{sys.argv[4]}/pitr-objectstore.yaml", "w").write(yaml.safe_dump(by["ObjectStore"]))
+open(f"{sys.argv[4]}/pitr-cluster.yaml", "w").write(yaml.safe_dump(merge(cluster, by["patch"])))
+open(f"{sys.argv[4]}/pitr-schedule.yaml", "w").write(yaml.safe_dump(by["ScheduledBackup"]))
 PY
+  kubectl apply -f "$L/pitr-objectstore.yaml" >/dev/null
+  kubectl apply -f "$L/pitr-cluster.yaml" >/dev/null
+  kubectl apply -f "$L/pitr-schedule.yaml" >/dev/null
   for _ in $(seq 1 240); do [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}' 2>/dev/null)" == 3 ]] && break; sleep 3; done
   [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}')" == 3 ]] || { kubectl -n databases get cluster,pods; echo "FAIL: the PostgreSQL cluster did not reach 3 ready instances" >&2; exit 1; }
   # the first base backup completes and the WAL is archived: without them there is no recovery point

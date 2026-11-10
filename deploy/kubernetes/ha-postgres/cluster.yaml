@@ -21,7 +21,11 @@ spec:
   imagePullPolicy: IfNotPresent
   enableSuperuserAccess: true
   superuserSecret: {name: postgres-superuser}
-  primaryUpdateStrategy: unsupervised         # a rolling update restarts the standbys first, then switches the primary over
+  primaryUpdateStrategy: unsupervised         # a rolling update recreates the standbys first, the primary last
+  primaryUpdateMethod: switchover             # ...after moving the primary role to an updated standby. The default, "restart", recreates the
+                                              # primary in place: its smart shutdown refuses every new connection for up to 180 s
+                                              # (smartShutdownTimeout) while the pools hold theirs open (README.md). With switchover an image
+                                              # change and a parameter change cannot go in the same update: make them one after the other
   storage: {size: 5Gi}
   resources:
     requests: {cpu: 100m, memory: 256Mi}

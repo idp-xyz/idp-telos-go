@@ -9,6 +9,10 @@
 #   3  wait for the new primary, the CMI's readiness, three ready instances again
 #   4  every acknowledged record is in the database of the new primary; bob reads his marker; the CMI Pods did not restart; all client
 #      connections are TLS
+#
+#   ROLLOUT=1 bash tests/kind/failover-drill.sh   instead of a kill in 2, a rolling restart of the cluster (what an image, configuration
+#      or plugin change does: every instance recreated, the standbys first, the primary last by its primaryUpdateMethod), and the
+#      longest stretch of refused writes during it is what is limited
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
@@ -18,7 +22,10 @@ ISSUER=https://127.0.0.1:17443/realms/idp
 [[ -f $L/clients.json ]] || { echo "BLOCKED: no $L/clients.json: run tests/kind/full.sh first" >&2; exit 2; }
 log() { echo "== $*"; }
 PFPIDS=()
-cleanup() { for p in "${PFPIDS[@]:-}"; do [[ -n "$p" ]] && { pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; } || true; done; }
+cleanup() {
+  for p in "${PFPIDS[@]:-}"; do [[ -n "$p" ]] && { pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; } || true; done
+  [[ -z "${PROBE:-}" ]] || kubectl -n databases delete pod pg-newconn-probe --ignore-not-found --wait=false >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 # a port-forward that is there when we need it (the platform's own forwards may or may not be running)
 ensure_forward() { # ensure_forward NAMESPACE SERVICE LOCAL:REMOTE
@@ -78,6 +85,78 @@ for _ in $(seq 1 90); do [[ "$(grep -c '^ack' "$WLOG")" -ge 15 ]] && break; slee
 [[ "$(grep -c '^ack' "$WLOG")" -ge 15 ]] || { cat "$WLOG" | tail -5; echo "FAIL: the CMI does not acknowledge writes" >&2; exit 1; }
 echo "PASS: the CMI acknowledges writes ($(grep -c '^ack' "$WLOG") so far) on primary $(primary)"
 
+if [[ "${ROLLOUT:-}" == 1 ]]; then
+  # the CMI's writes reuse pooled connections; a starting Pod, a Job or a growing pool opens new ones. A Pod with the backup Jobs'
+  # label (the policies let it reach PostgreSQL) opens a new verify-full connection to the Service postgresql every 0.5 s
+  kubectl -n databases delete pod pg-newconn-probe --ignore-not-found --wait=true >/dev/null
+  kubectl apply -f - >/dev/null <<'EOF'
+apiVersion: v1
+kind: Pod
+metadata: {name: pg-newconn-probe, namespace: databases, labels: {app.kubernetes.io/name: pg-backup}}
+spec:
+  restartPolicy: Never
+  securityContext: {runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: public.ecr.aws/docker/library/postgres:17-alpine
+      imagePullPolicy: IfNotPresent
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      env: [{name: PGPASSWORD, valueFrom: {secretKeyRef: {name: postgres-superuser, key: password}}}]
+      command: [sh, -c, 'while true; do if out="$(psql "host=postgresql.databases.svc.cluster.local dbname=postgres user=postgres sslmode=verify-full sslrootcert=/ca/ca.crt connect_timeout=2" -tAXc "select 1" 2>&1)"; then echo ok; else echo "fail $(echo "$out" | head -1)"; fi; sleep 0.5; done']
+      volumeMounts: [{name: ca, mountPath: /ca, readOnly: true}]
+  volumes: [{name: ca, configMap: {name: pg-ca}}]
+EOF
+  PROBE=1
+  kubectl -n databases wait --for=condition=Ready pod/pg-newconn-probe --timeout=120s >/dev/null
+  for _ in $(seq 1 30); do [[ "$(kubectl -n databases logs pg-newconn-probe 2>/dev/null | grep -c '^ok')" -ge 3 ]] && break; sleep 1; done
+  [[ "$(kubectl -n databases logs pg-newconn-probe | grep -c '^ok')" -ge 3 ]] || { kubectl -n databases logs pg-newconn-probe | tail -3; echo "FAIL: the probe cannot open a connection" >&2; exit 1; }
+  log "2 a rolling restart of the cluster (primaryUpdateMethod $(kubectl -n databases get cluster postgresql -o jsonpath='{.spec.primaryUpdateMethod}'))"
+  OLD="$(primary)"; START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; T0=$SECONDS
+  kubectl -n databases annotate cluster postgresql kubectl.kubernetes.io/restartedAt="$START" --overwrite >/dev/null   # as kubectl cnpg restart does
+  done_=""
+  for _ in $(seq 1 300); do
+    fresh="$(kubectl -n databases get pods -l cnpg.io/cluster=postgresql,cnpg.io/podRole=instance -o json | python3 -c '
+import json, sys
+print(sum(p["metadata"]["creationTimestamp"] >= sys.argv[1] and all(c.get("ready") for c in p["status"].get("containerStatuses", []))
+          for p in json.load(sys.stdin)["items"]))' "$START")"
+    [[ "$fresh" == 3 && "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.phase}')" == "Cluster in healthy state" ]] && { done_=1; break; }
+    sleep 2
+  done
+  [[ -n "$done_" ]] || { kubectl -n databases get cluster,pods; echo "FAIL: the rolling restart did not complete in 10 minutes" >&2; exit 1; }
+  sleep 5   # a few writes after the last instance is back
+  OUT="$(python3 - "$WLOG" <<'PY'
+import sys
+rows = sorted(([r[0], float(r[2])] for r in (l.split() for l in open(sys.argv[1]) if l.strip())), key=lambda r: r[1])
+longest, first_fail = 0.0, None
+for kind, t in rows:
+    if kind == "fail" and first_fail is None: first_fail = t
+    if kind == "ack" and first_fail is not None: longest, first_fail = max(longest, t - first_fail), None
+print(round(longest, 1) if first_fail is None else "open")
+PY
+)"
+  [[ "$OUT" != open ]] || { tail -8 "$WLOG"; echo "FAIL: the CMI never acknowledged a write after the rolling restart" >&2; exit 1; }
+  kubectl -n databases logs pg-newconn-probe --timestamps > "$L/newconn-probe.log"
+  NEWC="$(python3 - "$L/newconn-probe.log" "$START" <<'PY'
+import sys, datetime as dt
+def t(s): return dt.datetime.fromisoformat(s[:26].rstrip("Z") + "+00:00").timestamp()
+start = t(sys.argv[2].replace("Z", ".000000"))
+rows = [(l.split()[1], t(l.split()[0])) for l in open(sys.argv[1]) if len(l.split()) > 1]
+longest, first_fail, fails, reasons = 0.0, None, 0, {}
+for kind, ts in rows:
+    if ts < start: continue
+    if kind == "fail":
+        fails += 1
+        if first_fail is None: first_fail = ts
+    if kind == "ok" and first_fail is not None: longest, first_fail = max(longest, ts - first_fail), None
+print("open" if first_fail is not None else f"{round(longest, 1)} {fails}")
+PY
+)"
+  [[ "$NEWC" != open ]] || { tail -5 "$L/newconn-probe.log"; echo "FAIL: no new connection succeeds after the rolling restart" >&2; exit 1; }
+  echo "   the CMI's longest stretch of refused writes: $OUT s; new connections: ${NEWC#* } refused, the longest stretch ${NEWC%% *} s ($(grep fail "$L/newconn-probe.log" | sed 's/^[^ ]* fail //' | cut -c1-70 | sort | uniq -c | sort -rn | head -2 | tr -s ' ' | paste -sd ';'))"
+  (( $(python3 -c "print(int(float($OUT) > 90))") == 0 )) || { echo "FAIL: writes were refused for $OUT s in a row during the rolling restart (limit 90)" >&2; exit 1; }
+  (( $(python3 -c "print(int(float('${NEWC%% *}') > 60))") == 0 )) || { echo "FAIL: new connections were refused for ${NEWC%% *} s in a row during the rolling restart (limit 60)" >&2; exit 1; }
+  echo "PASS: rolling restart of the 3 instances in $((SECONDS - T0)) s, primary $OLD -> $(primary); the longest stretch of refused writes was $OUT s, of refused new connections ${NEWC%% *} s"
+else
 log "2 the primary Pod is killed"
 OLD="$(primary)"; KILL_AT="$(date +%s.%N)"
 kubectl -n databases delete pod "$OLD" --grace-period=0 --force >/dev/null 2>&1
@@ -100,6 +179,7 @@ done
 [[ -n "$OUT" ]] || { tail -8 "$WLOG"; echo "FAIL: the CMI never acknowledged a write after the failover" >&2; exit 1; }
 (( $(python3 -c "print(int(float($OUT) > 90))") == 0 )) || { echo "FAIL: writes were refused for $OUT s (limit 90)" >&2; exit 1; }
 echo "PASS: $OLD killed, $NEW promoted; the CMI refused writes for $OUT s, then acknowledged them again, with no restart"
+fi
 
 log "3 the cluster is whole again; nothing acknowledged is missing"
 sleep 3; rm -f "$WLOG.run"; sleep 1; wait "$WPID" 2>/dev/null || true

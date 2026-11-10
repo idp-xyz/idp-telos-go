@@ -13,8 +13,9 @@ spec:
   ports: [{name: pg, port: 5432, targetPort: 5432}]
 ---
 # The instances talk to each other (streaming replication on 5432, the instance manager's status on 8000), the operator reads their
-# status, and each instance manager talks to the Kubernetes API server (the address is replaced by tests/kind/full.sh, as for the
-# sandbox). The components and the backup Jobs are already allowed in by the "postgresql" and "postgresql-from-backup" policies,
+# status, each instance manager talks to the Kubernetes API server (the address is replaced by tests/kind/full.sh, as for the
+# sandbox), and the Barman Cloud sidecar in each instance reads its ObjectStore from the API server and writes the WAL and the base
+# backups to the object store. The components and the backup Jobs are already allowed in by the "postgresql" and "postgresql-from-backup" policies,
 # which select app.kubernetes.io/name=postgresql, a label CloudNativePG puts on its Pods.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -40,9 +41,12 @@ spec:
         - ipBlock: {cidr: 203.0.113.20/32}   # the object store of WAL archive and base backups; tests/kind/full.sh replaces it
       ports: [{protocol: TCP, port: 19000}, {protocol: TCP, port: 443}]
 ---
-# The operator's namespace: default deny, then only what the operator does. It reads and writes the Kubernetes API (the address is
-# replaced by tests/kind/full.sh), asks every instance for its status on 8000 and talks SQL to it on 5432, and resolves names; the API
-# server calls its webhooks on 9443 (the source is the API server's own address: on a managed cluster use the control plane's range).
+# The operator's namespace: default deny, then only what each of its two Deployments does. The operator reads and writes the
+# Kubernetes API (the address is replaced by tests/kind/full.sh), asks every instance for its status on 8000 and talks SQL to it on
+# 5432, calls the Barman Cloud plugin on 9090 (gRPC, mutual TLS with cert-manager's certificates), and resolves names; the API server
+# calls its webhooks on 9443 (the source is the API server's own address: on a managed cluster use the control plane's range). The
+# plugin is called by the operator only and talks to the API server only: the WAL and the base backups go to the object store from
+# the sidecar in each instance (the policy postgresql-ha above), not from here.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -58,7 +62,7 @@ metadata:
   name: operator
   namespace: cnpg-system
 spec:
-  podSelector: {}
+  podSelector: {matchLabels: {app.kubernetes.io/name: cloudnative-pg}}
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
@@ -76,3 +80,61 @@ spec:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: databases}}
           podSelector: {matchExpressions: [{key: cnpg.io/cluster, operator: Exists}]}   # every cluster in the namespace (also a cluster recovered next to this one)
       ports: [{protocol: TCP, port: 5432}, {protocol: TCP, port: 8000}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cnpg-system}}
+          podSelector: {matchLabels: {app: barman-cloud}}   # the Barman Cloud plugin
+      ports: [{protocol: TCP, port: 9090}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: barman-cloud
+  namespace: cnpg-system
+spec:
+  podSelector: {matchLabels: {app: barman-cloud}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: cloudnative-pg}}   # the operator
+      ports: [{protocol: TCP, port: 9090}]
+  egress:
+    - to:
+        - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server; tests/kind/full.sh replaces it
+      ports: [{protocol: TCP, port: 6443}, {protocol: TCP, port: 443}]
+---
+# cert-manager (it issues the plugin's two certificates): default deny; its three Deployments talk to the API server only, and the
+# API server calls its webhook on 10250. No ACME: the issuers here are self-signed, nothing goes out of the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/instance: cert-manager}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server; tests/kind/full.sh replaces it
+      ports: [{protocol: TCP, port: 6443}, {protocol: TCP, port: 443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: webhook
+  namespace: cert-manager
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: webhook}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server (the admission webhook); tests/kind/full.sh replaces it
+      ports: [{protocol: TCP, port: 10250}]

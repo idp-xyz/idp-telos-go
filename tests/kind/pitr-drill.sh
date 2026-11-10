@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Point-in-time recovery of the HA PostgreSQL (tests/kind/full.sh with PG_HA=1; deploy/kubernetes/ha-postgres/pitr.yaml): a mistake that
 # replication copies to every standby (here a DELETE of all rows) is undone by recreating the cluster from the base backup and the
-# archived WAL, stopped at the instant before the mistake. DEV ONLY: one kind node and a MinIO on the host as the object store.
+# archived WAL, stopped at the instant before the mistake. Archiving, the base backup and the recovery all go through the Barman Cloud
+# plugin. DEV ONLY: one kind node and a MinIO on the host as the object store.
 #
 #   1  preconditions: continuous archiving is on, a base backup completed
 #   2  a table with 50 rows; the instant T is read from the server; a few seconds later 20 more rows, then DELETE of every row
@@ -51,11 +52,15 @@ done
 echo "   archived up to $A"
 
 log "4. recovery to T into a new cluster"
-# the object store and its credentials as the running cluster has them
-OBJ="$(kubectl -n $N get cluster postgresql -o json | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["spec"]["backup"]["barmanObjectStore"]))')"
-python3 - "$OBJ" "$T" <<'PY' | kubectl apply -f - >/dev/null
-import json, sys, yaml
-obj = json.loads(sys.argv[1])
+# the ObjectStore the running cluster archives to (through the Barman Cloud plugin): the new cluster reads the base backup and the WAL
+# of the server "postgresql" from it
+STORE="$(kubectl -n $N get cluster postgresql -o json | python3 -c '
+import json, sys
+p = [p for p in json.load(sys.stdin)["spec"].get("plugins", []) if p["name"] == "barman-cloud.cloudnative-pg.io" and p.get("isWALArchiver")]
+print(p[0]["parameters"]["barmanObjectName"] if p else "")')"
+[[ -n "$STORE" ]] || fail "the cluster does not archive through the Barman Cloud plugin"
+python3 - "$STORE" "$T" <<'PY' | kubectl apply -f - >/dev/null
+import sys, yaml
 print(yaml.safe_dump({
     "apiVersion": "postgresql.cnpg.io/v1", "kind": "Cluster", "metadata": {"name": "postgresql-restore", "namespace": "databases"},
     "spec": {
@@ -64,7 +69,8 @@ print(yaml.safe_dump({
         "storage": {"size": "5Gi"}, "resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}},
         "certificates": {"serverCASecret": "postgres-server-ca", "serverTLSSecret": "postgres-tls"},
         "bootstrap": {"recovery": {"source": "origin", "recoveryTarget": {"targetTime": sys.argv[2]}}},
-        "externalClusters": [{"name": "origin", "barmanObjectStore": {**obj, "serverName": "postgresql"}}],
+        "externalClusters": [{"name": "origin", "plugin": {"name": "barman-cloud.cloudnative-pg.io",
+                                                           "parameters": {"barmanObjectName": sys.argv[1], "serverName": "postgresql"}}}],
     }}))
 PY
 # the same policy as the running cluster's (instances, operator, API server, object store), for the new cluster's label
