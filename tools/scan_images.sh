@@ -36,16 +36,19 @@ echo "## Image vulnerabilities (trivy ${TRIVY##*:}, HIGH and CRITICAL with a fix
 printf '| image | findings | detail |\n|---|---|---|\n'
 for img in "${IMAGES[@]}"; do
   if ! docker image inspect "$img" >/dev/null 2>&1; then docker pull -q "$img" >/dev/null 2>&1 || { printf '| `%s` | not scanned | image not available |\n' "$img"; status=1; continue; }; fi
-  json="$(mktemp)"   # a file, not a variable: an image with many findings is more than an environment can carry
-  docker run --rm "${PROXY[@]}" -v /var/run/docker.sock:/var/run/docker.sock -v "$CACHE:/root/.cache/trivy" "$TRIVY" image --quiet "${SKIP[@]}" \
-    --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --format json "$img" >"$json" 2>/dev/null || true
-  python3 - "$img" "$json" <<'PY' || status=1
+  json="$(mktemp)"; err="$(mktemp)"   # files, not variables: an image with many findings is more than an environment can carry
+  trivy_() { docker run --rm "${PROXY[@]}" -v /var/run/docker.sock:/var/run/docker.sock -v "$CACHE:/root/.cache/trivy" "$TRIVY" image --quiet "${SKIP[@]}" \
+    "$@" --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --format json "$img" >"$json" 2>"$err"; }
+  # the daemon's copy first; when trivy cannot read an image from the daemon (the cert-manager images on the CI runner), from the registry
+  trivy_ || trivy_ --image-src remote || true
+  python3 - "$img" "$json" "$err" <<'PY' || status=1
 import json, sys
 img = sys.argv[1]
 try:
     d = json.load(open(sys.argv[2]))
 except Exception:
-    print(f"| `{img}` | not scanned | trivy gave no result (database unavailable?) |"); sys.exit(1)
+    why = ([l.strip() for l in open(sys.argv[3], errors="replace") if l.strip()] or ["no output (database unavailable?)"])[-1]
+    print(f"| `{img}` | not scanned | trivy gave no result: {why[:160].replace('|', '/')} |"); sys.exit(1)
 rows = set()
 for r in d.get("Results", []):
     for v in r.get("Vulnerabilities") or []:
@@ -55,6 +58,6 @@ detail = "<br>".join(f"{s} {i} {p} {a} → {f}" for s, i, p, a, f in rows[:12]) 
 print(f"| `{img}` | {len(rows)} | {detail} |")
 sys.exit(1 if rows else 0)
 PY
-  rm -f "$json"
+  rm -f "$json" "$err"
 done
 [[ -z "${STRICT:-}" ]] && exit 0 || exit "$status"
