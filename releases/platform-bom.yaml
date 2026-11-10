@@ -10,7 +10,7 @@ contracts:
 components:
 - name: idp-mcp
   repository: idp-xyz/idp-mcp
-  commit: eb56a679b195deeb8a922e8430043292dc0ad50e
+  commit: 1af73f63f264a489dbed8bfddb9189f0aed43d91
   clean: true
   contract:
     namespace: idp.telos.mcp
@@ -20,7 +20,7 @@ components:
     id: sha256:748895a7eb6037c0d949dd5137a32ac583e64b685272e2542093df0729770da1
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: 901d5079d6f8c4760995d8b1f7b00d9615ccf940
+  commit: 90b8e0e265a1ee2cbb8a34040fee23ec2f03dc7b
   clean: true
   contract:
     namespace: idp.telos.host
@@ -30,14 +30,14 @@ components:
     id: sha256:cdec47cc63896c53e2cce10da612ff4595c43b611ec4c16e840b08554f665eb2
 - name: idp-eer
   repository: idp-xyz/idp-eer
-  commit: c3699f2001b4e3d82dcf8673caf684913ea867ac
+  commit: 651fba91b21fa090b332123a823aa143a112a9d6
   clean: true
   image:
     reference: eer-runtime:dev
     id: sha256:de2cc9eeb18d95afa2bb2dd668b1656c91e6e5393296c4d0453230a4fd91afeb
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: fda0856c7b166140ac32df541e8e5098da18a814
+  commit: 4858d7156d9a93e00ed8e050f70207f29ee34389
   clean: true
   contract:
     namespace: idp.telos.cmi
@@ -57,7 +57,7 @@ components:
     id: sha256:b7e3014393a842fa0b8227e654f45da4134d5371e304c00daf77ae3a12e3c86f
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: d5f6ce94d0c0e22d7befbc20aedc57e86e327a4f
+  commit: 07b888f168902326dace1e29e9e33d0afe59690c
   clean: true
   image:
     reference: idp-sandbox:dev

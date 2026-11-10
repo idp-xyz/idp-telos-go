@@ -60,7 +60,7 @@ def main() -> int:
             else:
                 url = f"https://github.com/{c['repository']}.git"
             subprocess.run(["git", "clone", "--quiet", "--filter=blob:none", url, name], check=True, env=env)
-            subprocess.run(["git", "-C", name, "checkout", "--quiet", c["commit"]], check=True)
+            subprocess.run(["git", "-C", name, "checkout", "--quiet", c["commit"]], check=True, env=env)   # env: a partial clone fetches the blobs of an older commit lazily, over ssh with the deploy key
             print(f"{name} {c['commit'][:12]}")
     return 0
 
