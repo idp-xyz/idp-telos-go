@@ -67,6 +67,7 @@ jobs:
       - name: Image vulnerabilities in our own images (trivy, HIGH and CRITICAL with a fix fail the build)
         run: |
           bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
+          bash deploy/images/postgres-ha/build.sh idp-postgres-ha:17-dev
           STRICT=1 bash tools/scan_images.sh --own | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Image vulnerabilities in the third-party images (trivy; reported, not gating)
         run: bash tools/scan_images.sh --third-party | tee -a "$GITHUB_STEP_SUMMARY"
