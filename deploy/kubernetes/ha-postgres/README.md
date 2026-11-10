@@ -15,10 +15,12 @@ failure and a maintenance outage; this is the HA option. Two ways to get it, in 
 | File | Content |
 |---|---|
 | `cluster.yaml` | the `Cluster`: 3 instances, **synchronous** replication (a commit is acknowledged only after one standby has it; with no standby the primary blocks rather than acknowledge a write only it has), quorum-checked promotion, TLS from secrets, TLS 1.2 or later, scram-sha-256, `pg_hba` that rejects cleartext TCP, anti-affinity |
+| `pitr.yaml` | continuous WAL archiving and a nightly base backup to the object store (merge patch of the `Cluster` plus a `ScheduledBackup`), 7 days retained, `archive_timeout` 60 s |
 | `platform.yaml` | the Service `postgresql` (always the primary: the name every component already connects to) and the NetworkPolicy of the instances |
 | `../../images/postgres-ha/` | the PostgreSQL image: the CloudNativePG operand plus pgvector |
 | `../../../tests/kind/ha-postgres.sh` | the cluster on its own on kind: kill the primary under a writer |
 | `../../../tests/kind/failover-drill.sh` | the whole platform on the cluster (`PG_HA=1 bash tests/kind/full.sh`): kill the primary while the CMI takes writes |
+| `../../../tests/kind/pitr-drill.sh` | point-in-time recovery: a DELETE that replication copied everywhere is undone by a new cluster recovered to the instant before it |
 | `../../../tools/ha_check.py` | static check of these manifests (CI): the properties above cannot be weakened unnoticed |
 
 ## What was measured (kind, one node, 2026-11-10)
@@ -36,14 +38,26 @@ The 26 to 28 s is mostly the liveness check noticing the loss plus the promotion
 price of more false failovers. Applications see it as a short window of failed writes: they must retry (the HOST's memory writes
 already do, with backoff).
 
+## Point-in-time recovery (measured on kind, 2026-11-10)
+
+Replication protects against a lost instance, not against a mistaken statement (it is replicated too). Every instance archives its WAL
+to the object store as a segment fills and at least every 60 s (`archive_timeout`: the recovery point objective of a quiet database),
+and a base backup is taken nightly from a standby. `tests/kind/pitr-drill.sh`: 50 rows, the instant T, 20 more rows, `DELETE` of all
+of them; a new cluster `postgresql-restore` bootstrapped from the object store with `recoveryTarget.targetTime = T` holds exactly the
+50 rows (none of the 20, no DELETE), in **35–40 s** for a 1 MB database; the time grows with the size of the base backup and the WAL to
+replay. The recovered cluster is a new one: point the applications at it (or copy the data back) once it is checked.
+
 ## What this does not give you
 
 - **Spreading over nodes and zones.** kind has one node; the anti-affinity is `preferred` so the test runs. In production use
   `required` and a topology key of the zone (`topology.kubernetes.io/zone`) so that losing a node or a zone leaves a standby, and run
   CloudNativePG's `PodDisruptionBudget`s through a real node drain.
-- **WAL archiving and point-in-time recovery.** The hourly encrypted `pg_dump` (deploy/kubernetes/full/backup.yaml) bounds data loss to
-  an hour in a disaster; CloudNativePG can archive WAL to object storage (the Barman Cloud plugin) for recovery to a chosen second.
-  Not set up here.
+- **Encryption of the WAL archive and of the base backups.** They go to the object store as gzip, readable by whoever can read the
+  bucket. The `pg_dump` backups are age-encrypted (deploy/images/pg-backup); the archive is not. Production uses server-side
+  encryption (SSE-KMS, a bucket key) and a bucket the instances can write but not delete; here MinIO has no KMS.
+- **The Barman Cloud plugin.** `pitr.yaml` uses the in-tree `barmanObjectStore` of CloudNativePG 1.30, which the operator marks
+  deprecated and removes in **1.31.0**. The operator is pinned at 1.30.1; moving to 1.31 means the plugin (it needs cert-manager)
+  and a change of `pitr.yaml` and of the recovery's `externalClusters` only.
 - **The operator's own policies.** `cnpg-system` has no NetworkPolicy here; production gives it one (egress to the API server and to the
   instances on 5432 and 8000, ingress from the API server for the webhook on 9443).
 - **A supported upgrade path.** Operator, PostgreSQL minor and major upgrades have their own procedures (rolling update with a switchover

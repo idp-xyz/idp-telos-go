@@ -6,7 +6,9 @@ What it holds the cluster to (the properties tests/kind/ha-postgres.sh and failo
 three or more instances; synchronous replication with at least one synchronous standby and data durability "required" (no
 acknowledged write that only the failed primary has); TLS from secrets (no self-signed default), a minimum of TLS 1.2, scram-sha-256,
 and a pg_hba that rejects cleartext TCP before CloudNativePG's catch-all; instances spread over nodes; the policy that lets the
-instances, the operator and the API server talk, and nothing wider; the Service "postgresql" that follows the primary.
+instances, the operator, the API server and the object store talk, and nothing wider; the Service "postgresql" that follows the primary;
+continuous WAL archiving with a bounded archive_timeout, credentials from a Secret, a retention policy and a scheduled base backup
+(pitr.yaml, which tests/kind/pitr-drill.sh then recovers from).
 """
 
 import pathlib
@@ -62,12 +64,30 @@ def main() -> int:
             for dst in rule.get("to", []):
                 if "ipBlock" in dst and not dst["ipBlock"]["cidr"].endswith("/32"):
                     problems.append("the instances' egress to the API server must be a single address (/32)")
+    pitr = [d for d in yaml.safe_load_all((ROOT / "pitr.yaml").read_text()) if d]
+    patch = next((d for d in pitr if "kind" not in d), {})
+    store = patch.get("spec", {}).get("backup", {}).get("barmanObjectStore", {})
+    if not str(store.get("destinationPath", "")).startswith(("s3://", "gs://", "https://")):
+        problems.append("pitr.yaml: barmanObjectStore.destinationPath must be an object store (s3://, gs://, https://)")
+    creds = store.get("s3Credentials", {})
+    if not all(isinstance(creds.get(k), dict) and creds[k].get("name") for k in ("accessKeyId", "secretAccessKey")):
+        problems.append("pitr.yaml: the object store credentials must come from a Secret (name and key), not inline")
+    if not patch.get("spec", {}).get("backup", {}).get("retentionPolicy"):
+        problems.append("pitr.yaml: a retentionPolicy is required (the archive must not grow without bound)")
+    timeout = int(patch.get("spec", {}).get("postgresql", {}).get("parameters", {}).get("archive_timeout", 0) or 0)
+    if not 0 < timeout <= 300:
+        problems.append("pitr.yaml: archive_timeout must be set, at most 300 s (it is the recovery point objective of a quiet database)")
+    if not any(d.get("kind") == "ScheduledBackup" and d["spec"]["cluster"]["name"] == "postgresql" for d in pitr):
+        problems.append("pitr.yaml: no ScheduledBackup for the cluster: recovery needs a base backup to start from")
+    single = [r for r in (pol or {"spec": {}})["spec"].get("egress", []) for dst in r.get("to", []) if dst.get("ipBlock", {}).get("cidr", "").endswith("/32")]
+    if pol and len(single) < 2:   # the API server and the object store, each one address
+        problems.append("the instances' policy has no egress to the object store (a single address)")
     if problems:
         for p in problems:
             print("FAIL:", p)
         return 1
     print("PASSED: the HA PostgreSQL manifests: %d instances, synchronous quorum with data durability required, TLS from secrets, cleartext rejected, "
-          "policy limited to the instances, the operator and the API server" % spec["instances"])
+          "policy limited to the instances, the operator, the API server and the object store; WAL archiving, retention and a scheduled base backup" % spec["instances"])
     return 0
 
 

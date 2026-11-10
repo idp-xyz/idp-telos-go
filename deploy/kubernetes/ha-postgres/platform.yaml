@@ -36,3 +36,6 @@ spec:
     - to:
         - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server (kubectl get endpoints kubernetes); tests/kind/full.sh replaces it
       ports: [{protocol: TCP, port: 6443}, {protocol: TCP, port: 443}]
+    - to:
+        - ipBlock: {cidr: 203.0.113.20/32}   # the object store of WAL archive and base backups; tests/kind/full.sh replaces it
+      ports: [{protocol: TCP, port: 19000}, {protocol: TCP, port: 443}]

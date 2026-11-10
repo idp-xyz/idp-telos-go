@@ -144,6 +144,7 @@ PostgreSQL 开启 TLS（1.2 及以上），服务端证书由 `.local/kind-ca` �
 - `bash tests/kind/failover-drill.sh`：整平台跑在集群上，杀主库时 CMI 持续写入，检查 CMI 自己恢复（Pod 不重启）、超时内重新确认写入、没有被确认的记录丢失、所有客户端连接仍是 TLS；
 - 测得（kind，单节点）：主库被强制删除后新主库接管，写入被拒绝约 26 到 29 秒，被确认的写入 0 丢失，旧主库自己变成备库；
 - operator 与 PostgreSQL 镜像都要先用 crane 放进 Docker 守护进程（`ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1`、`ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie`），`full.sh` 会再构建带 pgvector 的 `idp-postgres-ha:17-dev` 并加载进节点；
+- 按时间点恢复：集群持续把 WAL 归档到对象存储（至少每 60 秒一次）并每天做基础备份；`bash tests/kind/pitr-drill.sh` 演示“误 DELETE 了全部数据”后，用 `recoveryTarget.targetTime` 在新集群里恢复到误操作前一刻（50 行回来、之后的 20 行和 DELETE 不重放，kind 上 40 秒）。归档本身没有加密（生产用桶的服务端加密），内置 barman 在 CloudNativePG 1.31 被移除（operator 固定在 1.30.1，之后换 Barman Cloud 插件），见 `deploy/kubernetes/ha-postgres/README.md`；
 - HA 模式下 `kubectl exec` 要进当前主库：`kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}'`，容器仍写 `-c postgres`。
 
 ## 访问集群里的平台

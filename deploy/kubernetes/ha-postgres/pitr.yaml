@@ -1,0 +1,38 @@
+# Continuous archiving and point-in-time recovery for the HA cluster (tests/kind/pitr-drill.sh demonstrates it): every instance's WAL
+# goes to the object store as soon as a segment is full (or archive_timeout passes), a base backup is taken every night, and the
+# cluster can be recreated at any moment between the oldest base backup and the last archived segment. This bounds the loss of a
+# disaster that replication cannot cover (a mistaken DELETE, a dropped table, a corrupted write that replicated): RPO is
+# archive_timeout, not the age of the nightly dump.
+#
+# Applied to the running cluster as a merge patch (kubectl patch cluster postgresql --type merge --patch-file ...), the first
+# document below; the second is the schedule. The endpoint is the object store; tests/kind/full.sh replaces the placeholder with the
+# MinIO on the host, production writes its own bucket (S3, GCS or Azure; the credentials in the Secret pitr-s3).
+#
+# The in-tree barmanObjectStore of CloudNativePG 1.30 is used (the image carries barman-cloud, deploy/images/postgres-ha); the
+# operator's roadmap moves it to the Barman Cloud plugin, which needs cert-manager. Moving is a change of this file only.
+spec:
+  backup:
+    retentionPolicy: 7d
+    barmanObjectStore:
+      destinationPath: s3://backups/wal/
+      endpointURL: http://203.0.113.20:19000
+      s3Credentials:
+        accessKeyId: {name: pitr-s3, key: ACCESS_KEY_ID}
+        secretAccessKey: {name: pitr-s3, key: ACCESS_SECRET_KEY}
+      wal: {compression: gzip, maxParallel: 2}
+      data: {compression: gzip}
+  postgresql:
+    parameters:
+      archive_timeout: "60"        # a quiet database still ships its tail at least every minute
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: postgresql-nightly
+  namespace: databases
+spec:
+  schedule: "0 0 2 * * *"          # six fields (seconds first): 02:00 every day
+  cluster: {name: postgresql}
+  backupOwnerReference: self
+  immediate: true                  # the first base backup right away, so recovery is possible from the start
+  target: prefer-standby           # the base backup is read from a standby: the primary is not loaded

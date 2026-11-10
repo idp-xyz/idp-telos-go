@@ -303,9 +303,25 @@ kubectl -n keycloak create secret generic keycloak-tls --from-file=server.crt="$
 kubectl apply -f "$L/phase-1-infra.yaml" >/dev/null
 if [[ "$PG_HA" == 1 ]]; then
   kubectl apply -f deploy/kubernetes/ha-postgres/cluster.yaml >/dev/null
-  sed "s#203.0.113.10/32#$APIIP/32#" deploy/kubernetes/ha-postgres/platform.yaml | kubectl apply -f - >/dev/null
+  sed -e "s#203.0.113.10/32#$APIIP/32#" -e "s#203.0.113.20/32#$BACKUP_GW/32#" deploy/kubernetes/ha-postgres/platform.yaml | kubectl apply -f - >/dev/null
+  # continuous archiving of the WAL and a base backup to the same object store (deploy/kubernetes/ha-postgres/pitr.yaml)
+  kubectl -n databases create secret generic pitr-s3 --from-literal=ACCESS_KEY_ID="$BK_AK" --from-literal=ACCESS_SECRET_KEY="$BK_SK" >/dev/null
+  python3 - "$BACKUP_GW" deploy/kubernetes/ha-postgres/pitr.yaml > "$L/pitr-patch.json" <<'PY'
+import json, sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[2]).read().replace("203.0.113.20", sys.argv[1])) if d]
+json.dump(docs[0], sys.stdout)
+PY
+  kubectl -n databases patch cluster postgresql --type merge --patch-file "$L/pitr-patch.json" >/dev/null
+  python3 - "$BACKUP_GW" deploy/kubernetes/ha-postgres/pitr.yaml <<'PY' | kubectl apply -f - >/dev/null
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[2]).read()) if d]
+print(yaml.safe_dump(docs[1]))
+PY
   for _ in $(seq 1 240); do [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}' 2>/dev/null)" == 3 ]] && break; sleep 3; done
   [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}')" == 3 ]] || { kubectl -n databases get cluster,pods; echo "FAIL: the PostgreSQL cluster did not reach 3 ready instances" >&2; exit 1; }
+  # the first base backup completes and the WAL is archived: without them there is no recovery point
+  for _ in $(seq 1 100); do [[ "$(kubectl -n databases get backups -o jsonpath='{.items[*].status.phase}' 2>/dev/null)" == *completed* ]] && break; sleep 3; done
+  [[ "$(kubectl -n databases get backups -o jsonpath='{.items[*].status.phase}')" == *completed* ]] || { kubectl -n databases get backups,cluster; echo "FAIL: no base backup of the HA cluster completed" >&2; exit 1; }
 else
   kubectl -n databases rollout status deploy/postgresql --timeout=300s
 fi
