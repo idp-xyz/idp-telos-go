@@ -128,6 +128,14 @@ PostgreSQL 的数据卷是 PVC `postgres-data`（5Gi）。`backup.yaml` 的 Cron
 
 范围：数据在 Pod 重启和节点重启后保留；**重跑 `full.sh` 会重建命名空间，数据随之清空**，密钥与备份密钥对、MinIO 凭据也每次重新生成。宿主机上的 MinIO 在集群之外，但与集群在同一台机器上，**防得住集群丢失，防不住机器丢失**；生产要用异地的对象存储（AWS S3、R2、OCI 等，改 `backup-target` 即可）、把私钥放进密钥管理或离线保存，并用高可用 PostgreSQL 做主库。
 
+## 数据库连接加密（TLS）
+
+PostgreSQL 开启 TLS（1.2 及以上），服务端证书由 `.local/kind-ca` 的测试 CA 签发（SAN 含 `postgresql.databases.svc.cluster.local` 等），放在 Secret `postgres-tls`；`postgres-hba` 里的 `pg_hba.conf` 只允许 Pod 内的 unix socket 免密码，**所有 TCP 连接必须 TLS + scram-sha-256，没有加密的一律拒绝**。组件的连接串都是 `sslmode=verify-full`（校验证书和主机名），CA 通过每个命名空间里的 ConfigMap `pg-ca` 挂到 `/etc/idp/pg-ca/ca.crt`，`PGSSLROOTCERT` 指向它（libpq、pgx、asyncpg 都读这个变量；`full.sh` 在渲染时给组件命名空间里所有 Deployment、Job、CronJob 加上）。备份和恢复 Job 也走校验过的 TLS。`full.sh` 末尾检查：所有来自组件的连接都是加密的（TLS 1.2 或 1.3），并且一条明文 TCP 连接被拒绝。
+
+`kubectl exec` 进 PostgreSQL 时要写 `-c postgres`（Pod 里还有一个复制私钥用的初始化容器，否则 kubectl 会在标准错误里打"Defaulted container"）。
+
+生产要求（这里没有、也不能在 kind 里演示）：服务端证书由企业 CA 签发并自动轮换（这里 30 天，`full.sh` 每次重发）；**静态加密靠存储层**——云盘的 KMS 加密或 LUKS，数据库本身不加密落盘数据；备份已经加密（上一节）；服务之间的 HTTP 调用（Workspace 到 HOST、HOST 到 CMI 等）在 kind 里仍是明文，用服务网格或各组件自己的 TLS 配置解决。compose 版本仍是 `sslmode=disable`，只用于开发。
+
 ## 访问集群里的平台
 
 ```bash
@@ -175,7 +183,7 @@ docker rm -f sbx-dind sbx-dind2                   # gVisor 的 docker-in-docker�
 
 ## 限制
 
-- 开发验证环境：开发令牌、测试 realm、测试 CA、idp-mcp 集群内明文 http、沙箱 Docker 后端挂 Docker 套接字，都不能用于真实环境。
+- 开发验证环境：开发令牌、测试 realm、测试 CA、idp-mcp 集群内明文 http（数据库连接已加密，服务之间的 HTTP 没有）、沙箱 Docker 后端挂 Docker 套接字，都不能用于真实环境。
 - gVisor、Kata 都是在 WSL2 嵌套虚拟化上测的，真实云节点的行为和性能可能不同；`systrap` 的问题没有查到根因。
 - PVC 容量在 kind 上不被执行；出口代理只有 Docker 后端有；EER 的 Intelligence 没有部署在集群里（PATH C 从宿主运行）。
 - 平台 CI 不跑整平台的集群验收（只有轻量 kind 版和静态检查），整平台验收目前只在本机。

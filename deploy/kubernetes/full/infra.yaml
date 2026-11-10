@@ -37,9 +37,22 @@ spec:
     spec:
       automountServiceAccountToken: false
       securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      # TLS (DEV overlay: a certificate of the run's test CA, Secret postgres-tls from tests/kind/full.sh): the key must be 0600 and
+      # owned by the server's user, which a Secret volume cannot give, so a copy is made first
+      initContainers:
+        - name: tls
+          image: docker.io/pgvector/pgvector:0.8.7-pg17
+          command: [sh, -ec, "cp /tls-src/tls.crt /tls-src/tls.key /tls/ && chmod 0600 /tls/tls.key && chmod 0644 /tls/tls.crt"]
+          resources: {limits: {cpu: 100m, memory: 32Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: tls-src, mountPath: /tls-src, readOnly: true}
+            - {name: tls, mountPath: /tls}
       containers:
         - name: postgres
-          image: docker.io/pgvector/pgvector:0.8.7-pg17   # PostgreSQL 17 with pgvector (idp-cmi D38: native vector search; the CMI also works without it)
+          image: docker.io/pgvector/pgvector:0.8.7-pg17
+          # TLS 1.2 or later, and a pg_hba.conf (ConfigMap postgres-hba) that rejects every TCP connection without it
+          args: [-c, ssl=on, -c, ssl_cert_file=/tls/tls.crt, -c, ssl_key_file=/tls/tls.key, -c, ssl_min_protocol_version=TLSv1.2, -c, hba_file=/etc/postgres-hba/pg_hba.conf, -c, password_encryption=scram-sha-256]   # PostgreSQL 17 with pgvector (idp-cmi D38: native vector search; the CMI also works without it)
           env:
             - name: POSTGRES_PASSWORD
               valueFrom: {secretKeyRef: {name: postgres-owner, key: password}}
@@ -54,10 +67,28 @@ spec:
             - {name: data, mountPath: /var/lib/postgresql/data}
             - {name: run, mountPath: /var/run/postgresql}
             - {name: tmp, mountPath: /tmp}
+            - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: hba, mountPath: /etc/postgres-hba, readOnly: true}
       volumes:
+        - {name: tls-src, secret: {secretName: postgres-tls}}
+        - {name: tls, emptyDir: {medium: Memory}}
+        - {name: hba, configMap: {name: postgres-hba}}
         - {name: data, persistentVolumeClaim: {claimName: postgres-data}}   # survives a Pod or node restart (not a re-deploy: tests/kind/full.sh recreates the namespace)
         - {name: run, emptyDir: {}}
         - {name: tmp, emptyDir: {}}
+---
+# local = the unix socket inside the Pod (kubectl exec psql, the readiness probe); every TCP client must use TLS and a password
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-hba
+  namespace: databases
+data:
+  pg_hba.conf: |
+    local   all   all                  trust
+    hostssl all   all   0.0.0.0/0      scram-sha-256
+    hostssl all   all   ::/0           scram-sha-256
+    host    all   all   all            reject
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

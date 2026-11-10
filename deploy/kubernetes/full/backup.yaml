@@ -46,6 +46,8 @@ spec:
                 - secretRef: {name: backup-target}
               env:
                 - {name: PGHOST, value: postgresql}
+                - {name: PGSSLMODE, value: verify-full}
+                - {name: PGSSLROOTCERT, value: /etc/idp/pg-ca/ca.crt}
                 - {name: AGE_RECIPIENTS_FILE, value: /keys/recipients.txt}
                 - name: PGPASSWORD
                   valueFrom: {secretKeyRef: {name: postgres-owner, key: password}}
@@ -54,11 +56,13 @@ spec:
               volumeMounts:
                 - {name: backups, mountPath: /backup}
                 - {name: keys, mountPath: /keys, readOnly: true}
+                - {name: pg-ca, mountPath: /etc/idp/pg-ca, readOnly: true}
                 - {name: work, mountPath: /work}
                 - {name: tmp, mountPath: /tmp}
           volumes:
             - {name: backups, persistentVolumeClaim: {claimName: postgres-backups}}
             - {name: keys, configMap: {name: backup-recipients}}
+            - {name: pg-ca, configMap: {name: pg-ca}}
             - {name: work, emptyDir: {sizeLimit: 2Gi}}   # the plaintext dump exists only here, until it is encrypted
             - {name: tmp, emptyDir: {}}
 ---

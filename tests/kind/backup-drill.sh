@@ -42,8 +42,8 @@ cmi() { # cmi WANT METHOD PATH TOKEN [BODY]
   [[ "$status" == "$1" ]] || { echo "FAIL: $2 $3 -> $status (want $1): $(cat "$out")" >&2; rm -f "$out"; exit 1; }
   cat "$out"; rm -f "$out"
 }
-psql_cmi() { kubectl -n databases exec deploy/postgresql -- psql -U postgres -d "${2:-idp_cmi}" -tAc "$1"; }
-wait_pg() { kubectl -n databases rollout status deploy/postgresql --timeout=300s >/dev/null; for _ in $(seq 1 120); do kubectl -n databases exec deploy/postgresql -- pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && return 0; sleep 1; done; echo "FAIL: PostgreSQL did not come back" >&2; exit 1; }
+psql_cmi() { kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d "${2:-idp_cmi}" -tAc "$1"; }
+wait_pg() { kubectl -n databases rollout status deploy/postgresql --timeout=300s >/dev/null; for _ in $(seq 1 120); do kubectl -n databases exec -c postgres deploy/postgresql -- pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && return 0; sleep 1; done; echo "FAIL: PostgreSQL did not come back" >&2; exit 1; }
 wait_cmi() { # right after a node restart the Deployment still reports the old readiness: ask the CMI itself, with a time limit on every try
   for _ in $(seq 1 180); do
     [[ "$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' -m 3 "$CMI/readyz")" == 200 ]] && [[ "$(kubectl -n idp-cmi get deploy idp-cmi -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" == "$(kubectl -n idp-cmi get deploy idp-cmi -o jsonpath='{.spec.replicas}' 2>/dev/null)" ]] && return 0
@@ -116,8 +116,8 @@ if [[ "${NODE_RESTART:-0}" == 1 ]]; then
 fi
 
 log "5 the CMI database is lost and restored from the backup"
-kubectl -n databases exec deploy/postgresql -- psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'idp_cmi' AND pid <> pg_backend_pid()" >/dev/null
-kubectl -n databases exec deploy/postgresql -- psql -U postgres -d postgres -c "DROP DATABASE idp_cmi" >/dev/null
+kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'idp_cmi' AND pid <> pg_backend_pid()" >/dev/null
+kubectl -n databases exec -c postgres deploy/postgresql -- psql -U postgres -d postgres -c "DROP DATABASE idp_cmi" >/dev/null
 if has_marker 2>/dev/null; then echo "FAIL: the memory is still readable after its database was dropped" >&2; exit 1; fi
 echo "the database is gone: bob can no longer read his memory"
 RJOB="drill-restore-$(date +%s)"
@@ -148,6 +148,8 @@ spec:
             - secretRef: {{name: backup-target}}
           env:
             - {{name: PGHOST, value: postgresql}}
+            - {{name: PGSSLMODE, value: verify-full}}
+            - {{name: PGSSLROOTCERT, value: /etc/idp/pg-ca/ca.crt}}
             - {{name: SOURCE, value: {src}}}
             - {{name: AGE_IDENTITY_FILE, value: /identity/identity.txt}}
             - name: PGPASSWORD
@@ -157,11 +159,13 @@ spec:
           volumeMounts:
             - {{name: backups, mountPath: /backup, readOnly: true}}
             - {{name: identity, mountPath: /identity, readOnly: true}}
+            - {{name: pg-ca, mountPath: /etc/idp/pg-ca, readOnly: true}}
             - {{name: work, mountPath: /work}}
             - {{name: tmp, mountPath: /tmp}}
       volumes:
         - {{name: backups, persistentVolumeClaim: {{claimName: postgres-backups}}}}
         - {{name: identity, secret: {{secretName: backup-identity}}}}
+        - {{name: pg-ca, configMap: {{name: pg-ca}}}}
         - {{name: work, emptyDir: {{sizeLimit: 2Gi}}}}
         - {{name: tmp, emptyDir: {{}}}}""")
 PY
