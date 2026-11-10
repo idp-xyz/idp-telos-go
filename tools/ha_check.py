@@ -51,7 +51,7 @@ def main() -> int:
     svc = next((d for d in docs if d["kind"] == "Service" and d["metadata"]["name"] == "postgresql"), None)
     if not svc or svc["spec"]["selector"].get("cnpg.io/instanceRole") != "primary":
         problems.append("the Service postgresql must select the primary (cnpg.io/instanceRole: primary)")
-    pol = next((d for d in docs if d["kind"] == "NetworkPolicy"), None)
+    pol = next((d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "postgresql-ha"), None)
     if not pol:
         problems.append("no NetworkPolicy for the instances")
     else:
@@ -64,6 +64,22 @@ def main() -> int:
             for dst in rule.get("to", []):
                 if "ipBlock" in dst and not dst["ipBlock"]["cidr"].endswith("/32"):
                     problems.append("the instances' egress to the API server must be a single address (/32)")
+    op = [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"].get("namespace") == "cnpg-system"]
+    if not any(d["spec"].get("podSelector") == {} and set(d["spec"].get("policyTypes", [])) == {"Ingress", "Egress"} and not d["spec"].get("ingress") and not d["spec"].get("egress") for d in op):
+        problems.append("cnpg-system needs a default-deny policy (ingress and egress, no rules)")
+    for d in op:
+        for rule in d["spec"].get("egress", []):
+            for dst in rule.get("to", []):
+                if "ipBlock" in dst and not dst["ipBlock"]["cidr"].endswith("/32"):
+                    problems.append("the operator's egress to the API server must be a single address (/32)")
+                if not dst.get("ipBlock") and not dst.get("namespaceSelector"):
+                    problems.append("an egress rule of the operator selects Pods of its own namespace only: it must name where it goes")
+        for rule in d["spec"].get("ingress", []):
+            ports = {p["port"] for p in rule.get("ports", [])}
+            if ports != {9443} or any("ipBlock" not in src or not src["ipBlock"]["cidr"].endswith("/32") for src in rule.get("from", [])):
+                problems.append("the operator's only ingress is the API server (one address) on 9443, the webhooks")
+    if not any(d["metadata"]["name"] == "operator" for d in op):
+        problems.append("no NetworkPolicy named operator in cnpg-system")
     pitr = [d for d in yaml.safe_load_all((ROOT / "pitr.yaml").read_text()) if d]
     patch = next((d for d in pitr if "kind" not in d), {})
     store = patch.get("spec", {}).get("backup", {}).get("barmanObjectStore", {})

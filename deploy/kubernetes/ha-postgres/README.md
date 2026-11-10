@@ -16,7 +16,7 @@ failure and a maintenance outage; this is the HA option. Two ways to get it, in 
 |---|---|
 | `cluster.yaml` | the `Cluster`: 3 instances, **synchronous** replication (a commit is acknowledged only after one standby has it; with no standby the primary blocks rather than acknowledge a write only it has), quorum-checked promotion, TLS from secrets, TLS 1.2 or later, scram-sha-256, `pg_hba` that rejects cleartext TCP, anti-affinity |
 | `pitr.yaml` | continuous WAL archiving and a nightly base backup to the object store (merge patch of the `Cluster` plus a `ScheduledBackup`), 7 days retained, `archive_timeout` 60 s |
-| `platform.yaml` | the Service `postgresql` (always the primary: the name every component already connects to) and the NetworkPolicy of the instances |
+| `platform.yaml` | the Service `postgresql` (always the primary: the name every component already connects to), the NetworkPolicy of the instances, and default-deny plus three rules for the operator's namespace (DNS; the API server and the instances out; only the API server's webhook calls on 9443 in) |
 | `../../images/postgres-ha/` | the PostgreSQL image: the CloudNativePG operand plus pgvector |
 | `../../../tests/kind/ha-postgres.sh` | the cluster on its own on kind: kill the primary under a writer |
 | `../../../tests/kind/failover-drill.sh` | the whole platform on the cluster (`PG_HA=1 bash tests/kind/full.sh`): kill the primary while the CMI takes writes |
@@ -47,6 +47,12 @@ of them; a new cluster `postgresql-restore` bootstrapped from the object store w
 50 rows (none of the 20, no DELETE), in **35–40 s** for a 1 MB database; the time grows with the size of the base backup and the WAL to
 replay. The recovered cluster is a new one: point the applications at it (or copy the data back) once it is checked.
 
+The operator's namespace is default-deny too: it may resolve names, reach the API server (one address) and every CloudNativePG instance on
+5432 and 8000, and be called by the API server on 9443. Calico enforces it on kind: when the rule for instances was first written for
+`cnpg.io/cluster: postgresql` only, a cluster recovered next to it showed `Instance Status Extraction Error` until the rule named every
+cluster, so the policy is exercised, not just present. The webhook source is the API server's own address (the control plane node
+on kind); on a managed cluster use the control plane's range.
+
 ## What this does not give you
 
 - **Spreading over nodes and zones.** kind has one node; the anti-affinity is `preferred` so the test runs. In production use
@@ -58,8 +64,6 @@ replay. The recovered cluster is a new one: point the applications at it (or cop
 - **The Barman Cloud plugin.** `pitr.yaml` uses the in-tree `barmanObjectStore` of CloudNativePG 1.30, which the operator marks
   deprecated and removes in **1.31.0**. The operator is pinned at 1.30.1; moving to 1.31 means the plugin (it needs cert-manager)
   and a change of `pitr.yaml` and of the recovery's `externalClusters` only.
-- **The operator's own policies.** `cnpg-system` has no NetworkPolicy here; production gives it one (egress to the API server and to the
-  instances on 5432 and 8000, ingress from the API server for the webhook on 9443).
 - **A supported upgrade path.** Operator, PostgreSQL minor and major upgrades have their own procedures (rolling update with a switchover
   of the primary is the default); rehearse them before relying on them.
 - **Capacity.** Three instances triple the storage and need sized resources, connection limits (`max_connections`, a pooler such as

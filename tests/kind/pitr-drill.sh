@@ -17,7 +17,10 @@ log() { echo "== $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 primary() { kubectl -n $N get cluster postgresql -o jsonpath='{.status.currentPrimary}'; }
 psql_p() { kubectl -n $N exec -c postgres "$(primary)" -- psql -U postgres -d pitr_drill -qtAX "$@"; }   # the local socket (trust), as the operator does
-cleanup() { kubectl -n $N delete cluster postgresql-restore networkpolicy/postgresql-restore-ha --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+cleanup() {
+  kubectl -n $N delete cluster postgresql-restore --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl -n $N delete networkpolicy postgresql-restore-ha --ignore-not-found >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 
 log "1. preconditions"

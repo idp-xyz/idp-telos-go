@@ -39,3 +39,40 @@ spec:
     - to:
         - ipBlock: {cidr: 203.0.113.20/32}   # the object store of WAL archive and base backups; tests/kind/full.sh replaces it
       ports: [{protocol: TCP, port: 19000}, {protocol: TCP, port: 443}]
+---
+# The operator's namespace: default deny, then only what the operator does. It reads and writes the Kubernetes API (the address is
+# replaced by tests/kind/full.sh), asks every instance for its status on 8000 and talks SQL to it on 5432, and resolves names; the API
+# server calls its webhooks on 9443 (the source is the API server's own address: on a managed cluster use the control plane's range).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: cnpg-system
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: operator
+  namespace: cnpg-system
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server (the webhooks); tests/kind/full.sh replaces it
+      ports: [{protocol: TCP, port: 9443}]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server; tests/kind/full.sh replaces it
+      ports: [{protocol: TCP, port: 6443}, {protocol: TCP, port: 443}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: databases}}
+          podSelector: {matchExpressions: [{key: cnpg.io/cluster, operator: Exists}]}   # every cluster in the namespace (also a cluster recovered next to this one)
+      ports: [{protocol: TCP, port: 5432}, {protocol: TCP, port: 8000}]
