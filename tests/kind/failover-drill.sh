@@ -10,6 +10,9 @@
 #   4  every acknowledged record is in the database of the new primary; bob reads his marker; the CMI Pods did not restart; all client
 #      connections are TLS
 #
+#   BLACKHOLE=1 bash tests/kind/failover-drill.sh   instead of a kill in 2, the primary vanishes without a reset (its packets dropped in the
+#      node): what a client sees when the primary's node is lost. A connection to it then hangs rather than fails, so this is where the
+#      components' timeouts show
 #   ROLLOUT=1 bash tests/kind/failover-drill.sh   instead of a kill in 2, a rolling restart of the cluster (what an image, configuration
 #      or plugin change does: every instance recreated, the standbys first, the primary last by its primaryUpdateMethod), and the
 #      longest stretch of refused writes during it is what is limited
@@ -22,7 +25,11 @@ ISSUER=https://127.0.0.1:17443/realms/idp
 [[ -f $L/clients.json ]] || { echo "BLOCKED: no $L/clients.json: run tests/kind/full.sh first" >&2; exit 2; }
 log() { echo "== $*"; }
 PFPIDS=()
+# BLACKHOLE=1: the raw table of the (one) node, before any connection tracking: nothing from or to the address passes
+HOLE=""; NODE="${KIND_CLUSTER:-kind}-control-plane"
+blackhole() { for r in "PREROUTING -s" "PREROUTING -d" "OUTPUT -d"; do docker exec "$NODE" iptables -t raw "$1" ${r% *} ${r#* } "$HOLE" -j DROP 2>/dev/null || true; done; }
 cleanup() {
+  [[ -z "$HOLE" ]] || blackhole -D
   for p in "${PFPIDS[@]:-}"; do [[ -n "$p" ]] && { pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; } || true; done
   [[ -z "${PROBE:-}" ]] || kubectl -n databases delete pod pg-newconn-probe --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
@@ -157,9 +164,15 @@ PY
   (( $(python3 -c "print(int(float('${NEWC%% *}') > 60))") == 0 )) || { echo "FAIL: new connections were refused for ${NEWC%% *} s in a row during the rolling restart (limit 60)" >&2; exit 1; }
   echo "PASS: rolling restart of the 3 instances in $((SECONDS - T0)) s, primary $OLD -> $(primary); the longest stretch of refused writes was $OUT s, of refused new connections ${NEWC%% *} s"
 else
-log "2 the primary Pod is killed"
-OLD="$(primary)"; KILL_AT="$(date +%s.%N)"
-kubectl -n databases delete pod "$OLD" --grace-period=0 --force >/dev/null 2>&1
+OLD="$(primary)"
+if [[ "${BLACKHOLE:-}" == 1 ]]; then
+  log "2 the primary vanishes: every packet from and to its Pod is dropped (as when its node loses power: no reset comes back)"
+  HOLE="$(kubectl -n databases get pod "$OLD" -o jsonpath='{.status.podIP}')"; KILL_AT="$(date +%s.%N)"; blackhole -I
+else
+  log "2 the primary Pod is killed"
+  KILL_AT="$(date +%s.%N)"
+  kubectl -n databases delete pod "$OLD" --grace-period=0 --force >/dev/null 2>&1
+fi
 NEW=""; for _ in $(seq 1 240); do NEW="$(primary)"; [[ -n "$NEW" && "$NEW" != "$OLD" ]] && break; sleep 0.5; done
 [[ -n "$NEW" && "$NEW" != "$OLD" ]] || { echo "FAIL: no new primary" >&2; exit 1; }
 OUT=""
@@ -181,6 +194,7 @@ done
 echo "PASS: $OLD killed, $NEW promoted; the CMI refused writes for $OUT s, then acknowledged them again, with no restart"
 fi
 
+[[ -z "$HOLE" ]] || { blackhole -D; HOLE=""; }   # the old primary is reachable again and has to come back as a standby
 log "3 the cluster is whole again; nothing acknowledged is missing"
 sleep 3; rm -f "$WLOG.run"; sleep 1; wait "$WPID" 2>/dev/null || true
 for _ in $(seq 1 180); do [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}')" == 3 ]] && break; sleep 2; done

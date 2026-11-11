@@ -152,6 +152,21 @@ connection to a killed primary hangs instead of failing (no reset comes back): a
 waited on one INSERT and the test reported 0 s. Clients need a connect and a statement timeout, or TCP keepalives, to notice a lost
 primary; the platform's components were not run on several nodes.
 
+**The primary vanishes under the whole platform** (`BLACKHOLE=1 bash tests/kind/failover-drill.sh` on the one-node cluster: every
+packet from and to the primary's Pod is dropped in the node, so no reset comes back, as when its node loses power). The CMI refused
+writes for **60–65 s**, against 26–29 s for a killed Pod: 32 s until the operator saw the primary unhealthy (a deleted Pod is an
+event, a silent one has to fail its checks), 21 s to promote, 7 s for the CMI. Every component (CMI, HOST, Workspace, idp-mcp, EER)
+went unready, came back within about 15 s of the promotion and reconnected to the new primary; no acknowledged write was lost. What
+makes that work, and what does not:
+
+- All of them use pgx with its defaults: no connect timeout, a TCP keepalive of 5 minutes, no `tcp_user_timeout` (pgx 5.12 takes
+  `connect_timeout` from the URL or `PGCONNECT_TIMEOUT`, not the other). A dead connection is dropped when the query's context
+  ends: the readiness probes ping the database with a 3 s limit and callers give up (the drill's after 4 s), which empties the
+  pools. A call with no deadline on such a connection would wait for TCP to give up (about 15 minutes); none was seen, none is ruled out.
+- **idp-mcp's registry restarted in both runs**: its liveness probe is the same `/api/v1/health` as its readiness probe and pings
+  the database, so a database outage of a minute kills it (the others' liveness is `/healthz`, without the database). It came
+  back, but a longer outage restarts it over and over. To fix in idp-mcp: a liveness probe that does not depend on the database.
+
 **The primary's node drained** (`kubectl drain`): CloudNativePG switches the primary over to another node first; the drain takes
 7–10 s, writes are refused for at most **6–8.4 s**, and the evicted instance waits for its node (its volume is local). Once the switchover
 starts the old primary is relabelled `unhealthy` and no budget holds it any more, so the drain may take it during the switchover (which
