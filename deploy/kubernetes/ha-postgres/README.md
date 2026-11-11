@@ -159,10 +159,16 @@ event, a silent one has to fail its checks), 21 s to promote, 7 s for the CMI. E
 went unready, came back within about 15 s of the promotion and reconnected to the new primary; no acknowledged write was lost. What
 makes that work, and what does not:
 
-- All of them use pgx with its defaults: no connect timeout, a TCP keepalive of 5 minutes, no `tcp_user_timeout` (pgx 5.12 takes
-  `connect_timeout` from the URL or `PGCONNECT_TIMEOUT`, not the other). A dead connection is dropped when the query's context
-  ends: the readiness probes ping the database with a 3 s limit and callers give up (the drill's after 4 s), which empties the
-  pools. A call with no deadline on such a connection would wait for TCP to give up (about 15 minutes); none was seen, none is ruled out.
+- All of them used pgx with its defaults: no connect timeout, a TCP keepalive of 5 minutes, no `TCP_USER_TIMEOUT`. A dead connection
+  was dropped only when the query's context ended (the readiness probes ping the database with a 3 s limit, callers give up), and a
+  query with no deadline waited for TCP to give up: **151 s** measured against a blackholed instance, up to 15 minutes by the
+  kernel's defaults. Since idp-cmi 640bf35, idp-host 8353dd2, idp-workspace 2472d16, idp-mcp 172506b and idp-eer 042dd53 the
+  pools' sockets carry a connect timeout (5 s), a keep-alive (after 15 s idle) and `TCP_USER_TIMEOUT` (30 s): the same query fails
+  after **30 s** and the pool reconnects. The outage the CMI sees is unchanged (55–65 s: it is the operator's detection and the
+  promotion).
+- **EER's World Model projector now restarts in such an outage** (3 times in one run, then it works): it ends its process on any
+  database error, by design, where the inbox projector next to it pauses and retries. Before, its query hung instead of failing.
+  A killed primary Pod does not restart it. Whether it should retry instead is idp-eer's decision.
 - **idp-mcp's registry restarted in both runs**: its liveness probe is the same `/api/v1/health` as its readiness probe and pings
   the database, so a database outage of a minute kills it (the others' liveness is `/healthz`, without the database). It came
   back, but a longer outage would restart it over and over. Fixed in idp-mcp 545bee0 (a liveness probe on `/healthz`, which does
