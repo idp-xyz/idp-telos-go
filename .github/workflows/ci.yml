@@ -49,5 +49,11 @@ jobs:
         run: python -I tools/k8s_check.py --full
       - name: HA PostgreSQL manifests (synchronous replication, TLS, cleartext rejected, scoped policy)
         run: python -I tools/ha_check.py
+      - name: Alert rules (promtool 3.14.0, pinned by digest; each rule fires and stays quiet on its test series)
+        run: |
+          for t in backup-alerts_test.yaml ha-postgres-alerts_test.yaml; do
+            docker run --rm -v "$PWD/deploy/observability:/r:ro" -w /r --entrypoint promtool \
+              prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0 test rules "$t"
+          done
       - name: Contract registry against the producers
         run: python -I idp-contracts/tools/validate.py --report /tmp/validation_report.json

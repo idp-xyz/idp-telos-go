@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # What runs the HA PostgreSQL, installed on a kind cluster as production runs it (deploy/kubernetes/ha-postgres/README.md): CloudNativePG
 # with two replicas (operator-ha.yaml), cert-manager (the plugin's certificates), and the Barman Cloud plugin with two replicas, limited
-# to the namespaces whose clusters use it (tools/ha_plugin_scope.py). Release manifests pinned by checksum; the images loaded into every
+# to the namespaces whose clusters use it (tools/ha_plugin_manifest.py). Release manifests pinned by checksum; the images loaded into every
 # node (from the Docker daemon, else crane through the shell's proxy). The network policies are the caller's: tests/kind/full.sh
 # applies deploy/kubernetes/ha-postgres/platform.yaml before this, so that everything here starts under them.
 #
@@ -53,7 +53,7 @@ for d in cert-manager cert-manager-cainjector cert-manager-webhook; do kubectl -
 # few seconds to serve after its rollout
 pinned https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.16.0/manifest.yaml "$L/plugin-barman-cloud-0.16.0.yaml" \
   aee614683892dd4b44ff9f7afaca55254f1c28de17abbaa0552bf2e1228f7155
-python3 -I tools/ha_plugin_scope.py "$@" < "$L/plugin-barman-cloud-0.16.0.yaml" > "$L/plugin-barman-cloud-$CLUSTER.yaml"
+python3 -I tools/ha_plugin_manifest.py "$@" < "$L/plugin-barman-cloud-0.16.0.yaml" > "$L/plugin-barman-cloud-$CLUSTER.yaml"
 for _ in $(seq 1 40); do kubectl apply --server-side --force-conflicts -f "$L/plugin-barman-cloud-$CLUSTER.yaml" >/dev/null 2>"$L/plugin-apply.err" && break; sleep 3; done
 kubectl apply --server-side --force-conflicts -f "$L/plugin-barman-cloud-$CLUSTER.yaml" >/dev/null || { cat "$L/plugin-apply.err" >&2; echo "FAIL: the Barman Cloud plugin could not be installed" >&2; exit 1; }
 kubectl delete clusterrolebinding plugin-barman-cloud-binding --ignore-not-found >/dev/null   # an unscoped installation's

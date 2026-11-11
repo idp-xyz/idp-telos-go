@@ -1,7 +1,7 @@
 """The Barman Cloud plugin's upstream manifest, limited to the namespaces that hold PostgreSQL clusters (README of
 deploy/kubernetes/ha-postgres, "The Barman Cloud plugin"):
 
-  python -I tools/ha_plugin_scope.py databases < manifest.yaml > scoped.yaml
+  python -I tools/ha_plugin_manifest.py databases < manifest.yaml > scoped.yaml
 
 As released, the plugin watches every namespace and its ClusterRole (read, create and delete Secrets, create Roles and RoleBindings,
 manage ObjectStores) is bound cluster-wide: whoever controls the plugin Pod reads every Secret of the cluster. Here the Deployment gets

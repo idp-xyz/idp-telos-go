@@ -1,0 +1,46 @@
+# Prometheus rules for the HA PostgreSQL (deploy/kubernetes/ha-postgres); needs kube-state-metrics. Plain rule-file format.
+# They cover what the Cluster's own status does not show (README there, "Several nodes"): the failover is decided by
+# CloudNativePG's operator, which does not reconcile a Cluster while it cannot reach the Barman Cloud plugin, and the Cluster keeps
+# saying "healthy" when the operator is gone; two replicas on one node are lost together; the standbys' PodDisruptionBudget keeps a
+# stale status after a switchover and then lets a drain evict the last standby.
+groups:
+  - name: ha-postgres
+    rules:
+      - alert: PgOperatorDown
+        expr: kube_deployment_status_replicas_available{namespace="cnpg-system", deployment=~"cnpg-controller-manager|barman-cloud"} < 1
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.deployment }} has no available replica: a failed primary will not be replaced"
+          description: CloudNativePG's operator decides the failover and needs the Barman Cloud plugin to reconcile the cluster. Until one replica of each runs, the cluster's status is not updated either.
+      - alert: PgOperatorNotRedundant
+        expr: kube_deployment_status_replicas_available{namespace="cnpg-system", deployment=~"cnpg-controller-manager|barman-cloud"} == 1
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.deployment }} runs one replica: losing its node stops the failover"
+      - alert: PgOperatorReplicasShareANode
+        expr: |
+          count by (node, created_by_name) (kube_pod_info{namespace="cnpg-system", created_by_kind="ReplicaSet", created_by_name=~"(cnpg-controller-manager|barman-cloud)-.*"}) > 1
+          and on () count(kube_node_spec_unschedulable == 0) > 1
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "two replicas of {{ $labels.created_by_name }} run on {{ $labels.node }}: losing that node loses both"
+          description: Delete one of the two Pods; the spread constraint places the new one on another node.
+      - alert: PgInstancesNotReady
+        expr: count(kube_pod_status_ready{namespace="databases", condition="true", pod=~"postgresql-[0-9]+"} == 1) < 3
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: fewer than 3 PostgreSQL instances are ready
+          description: With one instance away the cluster still commits (one synchronous standby); with two away the primary blocks every write.
+      - alert: PgStandbyBudgetStale
+        expr: |
+          kube_poddisruptionbudget_status_pod_disruptions_allowed{namespace="databases", poddisruptionbudget="postgresql"} > 0
+          and on (namespace) count by (namespace) (kube_pod_status_ready{namespace="databases", condition="true", pod=~"postgresql-[0-9]+"} == 1) < 3
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: an instance is away and the standbys' PodDisruptionBudget still allows an eviction
+          description: "Its status is stale (after a switchover it still counts the new primary as a standby): a node drain now evicts the last standby and the primary blocks every write. Do not drain; recompute it with kubectl -n databases annotate pdb postgresql recheck=$(date +%s) --overwrite."

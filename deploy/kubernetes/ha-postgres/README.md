@@ -20,7 +20,7 @@ failure and a maintenance outage; this is the HA option. Two ways to get it, in 
 | `pitr.yaml` | continuous WAL archiving and a nightly base backup to the object store through the **Barman Cloud plugin**: the `ObjectStore` (7 days retained), a merge patch of the `Cluster` (the plugin is the WAL archiver, `archive_timeout` 60 s) and the `ScheduledBackup` |
 | `platform.yaml` | the Service `postgresql` (always the primary: the name every component already connects to), the NetworkPolicy of the instances, default-deny for the operator's namespace with one policy per Deployment (the operator: DNS, the API server, the instances and the plugin out, the API server's webhook calls on 9443 in; the plugin: the API server out, the operator on 9090 in), and default-deny for cert-manager's (the API server out, its webhook on 10250 in) |
 | `../../images/postgres-ha/` | the PostgreSQL image: the CloudNativePG operand plus pgvector, no backup tool (the plugin's sidecar has it) |
-| `../../../tools/ha_plugin_scope.py` | the plugin's release manifest limited to the namespace `databases`, with two replicas on different nodes (see below) |
+| `../../../tools/ha_plugin_manifest.py` | the plugin's release manifest limited to the namespace `databases`, with two replicas on different nodes (see below) |
 | `../../../tools/ha_render.py` | `cluster.yaml` as the kind tests apply it: merge patches (`pitr.yaml`), the namespace, the one-node relaxation |
 | `../../../tests/kind/ha-operators.sh` | the operator, cert-manager and the plugin installed as production runs them (`full.sh` and `ha-postgres.sh` use it) |
 | `../../../tests/kind/multinode-cluster.sh` | a second kind cluster `ha`: a control plane and three workers in the zones zone-a, zone-b, zone-c, Calico |
@@ -28,6 +28,7 @@ failure and a maintenance outage; this is the HA option. Two ways to get it, in 
 | `../../../tests/kind/ha-postgres.sh` | the cluster on its own on kind: kill the primary under a writer; on several nodes also the placement, with `ARCHIVE=1` the operators and archiving as production runs them |
 | `../../../tests/kind/failover-drill.sh` | the whole platform on the cluster (`PG_HA=1 bash tests/kind/full.sh`): kill the primary while the CMI takes writes; `ROLLOUT=1`: a rolling restart of the cluster instead |
 | `../../../tests/kind/pitr-drill.sh` | point-in-time recovery: a DELETE that replication copied everywhere is undone by a new cluster recovered to the instant before it |
+| `../../observability/ha-postgres-alerts.yaml` | Prometheus rules (kube-state-metrics) for what the Cluster's status does not show: the operator or the plugin without a replica or with one, two replicas on one node, the standbys' budget stale while an instance is away; tested with promtool in CI |
 | `../../../tools/ha_check.py` | static check of these manifests (CI): the properties above cannot be weakened unnoticed (`tools/tests/test_ha.py` weakens them 21 ways and expects each to fail) |
 
 ## What was measured (kind, one node, 2026-11-10)
@@ -79,7 +80,7 @@ notes said 1.31, the operator's documentation now says 1.32). Archiving, base ba
 `tests/kind/full.sh` installs both from their release manifests, pinned by checksum, after the policies of their namespaces are in
 place, and before the cluster exists. As released, the plugin watches every namespace and its ClusterRole (read, create and delete
 Secrets, create Roles and RoleBindings) is bound cluster-wide: whoever controls the plugin Pod reads every Secret in the cluster.
-`tools/ha_plugin_scope.py databases` limits it to the namespace that holds the clusters (`WATCH_NAMESPACE`, and the ClusterRole bound by
+`tools/ha_plugin_manifest.py databases` limits it to the namespace that holds the clusters (`WATCH_NAMESPACE`, and the ClusterRole bound by
 a RoleBinding there); the plugin logs `restricting to watched namespaces ["databases"]` and works with no `forbidden` error. A cluster in
 another namespace then fails until that namespace is added.
 
@@ -211,7 +212,7 @@ Cloud plugin it does not reconcile a Cluster that uses it at all:
 | the plugin, its only replica (scaled to 0) | **no failover** ("cannot proceed to reconciliation due to an error while interacting with plugins"); 48 s after the plugin came back, the failover happened |
 | one of two plugin replicas (force-deleted) | failover as usual: writes refused 26.3 s, 0 lost |
 
-So the operator runs two replicas (`operator-ha.yaml`) and so does the plugin (`tools/ha_plugin_scope.py`), never two on one node
+So the operator runs two replicas (`operator-ha.yaml`) and so does the plugin (`tools/ha_plugin_manifest.py`), never two on one node
 when there are several: a spread that refuses (`DoNotSchedule`), not a preferred anti-affinity. With the preference, the drains of
 the maintenance above had moved both operator replicas and both plugin replicas onto one node (a preference is only weighed when a
 Pod is placed, and nothing moves them back), and losing that node then stopped the failover exactly as with one replica: no new
@@ -230,10 +231,12 @@ hook asks for it without a delay"), merged after 1.30.1 and in no release yet: t
 - **Real zones and network volumes.** kind's zones are labels on containers of one machine, and its volumes are local to a node: an
   evicted instance waits for its node. With zonal network volumes (EBS, PD) it can move to another node of its zone; that, a zone's
   network failing (rather than a node stopping) and the platform's components on several nodes were not run.
-- **Encryption of the WAL archive and of the base backups.** They go to the object store as gzip, readable by whoever can read the
-  bucket. The `pg_dump` backups are age-encrypted (deploy/images/pg-backup); the archive is not. Production uses server-side
-  encryption (the `ObjectStore`'s `wal.encryption` and `data.encryption`: `AES256` or `aws:kms`, or a bucket key) and a bucket the
-  instances can write but not delete; the RustFS on kind has no KMS.
+- **A key service for the WAL archive.** The archive and the base backups are encrypted at rest by the object store (`wal.encryption`
+  and `data.encryption: AES256`, SSE-S3; `tools/ha_check.py` requires it): on kind an archived segment reads back with
+  `x-amz-server-side-encryption: AES256`, is gzip through the API and not on the store's disk, and the PITR drill recovers from
+  it. But RustFS's master key is generated by `tests/kind/s3-target.sh` and lives in the container's environment: whoever holds
+  the store holds the key. Production uses `aws:kms` with a key of its own (or the provider's equivalent) and a bucket the
+  instances can write but not delete. The `pg_dump` backups are age-encrypted before they leave the cluster (deploy/images/pg-backup).
 - **cert-manager for anything else.** It is here for the plugin's internal certificates only, with a self-signed issuer and no ACME;
   the PostgreSQL server certificate still comes from the secrets of `cluster.yaml`.
 - **A supported upgrade path.** Operator, PostgreSQL minor and major upgrades have their own procedures (rolling update with a switchover

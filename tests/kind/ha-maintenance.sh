@@ -180,7 +180,7 @@ NA="$(nothing_lost)"   # an assignment: set -e stops the run when the check fail
 echo "PASS: 3 ready instances $((SECONDS - S3)) s after uncordon, on 3 nodes in 3 zones ($P3); $NA acknowledged rows, none missing"
 
 log "4 the primary's node is lost, with the operator's leader and a plugin replica on it (the worst case)"
-# the operator and the Barman Cloud plugin run two replicas each (deploy/kubernetes/ha-postgres/operator-ha.yaml, tools/ha_plugin_scope.py);
+# the operator and the Barman Cloud plugin run two replicas each (deploy/kubernetes/ha-postgres/operator-ha.yaml, tools/ha_plugin_manifest.py);
 # one of each is made to run on the primary's node (the other workers cordoned while it is recreated), and the operator's leader is
 # moved there (the leader deleted, so that the replica on that node takes the lease)
 P4="$(primary)"; N4="$(node_of "$P4")"
@@ -208,7 +208,7 @@ fi
 kubectl -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=180s >/dev/null
 PLUGIN=""
 if kubectl -n cnpg-system get deploy barman-cloud >/dev/null 2>&1; then
-  [[ "$(kubectl -n cnpg-system get deploy barman-cloud -o jsonpath='{.spec.replicas}')" -ge 2 ]] || fail "the plugin runs one replica (tools/ha_plugin_scope.py makes two)"
+  [[ "$(kubectl -n cnpg-system get deploy barman-cloud -o jsonpath='{.spec.replicas}')" -ge 2 ]] || fail "the plugin runs one replica (tools/ha_plugin_manifest.py makes two)"
   place_on "$N4" app=barman-cloud || fail "no plugin replica could be started on $N4"
   kubectl -n cnpg-system rollout status deploy/barman-cloud --timeout=180s >/dev/null
   PLUGIN="; plugin replicas on $(pods_of app=barman-cloud | cut -d= -f2 | tr '\n' ' ')"

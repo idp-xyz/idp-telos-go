@@ -27,8 +27,8 @@ spec:
     s3Credentials:
       accessKeyId: {name: pitr-s3, key: ACCESS_KEY_ID}
       secretAccessKey: {name: pitr-s3, key: ACCESS_SECRET_KEY}
-    wal: {compression: gzip, maxParallel: 2}
-    data: {compression: gzip}
+    wal: {compression: gzip, maxParallel: 2, encryption: AES256}   # encrypted at rest by the object store (SSE-S3); aws:kms with a key
+    data: {compression: gzip, encryption: AES256}                  # of yours on S3. The store must be able to: RustFS needs its master key
 ---
 spec:
   backup: null                     # no in-tree barmanObjectStore (removed from CloudNativePG in 1.32)

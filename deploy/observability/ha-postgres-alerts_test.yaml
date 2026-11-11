@@ -1,0 +1,87 @@
+rule_files: [ha-postgres-alerts.yaml]
+evaluation_interval: 1m
+tests:
+  - name: the operator's only replica is gone, the plugin runs one
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{namespace="cnpg-system",deployment="cnpg-controller-manager"}'
+        values: '2 2 0x30'
+      - series: 'kube_deployment_status_replicas_available{namespace="cnpg-system",deployment="barman-cloud"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: PgOperatorDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: PgOperatorDown
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: cnpg-system, deployment: cnpg-controller-manager}
+            exp_annotations:
+              summary: "cnpg-controller-manager has no available replica: a failed primary will not be replaced"
+              description: CloudNativePG's operator decides the failover and needs the Barman Cloud plugin to reconcile the cluster. Until one replica of each runs, the cluster's status is not updated either.
+      - eval_time: 20m
+        alertname: PgOperatorNotRedundant
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: cnpg-system, deployment: barman-cloud}
+            exp_annotations:
+              summary: "barman-cloud runs one replica: losing its node stops the failover"
+  - name: both operator replicas on one node of three; on a one-node cluster that is not an alert
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_info{namespace="cnpg-system",pod="cnpg-controller-manager-abc-1",node="w1",created_by_kind="ReplicaSet",created_by_name="cnpg-controller-manager-abc"}'
+        values: '1x40'
+      - series: 'kube_pod_info{namespace="cnpg-system",pod="cnpg-controller-manager-abc-2",node="w1",created_by_kind="ReplicaSet",created_by_name="cnpg-controller-manager-abc"}'
+        values: '1x40'
+      - series: 'kube_pod_info{namespace="cnpg-system",pod="barman-cloud-def-1",node="w1",created_by_kind="ReplicaSet",created_by_name="barman-cloud-def"}'
+        values: '1x40'
+      - series: 'kube_pod_info{namespace="cnpg-system",pod="barman-cloud-def-2",node="w2",created_by_kind="ReplicaSet",created_by_name="barman-cloud-def"}'
+        values: '1x40'
+      - series: 'kube_node_spec_unschedulable{node="w1"}'
+        values: '0x40'
+      - series: 'kube_node_spec_unschedulable{node="w2"}'
+        values: '_x20 0x20'
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: PgOperatorReplicasShareANode
+        exp_alerts: []
+      - eval_time: 39m
+        alertname: PgOperatorReplicasShareANode
+        exp_alerts:
+          - exp_labels: {severity: warning, node: w1, created_by_name: cnpg-controller-manager-abc}
+            exp_annotations:
+              summary: "two replicas of cnpg-controller-manager-abc run on w1: losing that node loses both"
+              description: Delete one of the two Pods; the spread constraint places the new one on another node.
+  - name: an instance away after a drain, the budget still allows one, then it is recomputed
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_status_ready{namespace="databases",condition="true",pod="postgresql-1"}'
+        values: '1x40'
+      - series: 'kube_pod_status_ready{namespace="databases",condition="true",pod="postgresql-2"}'
+        values: '1 1 0x38'
+      - series: 'kube_pod_status_ready{namespace="databases",condition="true",pod="postgresql-3"}'
+        values: '1x40'
+      - series: 'kube_pod_status_ready{namespace="databases",condition="true",pod="postgresql-nightly-backup"}'
+        values: '0x40'
+      - series: 'kube_poddisruptionbudget_status_pod_disruptions_allowed{namespace="databases",poddisruptionbudget="postgresql"}'
+        values: '1x10 0x30'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgStandbyBudgetStale
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: PgStandbyBudgetStale
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: databases, poddisruptionbudget: postgresql}
+            exp_annotations:
+              summary: an instance is away and the standbys' PodDisruptionBudget still allows an eviction
+              description: "Its status is stale (after a switchover it still counts the new primary as a standby): a node drain now evicts the last standby and the primary blocks every write. Do not drain; recompute it with kubectl -n databases annotate pdb postgresql recheck=$(date +%s) --overwrite."
+      - eval_time: 15m
+        alertname: PgStandbyBudgetStale
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: PgInstancesNotReady
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: fewer than 3 PostgreSQL instances are ready
+              description: With one instance away the cluster still commits (one synchronous standby); with two away the primary blocks every write.

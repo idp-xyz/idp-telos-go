@@ -1,4 +1,4 @@
-"""Tests of tools/ha_check.py (every weakening of the HA PostgreSQL manifests is caught), tools/ha_plugin_scope.py and tools/ha_render.py."""
+"""Tests of tools/ha_check.py (every weakening of the HA PostgreSQL manifests is caught), tools/ha_plugin_manifest.py and tools/ha_render.py."""
 import json
 import shutil
 import subprocess
@@ -34,6 +34,8 @@ WEAKENINGS = {
     "the archiver names another ObjectStore": ("pitr.yaml", lambda ds: find(ds)["spec"]["plugins"][0]["parameters"].__setitem__("barmanObjectName", "other")),
     "the plugin is not the WAL archiver": ("pitr.yaml", lambda ds: find(ds)["spec"]["plugins"][0].__setitem__("isWALArchiver", False)),
     "credentials inline": ("pitr.yaml", lambda ds: find(ds, "ObjectStore")["spec"]["configuration"]["s3Credentials"].__setitem__("accessKeyId", "AKIA123")),
+    "the WAL archive not encrypted": ("pitr.yaml", lambda ds: find(ds, "ObjectStore")["spec"]["configuration"]["wal"].pop("encryption")),
+    "the base backups not encrypted": ("pitr.yaml", lambda ds: find(ds, "ObjectStore")["spec"]["configuration"]["data"].pop("encryption")),
     "no retention": ("pitr.yaml", lambda ds: find(ds, "ObjectStore")["spec"].pop("retentionPolicy")),
     "serverName on the ObjectStore": ("pitr.yaml", lambda ds: find(ds, "ObjectStore")["spec"]["configuration"].__setitem__("serverName", "x")),
     "no archive_timeout": ("pitr.yaml", lambda ds: find(ds)["spec"]["postgresql"]["parameters"].pop("archive_timeout")),
@@ -106,7 +108,7 @@ MANIFEST = [
 
 class PluginScope(unittest.TestCase):
     def scope(self, docs, *namespaces):
-        return subprocess.run([sys.executable, "-I", str(TOOLS / "ha_plugin_scope.py"), *namespaces],
+        return subprocess.run([sys.executable, "-I", str(TOOLS / "ha_plugin_manifest.py"), *namespaces],
                               input=yaml.safe_dump_all(docs), capture_output=True, text=True)
 
     def test_binds_in_the_namespaces_only(self):

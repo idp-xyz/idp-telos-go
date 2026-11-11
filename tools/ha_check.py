@@ -161,6 +161,8 @@ def main() -> int:
     creds = store.get("s3Credentials", {})
     if not all(isinstance(creds.get(k), dict) and creds[k].get("name") for k in ("accessKeyId", "secretAccessKey")):
         problems.append("pitr.yaml: the object store credentials must come from a Secret (name and key), not inline")
+    if not all(store.get(part, {}).get("encryption") in ("AES256", "aws:kms") for part in ("wal", "data")):
+        problems.append("pitr.yaml: the WAL archive and the base backups must be encrypted at rest (wal.encryption and data.encryption: AES256 or aws:kms)")
     if store.get("serverName"):
         problems.append("pitr.yaml: the ObjectStore must not set serverName (the plugin ignores it; it is a parameter of the Cluster's plugin entry)")
     if not objstore["spec"].get("retentionPolicy"):
