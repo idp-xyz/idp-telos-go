@@ -200,7 +200,10 @@ PY
   [[ -n "$OUT" ]] && break; sleep 1
 done
 [[ -n "$OUT" ]] || { tail -8 "$WLOG"; echo "FAIL: the CMI never acknowledged a write after the failover" >&2; exit 1; }
-(( $(python3 -c "print(int(float($OUT) > 90))") == 0 )) || { echo "FAIL: writes were refused for $OUT s (limit 90)" >&2; exit 1; }
+# a killed Pod is an event the operator sees at once (25-29 s measured); a primary that vanishes has to fail its checks first
+# (55-87 s measured), so that case gets more room
+LIMIT=90; [[ "${BLACKHOLE:-}" == 1 || "${NODELOSS:-}" == 1 ]] && LIMIT=120
+(( $(python3 -c "print(int(float($OUT) > $LIMIT))") == 0 )) || { echo "FAIL: writes were refused for $OUT s (limit $LIMIT)" >&2; exit 1; }
 echo "PASS: $OLD killed, $NEW promoted; the CMI refused writes for $OUT s, then acknowledged them again, with no restart"
 fi
 

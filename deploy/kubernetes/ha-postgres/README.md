@@ -155,7 +155,7 @@ primary; the platform's components were not run on several nodes.
 
 **The primary vanishes under the whole platform** (`BLACKHOLE=1 bash tests/kind/failover-drill.sh` on the one-node cluster: every
 packet from and to the primary's Pod is dropped in the node, so no reset comes back, as when its node loses power). The CMI refused
-writes for **60–65 s**, against 26–29 s for a killed Pod: 32 s until the operator saw the primary unhealthy (a deleted Pod is an
+writes for **55–87 s** over six runs (the drill allows 120 s in this mode, 90 s for a kill), against 26–29 s for a killed Pod; in one run: 32 s until the operator saw the primary unhealthy (a deleted Pod is an
 event, a silent one has to fail its checks), 21 s to promote, 7 s for the CMI. Every component (CMI, HOST, Workspace, idp-mcp, EER)
 went unready, came back within about 15 s of the promotion and reconnected to the new primary; no acknowledged write was lost. What
 makes that work, and what does not:
