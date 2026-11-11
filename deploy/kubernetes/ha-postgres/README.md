@@ -194,7 +194,7 @@ budget for the standbys (`postgresql`). It is, but not on its own:
 The procedure is therefore one node at a time: drain, maintain, uncordon, wait for "Cluster in healthy state", then the next node.
 If another drain must happen while an instance is away, first `kubectl -n databases annotate pdb postgresql recheck=$(date +%s)
 --overwrite` and check that `kubectl -n databases get pdb postgresql` shows ALLOWED 0. Automated upgrades that drain nodes back to
-back (node pools, kured) must be held to the first rule. Worth reporting upstream (CloudNativePG: budgets by role) with this reproduction.
+back (node pools, kured) must be held to the first rule. Reported upstream with this reproduction: cloudnative-pg #11897.
 
 **The primary's node lost** (`docker stop`, no drain warning), in the worst case: the drill first puts the operator's leader and a
 plugin replica on the primary's node. The operator replica on another node took the lead and promoted a standby **47 s** after the
