@@ -166,9 +166,9 @@ makes that work, and what does not:
   pools' sockets carry a connect timeout (5 s), a keep-alive (after 15 s idle) and `TCP_USER_TIMEOUT` (30 s): the same query fails
   after **30 s** and the pool reconnects. The outage the CMI sees is unchanged (55–65 s: it is the operator's detection and the
   promotion).
-- **EER's World Model projector now restarts in such an outage** (3 times in one run, then it works): it ends its process on any
-  database error, by design, where the inbox projector next to it pauses and retries. Before, its query hung instead of failing.
-  A killed primary Pod does not restart it. Whether it should retry instead is idp-eer's decision.
+- **EER's World Model projector** ended its process on any database error, where the inbox projector next to it pauses and
+  retries: with the timeouts above it restarted 3 times in one such outage (before them its query hung instead of failing). It
+  now pauses and retries too, in idp-eer 4d1df11 (0 restarts in the next run, 5 pauses, ready again by itself): its readiness reports the error, its liveness does not depend on it.
 - **idp-mcp's registry restarted in both runs**: its liveness probe is the same `/api/v1/health` as its readiness probe and pings
   the database, so a database outage of a minute kills it (the others' liveness is `/healthz`, without the database). It came
   back, but a longer outage would restart it over and over. Fixed in idp-mcp 545bee0 (a liveness probe on `/healthz`, which does
@@ -222,7 +222,8 @@ not only on the Cluster's status, which goes stale when the operator is gone.
 requeue" (its watches had failed while its RoleBinding was gone with a deleted namespace), the operator logged "Pre-reconcile hook
 stopped the reconciliation loop" and never came back to that Cluster: no Pod for 15 minutes, until an annotation touched it. The
 kind scripts restart the plugin after installing it; in production, a Cluster that stays without a phase after a plugin restart needs
-the same touch (`kubectl annotate cluster ...`). Worth reporting upstream with this reproduction.
+the same touch (`kubectl annotate cluster ...`). Known upstream (cloudnative-pg #11618) and fixed by its PR #11683 ("requeue when a
+hook asks for it without a delay"), merged after 1.30.1 and in no release yet: the restart can go once the operator has it.
 
 ## What this does not give you
 
