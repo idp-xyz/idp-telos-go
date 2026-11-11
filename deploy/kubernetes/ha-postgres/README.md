@@ -165,7 +165,8 @@ makes that work, and what does not:
   pools. A call with no deadline on such a connection would wait for TCP to give up (about 15 minutes); none was seen, none is ruled out.
 - **idp-mcp's registry restarted in both runs**: its liveness probe is the same `/api/v1/health` as its readiness probe and pings
   the database, so a database outage of a minute kills it (the others' liveness is `/healthz`, without the database). It came
-  back, but a longer outage restarts it over and over. To fix in idp-mcp: a liveness probe that does not depend on the database.
+  back, but a longer outage would restart it over and over. Fixed in idp-mcp 545bee0 (a liveness probe on `/healthz`, which does
+  not ask the database): in a third run the registry was not restarted.
 
 **The primary's node drained** (`kubectl drain`): CloudNativePG switches the primary over to another node first; the drain takes
 7–10 s, writes are refused for at most **6–8.4 s**, and the evicted instance waits for its node (its volume is local). Once the switchover

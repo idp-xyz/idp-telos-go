@@ -10,7 +10,7 @@ contracts:
 components:
 - name: idp-mcp
   repository: idp-xyz/idp-mcp
-  commit: 1af73f63f264a489dbed8bfddb9189f0aed43d91
+  commit: 781b279c720c8bd7a687ccf090f005a8cd96e8ea
   clean: true
   contract:
     namespace: idp.telos.mcp
