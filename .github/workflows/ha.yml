@@ -1,0 +1,56 @@
+name: ha
+
+# The HA PostgreSQL on several nodes, every night (deploy/kubernetes/ha-postgres/README.md, "Several nodes"): a kind cluster with a
+# control plane and three workers in three zones, the cluster as production runs it (never two instances on a node, one per zone,
+# two replicas of the operator and of the Barman Cloud plugin, WAL archiving to an encrypted object store), then the drills: the
+# primary's Pod killed, its node drained, a second drain refused, a node lost with the primary, the operator's leader and a plugin
+# replica on it. Not on every push: it takes a quarter of an hour and pulls a dozen images. No component is needed, only this
+# repository.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ha-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ha:
+    name: HA PostgreSQL on several nodes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned tools
+        run: pip install --disable-pip-version-check 'PyYAML==6.0.3'
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+          version: v0.31.0
+      - uses: imjasonh/setup-crane@v0.4
+      - name: Images the scripts expect in the Docker daemon
+        run: |
+          docker pull -q kindest/node:v1.35.0
+          docker pull -q ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie
+          bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
+      - name: A cluster of one control plane and three workers in three zones
+        run: bash tests/kind/multinode-cluster.sh
+      - name: The cluster as production runs it; the primary's Pod killed
+        run: KIND_CLUSTER=ha ARCHIVE=1 bash tests/kind/ha-postgres.sh
+      - name: A node drained, a second drain refused, a node lost
+        run: bash tests/kind/ha-maintenance.sh
+      - name: Cluster state on failure
+        if: failure()
+        run: |
+          kubectl --context kind-ha get nodes -o wide || true
+          kubectl --context kind-ha get pods -A -o wide || true
+          kubectl --context kind-ha -n ha-test get cluster,pdb,backups || true
+          kubectl --context kind-ha get events -A --sort-by=.lastTimestamp | tail -80 || true
