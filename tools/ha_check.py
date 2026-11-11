@@ -5,7 +5,10 @@
 What it holds the cluster to (the properties tests/kind/ha-postgres.sh and failover-drill.sh then demonstrate on a real cluster):
 three or more instances; synchronous replication with at least one synchronous standby and data durability "required" (no
 acknowledged write that only the failed primary has); TLS from secrets (no self-signed default), a minimum of TLS 1.2, scram-sha-256,
-and a pg_hba that rejects cleartext TCP before CloudNativePG's catch-all; instances spread over nodes; the policy that lets the
+and a pg_hba that rejects cleartext TCP before CloudNativePG's catch-all; never two instances on a node (a required anti-affinity
+on the node, not on the zone) and one per zone (a zone spread that refuses nodes without a zone), relaxed for one node by
+single-node.yaml only; CloudNativePG's PodDisruptionBudgets on and none of our own next to them (a Pod with two cannot be evicted);
+a primary switched over, not restarted, in a rolling update; the policy that lets the
 instances, the operator, the API server and the object store talk, and nothing wider; the Service "postgresql" that follows the primary;
 the operator's namespace default-deny, its operator Pods called by the API server only and its Barman Cloud plugin by the operator only;
 cert-manager's namespace default-deny, called by the API server only; continuous WAL archiving through the Barman Cloud plugin (not the
@@ -33,6 +36,13 @@ def main() -> int:
     spec = cluster["spec"]
     pg = spec.get("postgresql", {})
     sync = pg.get("synchronous", {})
+    own_pdbs = [d for f in ROOT.glob("*.yaml") for d in yaml.safe_load_all(f.read_text()) if d and d.get("kind") == "PodDisruptionBudget"
+                and d.get("spec", {}).get("selector", {}).get("matchLabels", {}).get("cnpg.io/cluster") == cluster["metadata"]["name"]]
+    if own_pdbs:
+        problems.append("a PodDisruptionBudget of our own over the instances: with CloudNativePG's next to it a Pod has two budgets, and the "
+                        "eviction API then refuses to evict it at all (every drain failed; README.md). CloudNativePG's budgets are the ones")
+    if spec.get("enablePDB") is False:
+        problems.append("enablePDB must stay on: CloudNativePG's budgets make a drain switch the primary over first and keep a standby")
     if spec.get("instances", 0) < 3:
         problems.append("fewer than 3 instances: one failure leaves no standby to promote and no synchronous partner")
     if sync.get("number", 0) < 1 or sync.get("dataDurability") != "required":
@@ -55,8 +65,20 @@ def main() -> int:
         problems.append("a pg_hba line allows cleartext before the hostnossl reject")
     if spec.get("primaryUpdateMethod") != "switchover":
         problems.append("primaryUpdateMethod must be switchover: a rolling update restarting the primary in place refuses new connections for minutes")
-    if spec.get("affinity", {}).get("enablePodAntiAffinity") is not True:
-        problems.append("pod anti-affinity must be on: the instances must not share a node when there are several")
+    aff = spec.get("affinity", {})
+    if aff.get("enablePodAntiAffinity") is not True or aff.get("podAntiAffinityType") != "required":
+        problems.append("the pod anti-affinity must be on and required: an instance waits rather than share a node with another")
+    if aff.get("topologyKey") != "kubernetes.io/hostname":
+        problems.append("the anti-affinity's topologyKey must be kubernetes.io/hostname: on the zone it is ignored by nodes without a zone label, "
+                        "and the three instances started on one node (README.md); the zones come from topologySpreadConstraints")
+    zone_spread = [c for c in spec.get("topologySpreadConstraints") or [] if c.get("topologyKey") == "topology.kubernetes.io/zone"]
+    if not any(c.get("whenUnsatisfiable") == "DoNotSchedule" and c.get("maxSkew") == 1
+               and c.get("labelSelector", {}).get("matchLabels", {}).get("cnpg.io/cluster") == cluster["metadata"]["name"] for c in zone_spread):
+        problems.append("the instances must be spread over the zones: a topologySpreadConstraint on topology.kubernetes.io/zone, maxSkew 1, "
+                        "DoNotSchedule, selecting this cluster's Pods")
+    relax = [d for d in yaml.safe_load_all((ROOT / "single-node.yaml").read_text()) if d]
+    if relax != [{"spec": {"affinity": {"podAntiAffinityType": "preferred"}, "topologySpreadConstraints": None}}]:
+        problems.append("single-node.yaml (the one-node kind cluster's patch) may relax the spreading and nothing else")
     docs = [d for d in yaml.safe_load_all((ROOT / "platform.yaml").read_text()) if d]
     svc = next((d for d in docs if d["kind"] == "Service" and d["metadata"]["name"] == "postgresql"), None)
     if not svc or svc["spec"]["selector"].get("cnpg.io/instanceRole") != "primary":

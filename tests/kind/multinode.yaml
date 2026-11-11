@@ -1,0 +1,16 @@
+# A kind cluster with one control plane and three workers, each worker in its own zone (tests/kind/multinode-cluster.sh): what
+# a one-node cluster cannot show for the HA PostgreSQL (instances spread over nodes and zones, a node drained or lost). No default
+# CNI: Calico, as on the main cluster. The control plane keeps its NoSchedule taint, so the workloads go to the three workers.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  podSubnet: 192.168.0.0/16
+nodes:
+  - role: control-plane
+  - role: worker
+    labels: {topology.kubernetes.io/zone: zone-a}
+  - role: worker
+    labels: {topology.kubernetes.io/zone: zone-b}
+  - role: worker
+    labels: {topology.kubernetes.io/zone: zone-c}

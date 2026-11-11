@@ -1,0 +1,20 @@
+# A patch of the operator's Deployment (the release manifest has one replica): two replicas, never on the same node when there are
+# several. The operator elects a leader (--leader-elect): one works, the other takes over when it is gone. With one replica, a node
+# lost with the operator and the primary on it left the cluster without a failover until Kubernetes moved the operator (5 minutes
+# and more), and the Cluster kept saying "healthy" meanwhile (README.md, measured on tests/kind/multinode.yaml). The webhooks are
+# served by both replicas, so a Cluster can be changed while one is away.
+#
+# A spread that refuses (DoNotSchedule), not a preferred anti-affinity: a preference is only weighed when a Pod is placed, and after the
+# drains of a node maintenance both replicas had landed on one node, which was then lost with them. On one node (kind) that node is the
+# only place, so both run there.
+#   kubectl -n cnpg-system patch deploy cnpg-controller-manager --patch-file deploy/kubernetes/ha-postgres/operator-ha.yaml
+spec:
+  replicas: 2
+  template:
+    spec:
+      affinity: null
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector: {matchLabels: {app.kubernetes.io/name: cloudnative-pg}}

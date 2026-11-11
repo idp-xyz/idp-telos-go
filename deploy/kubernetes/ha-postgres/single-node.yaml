@@ -1,0 +1,7 @@
+# DEV ONLY: a merge patch of cluster.yaml for a cluster with fewer than three schedulable nodes in a zone (the one-node kind cluster
+# of tests/kind/full.sh). tools/ha_render.py merges it there and says so; on the multi-node test cluster (tests/kind/multinode.yaml)
+# and in production cluster.yaml applies as it is. The three instances may then share a node and no zone label is needed: the
+# failover is shown, not the spreading.
+spec:
+  affinity: {podAntiAffinityType: preferred}
+  topologySpreadConstraints: null

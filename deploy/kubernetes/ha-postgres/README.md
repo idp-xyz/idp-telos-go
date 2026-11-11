@@ -14,12 +14,18 @@ failure and a maintenance outage; this is the HA option. Two ways to get it, in 
 
 | File | Content |
 |---|---|
-| `cluster.yaml` | the `Cluster`: 3 instances, **synchronous** replication (a commit is acknowledged only after one standby has it; with no standby the primary blocks rather than acknowledge a write only it has), quorum-checked promotion, TLS from secrets, TLS 1.2 or later, scram-sha-256, `pg_hba` that rejects cleartext TCP, anti-affinity, rolling updates that switch the primary over instead of restarting it |
+| `cluster.yaml` | the `Cluster`: 3 instances, **synchronous** replication (a commit is acknowledged only after one standby has it; with no standby the primary blocks rather than acknowledge a write only it has), quorum-checked promotion, TLS from secrets, TLS 1.2 or later, scram-sha-256, `pg_hba` that rejects cleartext TCP, never two instances on a node and one per zone, rolling updates that switch the primary over instead of restarting it |
+| `operator-ha.yaml` | the operator's Deployment patched to two replicas, never on one node when there are several (it elects a leader) |
+| `single-node.yaml` | DEV ONLY: the spreading relaxed for a cluster with fewer than three nodes in zones (the one-node kind cluster); `tools/ha_render.py` applies it and says so |
 | `pitr.yaml` | continuous WAL archiving and a nightly base backup to the object store through the **Barman Cloud plugin**: the `ObjectStore` (7 days retained), a merge patch of the `Cluster` (the plugin is the WAL archiver, `archive_timeout` 60 s) and the `ScheduledBackup` |
 | `platform.yaml` | the Service `postgresql` (always the primary: the name every component already connects to), the NetworkPolicy of the instances, default-deny for the operator's namespace with one policy per Deployment (the operator: DNS, the API server, the instances and the plugin out, the API server's webhook calls on 9443 in; the plugin: the API server out, the operator on 9090 in), and default-deny for cert-manager's (the API server out, its webhook on 10250 in) |
 | `../../images/postgres-ha/` | the PostgreSQL image: the CloudNativePG operand plus pgvector, no backup tool (the plugin's sidecar has it) |
-| `../../../tools/ha_plugin_scope.py` | the plugin's release manifest limited to the namespace `databases` (see below) |
-| `../../../tests/kind/ha-postgres.sh` | the cluster on its own on kind: kill the primary under a writer |
+| `../../../tools/ha_plugin_scope.py` | the plugin's release manifest limited to the namespace `databases`, with two replicas on different nodes (see below) |
+| `../../../tools/ha_render.py` | `cluster.yaml` as the kind tests apply it: merge patches (`pitr.yaml`), the namespace, the one-node relaxation |
+| `../../../tests/kind/ha-operators.sh` | the operator, cert-manager and the plugin installed as production runs them (`full.sh` and `ha-postgres.sh` use it) |
+| `../../../tests/kind/multinode-cluster.sh` | a second kind cluster `ha`: a control plane and three workers in the zones zone-a, zone-b, zone-c, Calico |
+| `../../../tests/kind/ha-maintenance.sh` | on it: the primary's node drained, a second drain refused, a node lost with the operator's leader and a plugin replica on it |
+| `../../../tests/kind/ha-postgres.sh` | the cluster on its own on kind: kill the primary under a writer; on several nodes also the placement, with `ARCHIVE=1` the operators and archiving as production runs them |
 | `../../../tests/kind/failover-drill.sh` | the whole platform on the cluster (`PG_HA=1 bash tests/kind/full.sh`): kill the primary while the CMI takes writes; `ROLLOUT=1`: a rolling restart of the cluster instead |
 | `../../../tests/kind/pitr-drill.sh` | point-in-time recovery: a DELETE that replication copied everywhere is undone by a new cluster recovered to the instant before it |
 | `../../../tools/ha_check.py` | static check of these manifests (CI): the properties above cannot be weakened unnoticed (`tools/tests/test_ha.py` weakens them 21 ways and expects each to fail) |
@@ -121,11 +127,86 @@ The CMI barely noticed either: its pool reuses open connections. A Pod that star
 `restart` they failed for three and a half minutes. With `switchover` the primary role moves to an updated standby first; the price is
 that an image change and a PostgreSQL parameter change cannot go in the same update (the operator rejects it).
 
+## Several nodes (measured on kind, 2026-11-10)
+
+`tests/kind/multinode-cluster.sh` makes a second kind cluster, `ha`: a control plane and three workers in the zones zone-a, zone-b and
+zone-c, local volumes (each instance's data stays on its node), Calico. `KIND_CLUSTER=ha ARCHIVE=1 bash tests/kind/ha-postgres.sh`
+runs the cluster there as production runs it (`cluster.yaml` unrelaxed, the operator and the plugin with two replicas, WAL archiving),
+then `bash tests/kind/ha-maintenance.sh` drains and loses nodes under a writer that opens a new connection for every row.
+
+**Where the instances go.** Four ways of asking for it, three instances each, on the three workers:
+
+| asked for | zones labelled | result |
+|---|---|---|
+| anti-affinity `required` on the zone | yes | one per zone; with one worker left schedulable the second instance waits (Pending) |
+| anti-affinity `required` on the zone | **no** | **all three on one node**, and the Cluster reports 3 ready instances: a node without the label is in no zone, so the rule never applies |
+| anti-affinity `required` on the node + a zone spread (`DoNotSchedule`) | yes | one per zone |
+| the same | **no** | nothing starts (not even the init job: "missing required label") |
+
+`cluster.yaml` asks for the third: never two instances on a node, and one per zone, failing loudly where the nodes carry no zone.
+The earlier advice here ("required, with the zone as the topology key") was the second row on a cluster without zone labels.
+`single-node.yaml` relaxes both for the one-node kind cluster only (`tools/ha_render.py` says so when it applies it).
+
+**The primary's Pod killed** (the writer gives every try 5 s): writes refused for **25–29 s**, as on one node. Across nodes a
+connection to a killed primary hangs instead of failing (no reset comes back): a first version of the writer without a time limit
+waited on one INSERT and the test reported 0 s. Clients need a connect and a statement timeout, or TCP keepalives, to notice a lost
+primary; the platform's components were not run on several nodes.
+
+**The primary's node drained** (`kubectl drain`): CloudNativePG switches the primary over to another node first; the drain takes
+7–10 s, writes are refused for at most **6–8.4 s**, and the evicted instance waits for its node (its volume is local). Once the switchover
+starts the old primary is relabelled `unhealthy` and no budget holds it any more, so the drain may take it during the switchover (which
+stops it anyway); no acknowledged write was lost. A second node drained while that instance is away should be refused by CloudNativePG's
+budget for the standbys (`postgresql`). It is, but not on its own:
+
+- **The budget's status goes stale at the switchover.** Both of CloudNativePG's budgets select by role. After the switchover the
+  standbys' budget still counted the promoted standby as a healthy replica: "expected 2, healthy 2, allowed 1" with one standby left,
+  for 40 s and more (every run). The Pods left the budget by a change of label, and Kubernetes' disruption controller recomputes a
+  budget only when a Pod it selects *now* changes (`updatePod` in v1.35 looks at the new labels only), so nothing recomputed it. A
+  second drain in that state evicted the last standby, twice out of twice, and with one instance left the primary blocks every write
+  (`dataDurability: required`). Touching the budget (`kubectl annotate pdb postgresql ...`) makes it recomputed: ALLOWED 0, and the
+  second drain is refused, which the drill checks.
+- **A budget of our own does not fix it.** One over every instance (`cnpg.io/podRole: instance`, `minAvailable: 2`) next to
+  CloudNativePG's gave each Pod two budgets, and the eviction API refuses to evict such a Pod at all ("more than one
+  PodDisruptionBudget"): every drain failed. `tools/ha_check.py` now rejects a budget of our own and `enablePDB: false`.
+
+The procedure is therefore one node at a time: drain, maintain, uncordon, wait for "Cluster in healthy state", then the next node.
+If another drain must happen while an instance is away, first `kubectl -n databases annotate pdb postgresql recheck=$(date +%s)
+--overwrite` and check that `kubectl -n databases get pdb postgresql` shows ALLOWED 0. Automated upgrades that drain nodes back to
+back (node pools, kured) must be held to the first rule. Worth reporting upstream (CloudNativePG: budgets by role) with this reproduction.
+
+**The primary's node lost** (`docker stop`, no drain warning), in the worst case: the drill first puts the operator's leader and a
+plugin replica on the primary's node. The operator replica on another node took the lead and promoted a standby **47 s** after the
+node stopped; writes were refused for **49 s** (a killed Pod costs 25–29 s: here the lease has to expire first, 15 s, and the
+primary's loss is noticed by the instances' status no longer answering). When the node came back, its instance rejoined as a
+standby (3 ready 60 s after the node started). Over the drill's four steps: 1013 acknowledged rows, none missing.
+
+**The operators are part of the failover.** CloudNativePG's operator decides the failover, and while it cannot reach the Barman
+Cloud plugin it does not reconcile a Cluster that uses it at all:
+
+| what was down when the primary died | result |
+|---|---|
+| the operator's only replica (on the same node as the primary) | **no failover for 4 minutes and more** (until Kubernetes moves the operator, 5 minutes after the node is unreachable); the Cluster said "healthy, 3 ready" all along, nobody updated it |
+| the plugin, its only replica (scaled to 0) | **no failover** ("cannot proceed to reconciliation due to an error while interacting with plugins"); 48 s after the plugin came back, the failover happened |
+| one of two plugin replicas (force-deleted) | failover as usual: writes refused 26.3 s, 0 lost |
+
+So the operator runs two replicas (`operator-ha.yaml`) and so does the plugin (`tools/ha_plugin_scope.py`), never two on one node
+when there are several: a spread that refuses (`DoNotSchedule`), not a preferred anti-affinity. With the preference, the drains of
+the maintenance above had moved both operator replicas and both plugin replicas onto one node (a preference is only weighed when a
+Pod is placed, and nothing moves them back), and losing that node then stopped the failover exactly as with one replica: no new
+primary in 4 minutes. Monitoring has to alert on the operator's and the plugin's availability (and on two replicas sharing a node),
+not only on the Cluster's status, which goes stale when the operator is gone.
+
+**CloudNativePG 1.30.1 and a plugin that is not ready.** When the plugin answered a new Cluster's first reconciliation with "not found,
+requeue" (its watches had failed while its RoleBinding was gone with a deleted namespace), the operator logged "Pre-reconcile hook
+stopped the reconciliation loop" and never came back to that Cluster: no Pod for 15 minutes, until an annotation touched it. The
+kind scripts restart the plugin after installing it; in production, a Cluster that stays without a phase after a plugin restart needs
+the same touch (`kubectl annotate cluster ...`). Worth reporting upstream with this reproduction.
+
 ## What this does not give you
 
-- **Spreading over nodes and zones.** kind has one node; the anti-affinity is `preferred` so the test runs. In production use
-  `required` and a topology key of the zone (`topology.kubernetes.io/zone`) so that losing a node or a zone leaves a standby, and run
-  CloudNativePG's `PodDisruptionBudget`s through a real node drain.
+- **Real zones and network volumes.** kind's zones are labels on containers of one machine, and its volumes are local to a node: an
+  evicted instance waits for its node. With zonal network volumes (EBS, PD) it can move to another node of its zone; that, a zone's
+  network failing (rather than a node stopping) and the platform's components on several nodes were not run.
 - **Encryption of the WAL archive and of the base backups.** They go to the object store as gzip, readable by whoever can read the
   bucket. The `pg_dump` backups are age-encrypted (deploy/images/pg-backup); the archive is not. Production uses server-side
   encryption (the `ObjectStore`'s `wal.encryption` and `data.encryption`: `AES256` or `aws:kms`, or a bucket key) and a bucket the
@@ -147,3 +228,9 @@ that an image change and a PostgreSQL parameter change cannot go in the same upd
     ROLLOUT=1 bash tests/kind/failover-drill.sh   # a rolling restart of the cluster while the CMI takes writes
     bash tests/kind/pitr-drill.sh              # point-in-time recovery through the plugin
     bash tests/kind/backup-drill.sh            # the encrypted backup and the restore, against the cluster
+
+    # several nodes: a second kind cluster "ha" (kubectl's current context stays as it is)
+    bash tests/kind/multinode-cluster.sh                     # 1 control plane, 3 workers in 3 zones, Calico
+    KIND_CLUSTER=ha ARCHIVE=1 bash tests/kind/ha-postgres.sh # as production: spread, two operator and plugin replicas, archiving
+    bash tests/kind/ha-maintenance.sh                        # drain the primary's node, a second drain refused, lose a node
+    kind delete cluster --name ha; docker rm -f idp-kind-ha-s3

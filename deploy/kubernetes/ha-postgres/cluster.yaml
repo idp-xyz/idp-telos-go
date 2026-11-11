@@ -30,10 +30,15 @@ spec:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
-  affinity:
-    enablePodAntiAffinity: true               # spread the instances over nodes; "preferred" so a one-node kind cluster still runs
+  affinity:                                   # never two instances on one node: an instance waits rather than share a node
+    enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname
-    podAntiAffinityType: preferred
+    podAntiAffinityType: required
+  topologySpreadConstraints:                  # and one per zone. The nodes must carry topology.kubernetes.io/zone (clouds set it): a node
+    - maxSkew: 1                              # without it takes no instance, so missing labels stop the cluster instead of letting it
+      topologyKey: topology.kubernetes.io/zone   # start in one place, which an anti-affinity on the zone does (README.md, measured)
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector: {matchLabels: {cnpg.io/cluster: postgresql, cnpg.io/podRole: instance}}
   certificates:
     serverCASecret: postgres-server-ca
     serverTLSSecret: postgres-tls

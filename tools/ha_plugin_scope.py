@@ -9,6 +9,10 @@ WATCH_NAMESPACE (plugin 0.16 and later) and that ClusterRole is bound with a Rol
 for the metrics endpoint's token reviews stays cluster-wide (those are cluster-scoped APIs). Exits 1 when the manifest does not have the
 objects this expects, so an upstream change is noticed rather than applied half-scoped. An installation that had the cluster-wide
 binding must delete it (kubectl delete clusterrolebinding plugin-barman-cloud-binding): applying this does not remove it.
+
+It also runs two replicas, never on the same node when there are several (plugin 0.16 and later; one leads the ObjectStore controller, both
+answer the operator): while the operator cannot reach the plugin it does not reconcile a Cluster that uses it, so a failover waits for
+the plugin (measured: none until the plugin came back, README.md).
 """
 
 import sys
@@ -35,6 +39,12 @@ def main() -> int:
     if len(containers) != 1:
         print(f"FAIL: the Deployment {DEPLOYMENT} has {len(containers)} containers, expected 1", file=sys.stderr)
         return 1
+    deploy["spec"]["replicas"] = 2
+    labels = deploy["spec"]["template"]["metadata"]["labels"]
+    # a spread that refuses, not a preferred anti-affinity: after the drains of a node maintenance both replicas had landed on one node
+    # (a preference is only weighed when a Pod is placed); on one node (kind) that node is the only place and both run there
+    deploy["spec"]["template"]["spec"]["topologySpreadConstraints"] = [
+        {"maxSkew": 1, "topologyKey": "kubernetes.io/hostname", "whenUnsatisfiable": "DoNotSchedule", "labelSelector": {"matchLabels": labels}}]
     env = [e for e in containers[0].get("env", []) if e["name"] != "WATCH_NAMESPACE"]
     containers[0]["env"] = env + [{"name": "WATCH_NAMESPACE", "value": ",".join(namespaces)}]
     out = [d for d in docs if d is not binding]
