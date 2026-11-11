@@ -13,6 +13,8 @@
 #   BLACKHOLE=1 bash tests/kind/failover-drill.sh   instead of a kill in 2, the primary vanishes without a reset (its packets dropped in the
 #      node): what a client sees when the primary's node is lost. A connection to it then hangs rather than fails, so this is where the
 #      components' timeouts show
+#   NODELOSS=1 KIND_CLUSTER=ha bash tests/kind/failover-drill.sh   on the multi-node cluster (tests/kind/multinode-cluster.sh, then full.sh with
+#      KIND_CLUSTER=ha): the primary's node is stopped, with every other Pod of the platform on it; it is started again afterwards
 #   ROLLOUT=1 bash tests/kind/failover-drill.sh   instead of a kill in 2, a rolling restart of the cluster (what an image, configuration
 #      or plugin change does: every instance recreated, the standbys first, the primary last by its primaryUpdateMethod), and the
 #      longest stretch of refused writes during it is what is limited
@@ -26,10 +28,12 @@ ISSUER=https://127.0.0.1:17443/realms/idp
 log() { echo "== $*"; }
 PFPIDS=()
 # BLACKHOLE=1: the raw table of the (one) node, before any connection tracking: nothing from or to the address passes
-HOLE=""; NODE="${KIND_CLUSTER:-kind}-control-plane"
+HOLE=""; LOST=""; NODE="${KIND_CLUSTER:-kind}-control-plane"
+kubectl() { command kubectl --context "kind-${KIND_CLUSTER:-kind}" "$@"; }   # the cluster of the drill, not the current context
 blackhole() { for r in "PREROUTING -s" "PREROUTING -d" "OUTPUT -d"; do docker exec "$NODE" iptables -t raw "$1" ${r% *} ${r#* } "$HOLE" -j DROP 2>/dev/null || true; done; }
 cleanup() {
   [[ -z "$HOLE" ]] || blackhole -D
+  [[ -z "$LOST" ]] || docker start "$LOST" >/dev/null 2>&1 || true
   for p in "${PFPIDS[@]:-}"; do [[ -n "$p" ]] && { pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; } || true; done
   [[ -z "${PROBE:-}" ]] || kubectl -n databases delete pod pg-newconn-probe --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
@@ -168,6 +172,12 @@ OLD="$(primary)"
 if [[ "${BLACKHOLE:-}" == 1 ]]; then
   log "2 the primary vanishes: every packet from and to its Pod is dropped (as when its node loses power: no reset comes back)"
   HOLE="$(kubectl -n databases get pod "$OLD" -o jsonpath='{.status.podIP}')"; KILL_AT="$(date +%s.%N)"; blackhole -I
+elif [[ "${NODELOSS:-}" == 1 ]]; then
+  LOST="$(kubectl -n databases get pod "$OLD" -o jsonpath='{.spec.nodeName}')"
+  log "2 the primary's node $LOST is lost (docker stop), with everything else of the platform that runs on it:"
+  kubectl get pods -A --field-selector="spec.nodeName=$LOST,status.phase=Running" -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' \
+    | grep -v -E '^(kube-system|local-path-storage)/' | sed -E 's/-[a-z0-9]{8,10}-[a-z0-9]{5}$//' | sort -u | paste -sd' ' | sed 's/^/   /'
+  KILL_AT="$(date +%s.%N)"; docker stop "$LOST" >/dev/null
 else
   log "2 the primary Pod is killed"
   KILL_AT="$(date +%s.%N)"
@@ -195,6 +205,7 @@ echo "PASS: $OLD killed, $NEW promoted; the CMI refused writes for $OUT s, then 
 fi
 
 [[ -z "$HOLE" ]] || { blackhole -D; HOLE=""; }   # the old primary is reachable again and has to come back as a standby
+if [[ -n "$LOST" ]]; then docker start "$LOST" >/dev/null; kubectl wait --for=condition=Ready "node/$LOST" --timeout=300s >/dev/null; WASLOST="$LOST"; LOST=""; fi
 log "3 the cluster is whole again; nothing acknowledged is missing"
 sleep 3; rm -f "$WLOG.run"; sleep 1; wait "$WPID" 2>/dev/null || true
 for _ in $(seq 1 180); do [[ "$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.readyInstances}')" == 3 ]] && break; sleep 2; done
@@ -206,7 +217,7 @@ NACK="$(echo "$ACKED" | wc -l)"; NFAIL="$(grep -c '^fail' "$WLOG" || true)"
 [[ "$LOST" == 0 ]] || { echo "FAIL: $LOST acknowledged records are missing after the failover" >&2; exit 1; }
 echo "PASS: $NACK records were acknowledged (and $NFAIL tries refused during the switch): none is missing on the new primary $(primary)"
 RESTARTS_AFTER="$(kubectl -n idp-cmi get pods -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{" "}{end}')"
-[[ "$RESTARTS_BEFORE" == "$RESTARTS_AFTER" ]] || { echo "FAIL: CMI restarts $RESTARTS_BEFORE -> $RESTARTS_AFTER" >&2; exit 1; }
+[[ "$RESTARTS_BEFORE" == "$RESTARTS_AFTER" || -n "${WASLOST:-}" ]] || { echo "FAIL: CMI restarts $RESTARTS_BEFORE -> $RESTARTS_AFTER" >&2; exit 1; }   # a Pod on the lost node restarts with it
 echo "PASS: the CMI Pods did not restart (restart counts $RESTARTS_AFTER)"
 BAD="$(psql_cmi "SELECT count(*) FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid) WHERE a.client_addr IS NOT NULL AND NOT s.ssl AND a.backend_type='client backend'" postgres)"
 [[ "$BAD" == 0 ]] || { echo "FAIL: $BAD client connections without TLS" >&2; exit 1; }

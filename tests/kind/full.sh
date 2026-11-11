@@ -268,7 +268,15 @@ if [[ "$PG_HA" == 1 ]]; then   # HA: the operators, and the cluster's three secr
   # the policies of the operators' namespaces (and the instances') first, so that everything the operators do runs under them; then
   # CloudNativePG, cert-manager and the Barman Cloud plugin as production runs them (two replicas each of the operator and the plugin)
   for ns_ in cnpg-system cert-manager; do kubectl create namespace "$ns_" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
-  sed -e "s#203.0.113.10/32#$APIIP/32#" -e "s#203.0.113.20/32#$BACKUP_GW/32#" deploy/kubernetes/ha-postgres/platform.yaml | kubectl apply -f - >/dev/null
+  # the API server calls a webhook on another node from the control plane's address on the Pod network (Calico's tunnel address), not
+  # from its node address: on one node the two are never needed apart, on several the certificates were never issued without it
+  APITUN="$(kubectl get nodes -o json | python3 -c '
+import json, sys
+for n in json.load(sys.stdin)["items"]:
+    if any(a["address"] == sys.argv[1] for a in n["status"]["addresses"]):
+        ann = n["metadata"].get("annotations", {})
+        print(ann.get("projectcalico.org/IPv4IPIPTunnelAddr") or ann.get("projectcalico.org/IPv4VXLANTunnelAddr") or sys.argv[1])' "$APIIP")"
+  sed -e "s#203.0.113.10/32#$APIIP/32#" -e "s#203.0.113.11/32#${APITUN:-$APIIP}/32#" -e "s#203.0.113.20/32#$BACKUP_GW/32#" deploy/kubernetes/ha-postgres/platform.yaml | kubectl apply -f - >/dev/null
   KIND_CLUSTER="$CLUSTER" bash tests/kind/ha-operators.sh databases >/dev/null
   kubectl -n databases create secret generic postgres-superuser --type=kubernetes.io/basic-auth --from-literal=username=postgres --from-literal=password="$PG" >/dev/null
   kubectl -n databases create secret generic postgres-server-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null

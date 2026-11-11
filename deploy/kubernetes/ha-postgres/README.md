@@ -26,7 +26,7 @@ failure and a maintenance outage; this is the HA option. Two ways to get it, in 
 | `../../../tests/kind/multinode-cluster.sh` | a second kind cluster `ha`: a control plane and three workers in the zones zone-a, zone-b, zone-c, Calico |
 | `../../../tests/kind/ha-maintenance.sh` | on it: the primary's node drained, a second drain refused, a node lost with the operator's leader and a plugin replica on it |
 | `../../../tests/kind/ha-postgres.sh` | the cluster on its own on kind: kill the primary under a writer; on several nodes also the placement, with `ARCHIVE=1` the operators and archiving as production runs them |
-| `../../../tests/kind/failover-drill.sh` | the whole platform on the cluster (`PG_HA=1 bash tests/kind/full.sh`): kill the primary while the CMI takes writes; `ROLLOUT=1`: a rolling restart of the cluster instead |
+| `../../../tests/kind/failover-drill.sh` | the whole platform on the cluster (`PG_HA=1 bash tests/kind/full.sh`): kill the primary while the CMI takes writes; `ROLLOUT=1`: a rolling restart of the cluster instead; `BLACKHOLE=1`: the primary vanishes without a reset; `NODELOSS=1` (several nodes): its node is stopped |
 | `../../../tests/kind/pitr-drill.sh` | point-in-time recovery: a DELETE that replication copied everywhere is undone by a new cluster recovered to the instant before it |
 | `../../observability/ha-postgres-alerts.yaml` | Prometheus rules (kube-state-metrics) for what the Cluster's status does not show: the operator or the plugin without a replica or with one, two replicas on one node, the standbys' budget stale while an instance is away; tested with promtool in CI |
 | `../../../tools/ha_check.py` | static check of these manifests (CI): the properties above cannot be weakened unnoticed (`tools/tests/test_ha.py` weakens them 21 ways and expects each to fail) |
@@ -203,6 +203,16 @@ node stopped; writes were refused for **49 s** (a killed Pod costs 25–29 s: he
 primary's loss is noticed by the instances' status no longer answering). When the node came back, its instance rejoined as a
 standby (3 ready 60 s after the node started). Over the drill's four steps: 1013 acknowledged rows, none missing.
 
+**The whole platform on the three workers** (`KIND_CLUSTER=ha PG_HA=1 bash tests/kind/full.sh`): paths A to H pass, with `cluster.yaml`
+unrelaxed. One thing had to change first: the API server calls a webhook on another node from the control plane's address on the Pod
+network (Calico's tunnel address), not from its node address, and the policies of `platform.yaml` admitted the node address only.
+cert-manager's webhook was unreachable, no certificate was issued and the plugin never started; on one node the two addresses are
+never needed apart. Both webhook rules now name both addresses (on a managed cluster: the control plane's range). Then
+`NODELOSS=1 KIND_CLUSTER=ha bash tests/kind/failover-drill.sh` stopped the primary's node under the CMI's writer, with a plugin
+replica, Temporal and EER's projector on it: writes refused for **60.8 s**, 43 acknowledged records, none missing. Not covered by
+it: Keycloak, Temporal, idp-mcp's gateway and registry and the sandbox run one replica each, and a Pod on a lost node is moved
+only after 5 minutes; what the platform does without them for that long was not measured.
+
 **The operators are part of the failover.** CloudNativePG's operator decides the failover, and while it cannot reach the Barman
 Cloud plugin it does not reconcile a Cluster that uses it at all:
 
@@ -229,8 +239,8 @@ hook asks for it without a delay"), merged after 1.30.1 and in no release yet: t
 ## What this does not give you
 
 - **Real zones and network volumes.** kind's zones are labels on containers of one machine, and its volumes are local to a node: an
-  evicted instance waits for its node. With zonal network volumes (EBS, PD) it can move to another node of its zone; that, a zone's
-  network failing (rather than a node stopping) and the platform's components on several nodes were not run.
+  evicted instance waits for its node. With zonal network volumes (EBS, PD) it can move to another node of its zone; that and a zone's
+  network failing (rather than a node stopping) were not run.
 - **A key service for the WAL archive.** The archive and the base backups are encrypted at rest by the object store (`wal.encryption`
   and `data.encryption: AES256`, SSE-S3; `tools/ha_check.py` requires it): on kind an archived segment reads back with
   `x-amz-server-side-encryption: AES256`, is gzip through the API and not on the store's disk, and the PITR drill recovers from
@@ -259,4 +269,6 @@ hook asks for it without a delay"), merged after 1.30.1 and in no release yet: t
     bash tests/kind/multinode-cluster.sh                     # 1 control plane, 3 workers in 3 zones, Calico
     KIND_CLUSTER=ha ARCHIVE=1 bash tests/kind/ha-postgres.sh # as production: spread, two operator and plugin replicas, archiving
     bash tests/kind/ha-maintenance.sh                        # drain the primary's node, a second drain refused, lose a node
+    KIND_CLUSTER=ha PG_HA=1 SKIP_BUILD=1 bash tests/kind/full.sh   # the whole platform there (it takes over the backup target and the local ports of the main cluster: run full.sh on that again afterwards)
+    NODELOSS=1 KIND_CLUSTER=ha bash tests/kind/failover-drill.sh   # stop the primary's node under the CMI's writer
     kind delete cluster --name ha; docker rm -f idp-kind-ha-s3

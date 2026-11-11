@@ -44,7 +44,8 @@ spec:
 # The operator's namespace: default deny, then only what each of its two Deployments does. The operator reads and writes the
 # Kubernetes API (the address is replaced by tests/kind/full.sh), asks every instance for its status on 8000 and talks SQL to it on
 # 5432, calls the Barman Cloud plugin on 9090 (gRPC, mutual TLS with cert-manager's certificates), and resolves names; the API server
-# calls its webhooks on 9443 (the source is the API server's own address: on a managed cluster use the control plane's range). The
+# calls its webhooks on 9443 (the source is the API server's node address when the operator is on the same node, and the control
+# plane's address on the Pod network when it is on another: on a managed cluster use the control plane's range). The
 # plugin is called by the operator only and talks to the API server only: the WAL and the base backups go to the object store from
 # the sidecar in each instance (the policy postgresql-ha above), not from here.
 apiVersion: networking.k8s.io/v1
@@ -67,6 +68,7 @@ spec:
   ingress:
     - from:
         - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server (the webhooks); tests/kind/full.sh replaces it
+        - ipBlock: {cidr: 203.0.113.11/32}   # ...and its address on the Pod network: the source when the webhook's Pod is on another node (Calico's tunnel address of the control plane); tests/kind/full.sh replaces it
       ports: [{protocol: TCP, port: 9443}]
   egress:
     - to:
@@ -137,4 +139,5 @@ spec:
   ingress:
     - from:
         - ipBlock: {cidr: 203.0.113.10/32}   # the Kubernetes API server (the admission webhook); tests/kind/full.sh replaces it
+        - ipBlock: {cidr: 203.0.113.11/32}   # ...and its address on the Pod network: the source when the webhook's Pod is on another node (Calico's tunnel address of the control plane); tests/kind/full.sh replaces it
       ports: [{protocol: TCP, port: 10250}]
