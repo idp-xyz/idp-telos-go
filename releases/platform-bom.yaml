@@ -20,7 +20,7 @@ components:
     id: sha256:b85d043d2d6dc99206345f4f20ab24bb11a6831923305263d225307d7929ce2c
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: 90b8e0e265a1ee2cbb8a34040fee23ec2f03dc7b
+  commit: ba69dd119469b2186996cd5b5d5490e5fada684c
   clean: true
   contract:
     namespace: idp.telos.host
@@ -37,7 +37,7 @@ components:
     id: sha256:3f6c856f3160319623a880020992129863b5175562d9bc95244c7e722ae823b7
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: 4858d7156d9a93e00ed8e050f70207f29ee34389
+  commit: c6ea291c9a88e59a1446ea677506c9c6897ecfec
   clean: true
   contract:
     namespace: idp.telos.cmi
@@ -47,7 +47,7 @@ components:
     id: sha256:dcf40a76144ae778b712a470da544b2ab627f5b1d58d442445861d0061b2d92c
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: 8a393fd8e6f9b6ab75deb538b5cb98c105fe85e1
+  commit: ebd12c8584d97c73aeb85225549a1b5d4da8b536
   clean: true
   contract:
     namespace: idp.telos.workspace
