@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:a19760ffaccdbdb0ea63cbe527c374239bad0714274172d82d3682125d938df0
+    id: sha256:4df1c913678d7d8406ca0709f5b0304f5155f4f7e457c380b9bb8e3548f3c5ac
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: 8353dd26c97aee0afe1d1c1725a2671bcf1d1d85
@@ -27,38 +27,38 @@ components:
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:3225a0ad488c1f8060d45a12fc5c8acf61187a2a436a9bc2dab702c5d19bab3d
+    id: sha256:fc42431348f045303f4f65d38adb23043219ce52bffd99e405b103e122fc306d
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 4d1df115f7330b38657d31c535f68d582be03b27
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:f3e82f02caed02427c1955feff11d9d5c82239244b38c18f92b83edeb8f1f21a
+    id: sha256:8f8b266e3364d87301376214728c42cf09b3df177b125b208a141341d29a9211
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: 21812a71d808cf160a3cf524a46bf430811949a5
+  commit: f6f9ba41d32712c87fd59b913eb56e20ab183557
   clean: true
   contract:
     namespace: idp.telos.cmi
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:0fb576466ae1f0c16ec6cff9f7322fb8016b325c1f5fcd4678fee4dcc93ff581
+    id: sha256:27f12aa08f331ec781928a090077e151bf3e52c26700a31f0850aa65f6811211
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: 2472d1606cb4cdb7582ffb7889339cc862fc74ac
+  commit: bcc71f6d62993a8931484310da2932d34025077c
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:3eb084977e02ce4232ba73298d42d719dbfffc809f36f25cb73d9a79a6a37b96
+    id: sha256:8b08aea508f34e377e32c97e82833a957253e306d1a1d821c3410903340651c8
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 07b888f168902326dace1e29e9e33d0afe59690c
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:9d3820cda1f06e3f473b4f6e39a2bb6eb7a6cf10d909cf1ebe1fc1803ffd1e7a
+    id: sha256:10a087efe11178dea9b0af51c81fe997260dbce3f1f49c5f20b2acf2454fc334
