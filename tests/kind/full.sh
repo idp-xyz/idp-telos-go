@@ -9,6 +9,7 @@
 #   PATH D  bob asks for code: HOST -> idp-mcp gateway -> idp-sandbox (kubernetes backend) -> 'answer 42' in the inbox
 #   PATH E  memory: bob's words are remembered by the HOST in the CMI, found again in a new conversation, kept in the same one
 #   PATH F  my memory: bob lists and erases what was remembered about him, through the Workspace; alice cannot
+#   PATH I  a tool call waits for bob's confirmation; he decides it in the Workspace, the code then runs (or does not)
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
 # and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
@@ -703,6 +704,71 @@ print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'
 # and the sandbox knew whose workspace it made: its audit log names the caller (a hash), not the code
 kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q '"tool":"sandbox_run".*caller=' || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox did not see the caller" >&2; exit 1; }
 echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (kubernetes backend, caller forwarded) -> code ran in an isolated pod -> 'answer 42' in bob's inbox"
+
+# ---- PATH I: a tool call waits for the member, who decides it in the Workspace (idp-host D7, Workspace D22) ----
+# The same two sandbox tools, but running code needs the run owner's confirmation. The shell's conversation page
+# reaches the run, its pending call and the decision through the Workspace; this path drives the same endpoints.
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"careful-coder","displayName":"Careful coder","definition":{"instructions":"'"$SANDBOX_INSTRUCTIONS"'","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run"]},"confirmation":{"default":"auto","tools":{"sandbox__sandbox_run":"confirm"}},"limits":{"confirmationTimeoutSeconds":900}}}' >/dev/null
+REL="$(call 201 POST "$HOST/api/v1/agents/careful-coder/releases" "$HADMIN" | field "['releaseId']")"
+call 200 POST "$HOST/api/v1/releases/$REL/approve" "$HAPPROVER" >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"careful","version":"1.0.0","title":"Careful coder","publisher":"IDP","capabilities":[],"actions":[{"name":"run","title":"Run code (asks before it runs)","target":{"kind":"host.run","agent":"careful-coder"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
+call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/careful" "$ALICE" '{"version":"1.0.0"}' >/dev/null
+INV="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" '{"app":"careful","action":"run","input":{"message":"run python: print(\"answer\", 6 * 7)"}}')"
+IRUN="$(echo "$INV" | field "['result']['id']")"
+# the run stops, and the Workspace shows bob the call that waits with the arguments it would run
+PENDING=""
+for _ in $(seq 1 240); do
+  PENDING="$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$IRUN/tool-calls" "$BOB" | python3 -c "
+import json,sys
+for c in json.load(sys.stdin)['toolCalls']:
+    if c['state'] == 'PENDING_CONFIRMATION': print(c['toolCallId'], c['tool'], c.get('arguments','')[:200])")"
+  [[ -n "$PENDING" ]] && break; sleep 0.5
+done
+[[ -n "$PENDING" ]] || { kubectl -n idp-host logs deploy/idp-host --tail=30; echo "FAIL: no tool call waits for bob in run $IRUN" >&2; exit 1; }
+CALLID="${PENDING%% *}"; CALLTOOL="$(echo "$PENDING" | awk '{print $2}')"
+[[ "$CALLTOOL" == sandbox__sandbox_run ]] || { echo "FAIL: the waiting call is $CALLTOOL" >&2; exit 1; }
+[[ "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$IRUN" "$BOB" | field "['status']")" == AWAITING_INPUT ]] || { echo "FAIL: run $IRUN is not AWAITING_INPUT" >&2; exit 1; }
+# the run's events, relayed as JSON: the confirmation was asked for on the stream the shell follows
+call 200 GET "$WS/v1/workspaces/us-ops/runs/$IRUN/events" "$BOB" | python3 -c "
+import json,sys
+names={e['event'].get('name') for e in json.load(sys.stdin)['events'] if e['type']=='CUSTOM'}
+assert 'idp.host/confirmation.required' in names, names
+print('the stream asked for the confirmation')" || { echo "FAIL: the relayed events do not ask for a confirmation" >&2; exit 1; }
+# only bob: the run is not alice's to see or to decide, even though she is a member and an administrator
+call 404 GET "$WS/v1/workspaces/us-ops/runs/$IRUN" "$ALICE" >/dev/null
+call 404 POST "$WS/v1/workspaces/us-ops/runs/$IRUN/tool-calls/$CALLID/decide" "$ALICE" '{"decision":"confirm"}' >/dev/null
+call 422 POST "$WS/v1/workspaces/us-ops/runs/$IRUN/tool-calls/$CALLID/decide" "$BOB" '{"decision":"maybe"}' >/dev/null
+# bob allows it: the decision reaches idp-host, the run goes on and its result arrives in his inbox
+call 200 POST "$WS/v1/workspaces/us-ops/runs/$IRUN/tool-calls/$CALLID/decide" "$BOB" '{"decision":"confirm"}' >/dev/null
+IRESULT=""
+for _ in $(seq 1 600); do
+  IRESULT="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$IRUN' and it['title'].endswith('— finished'): print(it.get('summary','').replace(chr(10),' '))")"
+  [[ -n "$IRESULT" ]] && break; sleep 0.5
+done
+[[ -n "$IRESULT" ]] || { kubectl -n idp-host logs deploy/idp-host --tail=30; echo "FAIL: run $IRUN did not finish after bob's confirmation" >&2; exit 1; }
+[[ "$IRESULT" == *42* ]] || { echo "FAIL: the confirmed run's answer does not report what the code printed: $IRESULT" >&2; exit 1; }
+# and a rejected one: the agent is told, the tool never ran
+INV="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" '{"app":"careful","action":"run","input":{"message":"run python: print(\"rejected\")"},"threadId":"'"$(echo "$INV" | field "['result']['threadId']")"'"}')"
+JRUN="$(echo "$INV" | field "['result']['id']")"
+JCALL=""
+for _ in $(seq 1 240); do
+  JCALL="$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$JRUN/tool-calls" "$BOB" | python3 -c "
+import json,sys
+for c in json.load(sys.stdin)['toolCalls']:
+    if c['state'] == 'PENDING_CONFIRMATION' and c['tool'] == 'sandbox__sandbox_run': print(c['toolCallId'])")"
+  [[ -n "$JCALL" ]] && break; sleep 0.5
+done
+[[ -n "$JCALL" ]] || { echo "FAIL: the second run never waited for bob" >&2; exit 1; }
+[[ "$(call 200 POST "$WS/v1/workspaces/us-ops/runs/$JRUN/tool-calls/$JCALL/decide" "$BOB" '{"decision":"reject"}' | field "['state']")" == REJECTED ]] || { echo "FAIL: the rejection was not recorded" >&2; exit 1; }
+for _ in $(seq 1 240); do
+  [[ "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$JRUN/tool-calls" "$BOB" | python3 -c "
+import json,sys
+print([c['state'] for c in json.load(sys.stdin)['toolCalls'] if c['tool']=='sandbox__sandbox_run'][0])")" == REJECTED ]] && break; sleep 0.5
+done
+echo "PASS: PATH I — bob asks careful-coder to run code -> idp-host stops the run for his confirmation -> the Workspace shows him the waiting call and its arguments (alice, an administrator, gets 404 for both) -> bob confirms through the Workspace (run $IRUN) -> the code ran and its output reached his inbox; a second call rejected (run $JRUN) never ran"
 
 # ---- the assistant app: a chat page in the shell for both agents (deploy/apps/assistant), on its own origin ----
 pf idp-workspace assistant 17561:8080
