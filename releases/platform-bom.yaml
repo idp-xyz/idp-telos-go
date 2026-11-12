@@ -20,14 +20,14 @@ components:
     id: sha256:4df1c913678d7d8406ca0709f5b0304f5155f4f7e457c380b9bb8e3548f3c5ac
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: 8353dd26c97aee0afe1d1c1725a2671bcf1d1d85
+  commit: 31f4855fc7d8355269c36a74d53b1e081febb82d
   clean: true
   contract:
     namespace: idp.telos.host
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:fc42431348f045303f4f65d38adb23043219ce52bffd99e405b103e122fc306d
+    id: sha256:90e2bdeaa95dfd3ac69af10982fc6eae8726e2c6934dc58bf09bf3d177beab94
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 4d1df115f7330b38657d31c535f68d582be03b27
@@ -47,14 +47,14 @@ components:
     id: sha256:27f12aa08f331ec781928a090077e151bf3e52c26700a31f0850aa65f6811211
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: bcc71f6d62993a8931484310da2932d34025077c
+  commit: 3bfc150e4f4b4c64bb8eabc79454a9cd3b83ebf2
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:8b08aea508f34e377e32c97e82833a957253e306d1a1d821c3410903340651c8
+    id: sha256:3bfd1d2448b433aadbeaf7c168d74089bbd140d9a3bfb15cfa1e7c6f0985b079
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 07b888f168902326dace1e29e9e33d0afe59690c
