@@ -17,34 +17,34 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:4df1c913678d7d8406ca0709f5b0304f5155f4f7e457c380b9bb8e3548f3c5ac
+    id: sha256:f975d10e8eb045449ac4271ed96b79990325afd4d088a0759a58bf620f650c37
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: 31f4855fc7d8355269c36a74d53b1e081febb82d
+  commit: ae82179c4919134b7bdaba6897ac442422416491
   clean: true
   contract:
     namespace: idp.telos.host
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:90e2bdeaa95dfd3ac69af10982fc6eae8726e2c6934dc58bf09bf3d177beab94
+    id: sha256:848da1d8d1a25506e64f8ea407299172343d9ff7ad0b9d1c678566042bb3695e
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 4d1df115f7330b38657d31c535f68d582be03b27
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:8f8b266e3364d87301376214728c42cf09b3df177b125b208a141341d29a9211
+    id: sha256:0192cbab07e48a2813d3327ea21270ad5cbeeedfd2b2c041757182262d986c74
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: f6f9ba41d32712c87fd59b913eb56e20ab183557
+  commit: 43e4c553eca3362b756738eed1e0a58747d38779
   clean: true
   contract:
     namespace: idp.telos.cmi
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:27f12aa08f331ec781928a090077e151bf3e52c26700a31f0850aa65f6811211
+    id: sha256:ef3ce9f2e7da93d11b405aff97de51fcdf158ae5e46531eed79b6e31fccd9bed
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 3bfc150e4f4b4c64bb8eabc79454a9cd3b83ebf2
@@ -54,11 +54,11 @@ components:
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:3bfd1d2448b433aadbeaf7c168d74089bbd140d9a3bfb15cfa1e7c6f0985b079
+    id: sha256:f10328fd294c3b807cd7ceadb8715f4d73e4b3ad791739f6321a940ac76ee15c
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 07b888f168902326dace1e29e9e33d0afe59690c
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:10a087efe11178dea9b0af51c81fe997260dbce3f1f49c5f20b2acf2454fc334
+    id: sha256:9566b8069daa7331f197e2f94ea8103801fb63bc85c821d745c4af95a08b21c5
