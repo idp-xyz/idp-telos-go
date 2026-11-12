@@ -353,8 +353,9 @@ dbsecret idp-mcp idp-mcp-registry-db idp_mcp x idp_mcp_svc "$MCP_DB"
 mksecret idp-mcp idp-mcp-admin --from-literal=secret="$MCP_ADMIN"
 # idp-host: its key, the model/CMI credentials, the delegation client secret (the HOST's own identity at the CMI is its Keycloak service account)
 mksecret idp-host idp-host-credential-key --from-literal=key="$(openssl rand -hex 32)"
-CMIKEY="$("${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=idp-host-svc -d "client_secret=$(secret_of idp-host-svc)" | token_json)"
-mksecret idp-host idp-host-provider-keys --from-literal=default=unused --from-literal=cmi="$CMIKEY"
+# the HOST's own client secret for the CMI: it mints and refreshes its own tokens (idp-host D36), so that
+# nothing here expires (a token handed over at deployment time stopped working an hour later)
+mksecret idp-host idp-host-provider-keys --from-literal=default=unused --from-literal=cmi-client-secret="$(secret_of idp-host-svc)"
 mksecret idp-host idp-host-gateway-client --from-literal=client-secret="$(secret_of idp-host)"
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$L/signing.pem" 2>/dev/null
 mksecret idp-workspace idp-workspace-signing-key --from-file=signing.pem="$L/signing.pem"
@@ -607,6 +608,9 @@ call 200 GET "$CMI/v1/memory/records" "$ALICE" | python3 -c "
 import json,sys
 assert not [r for r in json.load(sys.stdin)['records'] if r['provenance']['ref'].startswith('run:')], 'alice sees conversation memory that is not hers'
 " || { echo "FAIL: alice sees bob's memory" >&2; exit 1; }
+# as in compose: what the HOST holds for the CMI must be its client secret, not a token that expires (D36)
+kubectl -n idp-host get secret idp-host-provider-keys -o jsonpath='{.data.cmi-client-secret}' | base64 -d \
+  | grep -qE '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.' && { echo "FAIL: the CMI writer credential is a token, which expires" >&2; exit 1; }
 echo "PASS: PATH E — bob: 'My favourite colour is teal.' -> HOST run $R1 -> remembered in the CMI (episodic, scope subject, source idp-host) -> a NEW conversation ($T2) gets it in its context package; the same conversation ($T1) keeps both exchanges; alice does not see it"
 
 # ---- PATH F: my memory. bob sees what is remembered about him and erases it; nobody else can ----

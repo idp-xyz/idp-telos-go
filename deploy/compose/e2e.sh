@@ -95,12 +95,16 @@ openssl x509 -req -in "$L/tls/server.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.
 chmod 644 "$L/tls/server.key" "$L/tls/server.crt" "$L/tls/ca.crt"   # read by the Keycloak container user; a throw-away dev CA
 rm -rf "$L/keycloak"; mkdir -p "$L/keycloak"
 python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
-printf 'pending\n' > "$L/cmi.key"
+# the HOST's own client secret for the CMI: it mints and refreshes its own tokens (idp-host D36)
+python3 -c "import json; print(json.load(open('$L/clients.json'))['idp-host-svc'])" > "$L/cmi-client.secret"
 MODEL_BASE=http://fakemodel:18080/v1 AGENT_MODEL=fake-1
 [[ "$MODEL" == live ]] && MODEL_BASE="http://host.docker.internal:18088$LIVE_PATH" AGENT_MODEL="$LIVE_MODEL"
-printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\n' "$MODEL_BASE" > "$L/host.yaml"
+# two providers: the agents' model (the double, or the live one) and the double on its own for the fact
+# extractor, which needs an answer in JSON (a live model does not reliably give one)
+printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\n  - name: double\n    kind: openai\n    baseUrl: http://fakemodel:18080/v1\n    insecure: true\n' "$MODEL_BASE" > "$L/host.yaml"
 # the CMI: the HOST reads AS THE MEMBER (RFC 8693 exchange for the CMI audience, so a member's own memories are the ones
-# retrieved) and writes conversation memory with its own identity (idp-host-svc: cmi-writer; cmi.key is its token)
+# retrieved) and writes conversation memory with its own identity (the client idp-host-svc: cmi-writer), for which it
+# mints and refreshes its own token (D36) - a token handed over here would stop working when it expired
 cat >> "$L/host.yaml" <<'YAML'
 cmi:
   endpoint: http://cmi:8550
@@ -114,10 +118,10 @@ cmi:
     enabled: true
     source: idp-host
     ttlDays: 30
-    auth: {mode: static, apiKeyFile: /etc/idp/cmi.key}
+    auth: {mode: client_credentials, tokenEndpoint: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-host-svc, clientSecretFile: /etc/idp/cmi-client.secret, audience: idp-cmi}
 YAML
 # the conversation is remembered two ways (idp-host D34): the turn, and the facts the user stated, extracted by the model
-printf '    mode: both\n    facts: {provider: local, model: %s}\n' "$AGENT_MODEL" >> "$L/host.yaml"
+printf '    mode: both\n    facts: {provider: double, model: fake-1}\n' >> "$L/host.yaml"
 # the idp-mcp gateway: the HOST acts for the member (RFC 8693 delegation, its own client credentials as actor_token)
 cat >> "$L/host.yaml" <<'YAML'
 gateways:
@@ -178,7 +182,7 @@ for k, v in (("EER_PRINCIPAL_MAPPINGS", mappings), ("EER_AUTHORIZATION_POLICY", 
     print(k + "=" + json.dumps(v, separators=(",", ":")))
 print("SSL_CERT_FILE=/etc/eer/ca.crt")
 PY
-chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/host.yaml" "$L/cmi.key" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
+chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
 token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
@@ -233,10 +237,6 @@ for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:33
 python3 -I deploy/compose/mcp_setup.py http://127.0.0.1:8250 "$GW_ID" "$MADMIN" "$MOPERATOR" "$MREVIEWER" host-user >/dev/null \
   || { "${C[@]}" logs --tail 30 mcp-registry mcp-gateway sandbox; echo "BLOCKED: the idp-mcp setup failed" >&2; exit 2; }
 
-# the HOST's own identity at the CMI (client credentials), as its static key
-umask 022
-"${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=idp-host-svc -d "client_secret=$(secret_of idp-host-svc)" | token_json > "$L/cmi.key"
-umask 077
 "${C[@]}" up -d cmi host host-worker workspace eer-api eer-worker eer-projector
 for url in "$CMI/healthz" "$HOST/healthz" "$WS/healthz" "$EER/health/ready" http://127.0.0.1:18181/health/ready http://127.0.0.1:18182/health/ready; do
   for _ in $(seq 1 120); do curl -sf --noproxy '*' -o /dev/null "$url" && break; sleep 0.5; done
@@ -529,6 +529,9 @@ call 200 GET "$CMI/v1/memory/records" "$ALICE" | python3 -c "
 import json,sys
 assert not [r for r in json.load(sys.stdin)['records'] if r['provenance']['ref'].startswith('run:')], 'alice sees conversation memory that is not hers'
 " || { echo "FAIL: alice sees bob's memory" >&2; exit 1; }
+# the writer credential is the HOST's client secret, not a token handed over here: a JWT in this file is the
+# regression that made memory stop being written an hour after every deployment (idp-host D36)
+grep -qE '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.' "$L/cmi-client.secret" && { echo "FAIL: the CMI writer credential is a token, which expires" >&2; exit 1; }
 echo "PASS: PATH E — bob: 'My favourite colour is teal.' -> HOST run $R1 -> remembered in the CMI (episodic, scope subject, source idp-host) -> a NEW conversation ($T2) gets it in its context package; the same conversation ($T1) keeps both exchanges; alice does not see it"
 
 # ---- PATH F: my memory. bob sees what is remembered about him and erases it; nobody else can ----

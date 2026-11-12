@@ -160,7 +160,7 @@ services:
       IDP_HOST_CREDENTIAL_KEY: ${IDP_HOST_CREDENTIAL_KEY:?run deploy/compose/e2e.sh}
       IDP_HOST_CONFIG: /etc/idp/host.yaml
       IDP_HOST_WORKERS: '0'
-    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro', '../../.local/platform/host.key:/etc/idp/host.key:ro']
+    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi-client.secret:/etc/idp/cmi-client.secret:ro', '../../.local/platform/host.key:/etc/idp/host.key:ro']
     extra_hosts: ['host.docker.internal:host-gateway']   # MODEL=live: the model forwarder on the Docker host
     depends_on: [fakemodel, cmi]
   host-worker:
@@ -171,7 +171,7 @@ services:
     environment:
       <<: *host-env
       IDP_HOST_WORKERS: '2'
-    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi.key:/etc/idp/cmi.key:ro', '../../.local/platform/host.key:/etc/idp/host.key:ro']
+    volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi-client.secret:/etc/idp/cmi-client.secret:ro', '../../.local/platform/host.key:/etc/idp/host.key:ro']
     extra_hosts: ['host.docker.internal:host-gateway']
     depends_on: [fakemodel, cmi]
 
