@@ -84,10 +84,6 @@ patches:
                 kind: openai
                 baseUrl: http://fakemodel.idp-host.svc.cluster.local:18080/v1
                 insecure: true
-              - name: double
-                kind: openai
-                baseUrl: http://fakemodel.idp-host.svc.cluster.local:18080/v1
-                insecure: true
             cmi:
               endpoint: http://idp-cmi.idp-cmi.svc.cluster.local:8550
               # reads AS THE MEMBER (RFC 8693 exchange for the CMI audience), so a member's own memories are the ones retrieved
@@ -106,8 +102,9 @@ patches:
                 # deployment time would stop working when it expired, and memory would go silently unwritten
                 auth: {mode: client_credentials, tokenEndpoint: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-host-svc, clientSecretFile: /etc/idp/provider-keys/cmi-client-secret, audience: idp-cmi}
                 # the turn and the facts the user stated (idp-host D34); the extraction model is the same provider as the agents'
+                # (with MODEL=live, tests/kind/full.sh puts the live model's name here as well: a real model extracts the facts)
                 mode: both
-                facts: {provider: double, model: fake-1}
+                facts: {provider: local, model: fake-1}
             gateways:
               - name: edge
                 endpoint: http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/mcp

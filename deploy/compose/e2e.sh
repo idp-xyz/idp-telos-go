@@ -99,9 +99,7 @@ python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev
 python3 -c "import json; print(json.load(open('$L/clients.json'))['idp-host-svc'])" > "$L/cmi-client.secret"
 MODEL_BASE=http://fakemodel:18080/v1 AGENT_MODEL=fake-1
 [[ "$MODEL" == live ]] && MODEL_BASE="http://host.docker.internal:18088$LIVE_PATH" AGENT_MODEL="$LIVE_MODEL"
-# two providers: the agents' model (the double, or the live one) and the double on its own for the fact
-# extractor, which needs an answer in JSON (a live model does not reliably give one)
-printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\n  - name: double\n    kind: openai\n    baseUrl: http://fakemodel:18080/v1\n    insecure: true\n' "$MODEL_BASE" > "$L/host.yaml"
+printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\n' "$MODEL_BASE" > "$L/host.yaml"
 # the CMI: the HOST reads AS THE MEMBER (RFC 8693 exchange for the CMI audience, so a member's own memories are the ones
 # retrieved) and writes conversation memory with its own identity (the client idp-host-svc: cmi-writer), for which it
 # mints and refreshes its own token (D36) - a token handed over here would stop working when it expired
@@ -120,8 +118,9 @@ cmi:
     ttlDays: 30
     auth: {mode: client_credentials, tokenEndpoint: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-host-svc, clientSecretFile: /etc/idp/cmi-client.secret, audience: idp-cmi}
 YAML
-# the conversation is remembered two ways (idp-host D34): the turn, and the facts the user stated, extracted by the model
-printf '    mode: both\n    facts: {provider: double, model: fake-1}\n' >> "$L/host.yaml"
+# the conversation is remembered two ways (idp-host D34): the turn, and the facts the user stated, extracted by the same
+# model as the agents' (the double, or with MODEL=live the live model: PATH G then proves a real model's extraction)
+printf '    mode: both\n    facts: {provider: local, model: %s}\n' "$AGENT_MODEL" >> "$L/host.yaml"
 # the idp-mcp gateway: the HOST acts for the member (RFC 8693 delegation, its own client credentials as actor_token)
 cat >> "$L/host.yaml" <<'YAML'
 gateways:
