@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:83b2c1485d50607d2b69282f8b02396299ff25458345fd79cff15c076859407d
+    id: sha256:56df59d2c155e1e933d93892e33b63fccc7264521b5f06271a91ecde8e38ad81
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: c5433384cbd30f0920b8e7db3da741fff786f30c
@@ -27,14 +27,14 @@ components:
     version: 1.8.0
   image:
     reference: idp-host:dev
-    id: sha256:2976fe171c8cdd0a3f0aba92ba74f85279bdf82795a1c05d4399faa73df5981f
+    id: sha256:9210157e82f25b273c86dd0b231c2a2c9827fbee09cf9730bb1e6f1c422dffd4
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 4d1df115f7330b38657d31c535f68d582be03b27
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:a60c1fba4659f4107069a686d23219bb473cc12f56588c3be168997f82223cee
+    id: sha256:0aeb06f4d524367f0e62efa2dc6445d537f7e22f87ee93b92633f67915b62a80
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: e5fa484fe848e873c2e6b539f4010d0dbba0ccba
@@ -44,21 +44,21 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:59e650446b4e61cda3d401d7e713d6ae9ad61ebe80c01599788e05b465bdd92e
+    id: sha256:576cd50ab07fbcb84f3a2d5d9f2f19b0b87b47f8b62404fa473990182522df08
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: 504c3e2eeb0f7ada5a9b519cfdf9282b825b6986
+  commit: ad9f3815554324f10ab3b28b93cf3ddb5f9b9b5e
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.2.0
   image:
     reference: idp-workspace:dev
-    id: sha256:d2939643402c53b3e04d358cbb215edaf70c6535312268ddf2401a2f0f05d39d
+    id: sha256:b34744bac56831c50fb7a4e859f2344945bbf9e907a7daa935040df33210042e
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: ee7d3e4e1a221e64cb1a49d191cf20f524e64496
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:dd5df3289fb257e6a035ae6b565bc962c4a4a3dac401338eee4b90e3446a4995
+    id: sha256:24e2539474b381ccde18101c0588e411a6c890c008afc1db71c929b962c9e4b8

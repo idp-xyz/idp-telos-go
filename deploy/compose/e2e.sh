@@ -55,7 +55,8 @@ if [[ ! -f "$ENVF" ]] || ! grep -q EER_RUNTIME_APP_PASSWORD "$ENVF"; then
              EER_RUNTIME_OWNER_PASSWORD EER_RUNTIME_APP_PASSWORD EER_RUNTIME_READONLY_PASSWORD EER_INTELLIGENCE_OWNER_PASSWORD EER_INTELLIGENCE_APP_PASSWORD; do echo "$v=$(openssl rand -hex 16)"; done
     echo "IDP_HOST_CREDENTIAL_KEY=$(openssl rand -hex 32)"; } > "$ENVF"
 fi
-for v in IDP_MCP_DB_PASSWORD IDP_MCP_ADMIN_SECRET; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
+for v in IDP_MCP_DB_PASSWORD IDP_MCP_ADMIN_SECRET IDP_FILES_S3_ACCESS_KEY IDP_FILES_S3_SECRET_KEY; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
+grep -q "^IDP_FILES_S3_MASTER_KEY=" "$ENVF" || echo "IDP_FILES_S3_MASTER_KEY=$(openssl rand -base64 32)" >> "$ENVF"
 set -a; source "$ENVF"; set +a
 
 for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox; do
@@ -74,9 +75,14 @@ fi
 for img in public.ecr.aws/docker/library/python:3.12-slim public.ecr.aws/docker/library/alpine:3.22; do
   docker image inspect "$img" >/dev/null 2>&1 || docker pull -q "$img" >/dev/null
 done
+# the members' file store (idp-workspace D24): RustFS pinned by digest, the build the kind backups use
+FILES_S3_IMG=docker.io/rustfs/rustfs:1.0.4-glibc FILES_S3_DIGEST=sha256:a9b705b9256be756802a60f3498abdc543918b5b5a4437a57a541e89e733c74d
+if ! docker image inspect "$FILES_S3_IMG" >/dev/null 2>&1; then
+  docker pull -q "${FILES_S3_IMG%%:*}@$FILES_S3_DIGEST" >/dev/null && docker tag "${FILES_S3_IMG%%:*}@$FILES_S3_DIGEST" "$FILES_S3_IMG"
+fi
 # the sandbox's office run image (idp-sandbox ADR-0001 D14) is built offline on that python image; OfficeCLI is pinned in its script
 [[ "${SKIP_BUILD:-0}" == 1 ]] || BASE=public.ecr.aws/docker/library/python:3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-office:dev; do
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-office:dev "$FILES_S3_IMG"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
 done
 
@@ -204,6 +210,15 @@ KC=(curl -sf --noproxy '*' --cacert "$L/tls/ca.crt")
 user_token() { "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d "username=$1" -d "password=$(secret_of "$1")" | token_json; }
 
 "${C[@]}" up -d --wait postgres
+# the members' file store and its bucket (the operator creates it; the Workspace only checks that it answers)
+printf '%s' "$IDP_FILES_S3_ACCESS_KEY" > "$L/files-s3.access"; printf '%s' "$IDP_FILES_S3_SECRET_KEY" > "$L/files-s3.secret"; chmod 644 "$L/files-s3.access" "$L/files-s3.secret"
+"${C[@]}" up -d files-s3
+s3() { printf 'user = "%s:%s"\n' "$IDP_FILES_S3_ACCESS_KEY" "$IDP_FILES_S3_SECRET_KEY" | curl -sS --noproxy '*' --config - --aws-sigv4 aws:amz:us-east-1:s3 "$@"; }
+for _ in $(seq 1 60); do
+  s3 -f -X PUT -o /dev/null http://127.0.0.1:19500/member-files 2>/dev/null || true   # 409 once it exists; refused while starting
+  s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" 2>/dev/null && break; sleep 0.5
+done
+s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" || { "${C[@]}" logs --tail 20 files-s3; echo "BLOCKED: the members' file store has no bucket" >&2; exit 2; }
 for db in idp_cmi idp_host idp_workspace idp_mcp eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
 "${C[@]}" up -d keycloak eer-temporal
 for _ in $(seq 1 120); do "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" && break; sleep 1; done
@@ -548,6 +563,12 @@ UP="$(curl -sS --noproxy '*' -w '\n%{http_code}' -X POST -H "Authorization: Bear
   --data-binary "@$L/quote.docx" "$WS/v1/workspaces/us-ops/files?name=%E6%8A%A5%E4%BB%B7%E5%8D%95.docx")"
 [[ "$(echo "$UP" | tail -1)" == 201 ]] || { echo "FAIL: bob could not upload the file: $UP" >&2; exit 1; }
 FILE="$(echo "$UP" | head -1 | field "['id']")"
+# the content is in the object store, encrypted by it, and not in the database (idp-workspace D24)
+WS_TENANT="$("${C[@]}" exec -T postgres psql -U postgres -d idp_workspace -tAc "SELECT tenant_id::text || ' ' || (content IS NULL)::text || ' ' || coalesce(object_key, '') FROM member_files WHERE id = '$FILE'")"
+read -r FT FNULL FKEY <<< "$WS_TENANT"
+[[ "$FNULL" == true && "$FKEY" == "files/$FT/$FILE" ]] || { echo "FAIL: the uploaded file is not in the object store: $WS_TENANT" >&2; exit 1; }
+SSE="$(s3 -f -I "http://127.0.0.1:19500/member-files/$FKEY" | tr -d '\r' | sed -n 's/^x-amz-server-side-encryption: *//Ip')"
+[[ "$SSE" == AES256 ]] || { echo "FAIL: the object store does not keep the file encrypted ('$SSE')" >&2; exit 1; }
 python3 -c "
 import json
 code='officecli set in.docx \"/body/p[1]\" --prop text=报价：第二版 && officecli validate in.docx && cp in.docx out.docx && officecli view out.docx text'
@@ -585,7 +606,7 @@ LOGS="$("${C[@]}" logs mcp-gateway sandbox 2>&1)"
 for where in "$EVENTS" "$CALLS" "$STORED" "$LOGS"; do
   [[ "$where" != *eyJ* ]] || { echo "FAIL: a token or ticket leaked into a record or a log" >&2; exit 1; }
 done
-echo "PASS: PATH J — bob uploads 报价单.docx -> Workspace -> HOST run $FRUN (attachment:1, tickets sealed) -> gateway -> idp-sandbox fetches it with the read ticket on the Workspace's internal listener -> OfficeCLI edits it -> delivered with the write ticket -> bob downloads the edited file (alice cannot); no ticket in events, tool calls, stored input or logs"
+echo "PASS: PATH J — bob uploads 报价单.docx (kept encrypted in the object store files-s3) -> Workspace -> HOST run $FRUN (attachment:1, tickets sealed) -> gateway -> idp-sandbox fetches it with the read ticket on the Workspace's internal listener -> OfficeCLI edits it -> delivered with the write ticket -> bob downloads the edited file (alice cannot); no ticket in events, tool calls, stored input or logs"
 fi
 
 # ---- PATH E: memory. bob tells the assistant something; the HOST remembers it in the CMI; in a NEW conversation the CMI brings it back ----

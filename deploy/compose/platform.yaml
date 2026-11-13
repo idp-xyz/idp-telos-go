@@ -26,6 +26,7 @@ networks:
 
 volumes:
   pgdata: {}
+  filesdata: {}
 
 services:
   postgres:
@@ -34,6 +35,21 @@ services:
     environment: {POSTGRES_PASSWORD: '${IDP_PG_OWNER_PASSWORD:?run deploy/compose/e2e.sh}'}
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck: {test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres'], interval: 2s, timeout: 3s, retries: 30}
+
+  # members' file contents (idp-workspace D24): a RustFS of their own, not the database backups' store, so that the
+  # Workspace's keys reach nothing else; server-side encryption with a master key generated per stack. The loopback port
+  # is for e2e.sh (the bucket, and its checks); a published port needs a network that is not internal, hence edge.
+  files-s3:
+    image: ${IDP_FILES_S3_IMAGE:-docker.io/rustfs/rustfs:1.0.4-glibc}
+    networks: [data, edge]
+    ports: ['127.0.0.1:19500:9000']
+    environment:
+      RUSTFS_ACCESS_KEY: ${IDP_FILES_S3_ACCESS_KEY:?run deploy/compose/e2e.sh}
+      RUSTFS_SECRET_KEY: ${IDP_FILES_S3_SECRET_KEY:?run deploy/compose/e2e.sh}
+      RUSTFS_REGION: us-east-1
+      RUSTFS_CONSOLE_ENABLE: 'false'
+      RUSTFS_SSE_S3_MASTER_KEY: ${IDP_FILES_S3_MASTER_KEY:?run deploy/compose/e2e.sh}
+    volumes: [filesdata:/data]
 
   keycloak:
     image: ${IDP_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.2}
@@ -205,8 +221,15 @@ services:
       # the internal file endpoint for idp-sandbox (idp-workspace D23): file tickets for host.run; not published to the host
       IDP_WORKSPACE_INTERNAL_LISTEN: 0.0.0.0:8561
       IDP_WORKSPACE_CONFIG: /etc/idp/workspace.yaml
-    volumes: ['../../.local/platform/workspace.yaml:/etc/idp/workspace.yaml:ro', '../../.local/platform/exchange.secret:/etc/idp/exchange.secret:ro']
-    depends_on: [host]
+      # file contents in the object store (idp-workspace D24), checked against their SHA-256 on every read
+      IDP_WORKSPACE_FILE_STORE: s3
+      IDP_WORKSPACE_S3_ENDPOINT: http://files-s3:9000
+      IDP_WORKSPACE_S3_BUCKET: member-files
+      IDP_WORKSPACE_S3_ACCESS_KEY_FILE: /etc/idp/files-s3.access
+      IDP_WORKSPACE_S3_SECRET_KEY_FILE: /etc/idp/files-s3.secret
+    volumes: ['../../.local/platform/workspace.yaml:/etc/idp/workspace.yaml:ro', '../../.local/platform/exchange.secret:/etc/idp/exchange.secret:ro',
+              '../../.local/platform/files-s3.access:/etc/idp/files-s3.access:ro', '../../.local/platform/files-s3.secret:/etc/idp/files-s3.secret:ro']
+    depends_on: [host, files-s3]
 
   # ---- idp-eer (image: idp-eer tools/development/runtime_image_offline.sh) ----
   eer-temporal:
