@@ -20,14 +20,14 @@ components:
     id: sha256:5cf9bef939649d6fd589dee203d6835e9b9dc78b1482bff565d527fdd0e2850c
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: c74757fa83226b818ff7e9b12cadd9a2c114eaff
+  commit: 3a85475129969422cb14c8a12aef98dfc117e174
   clean: true
   contract:
     namespace: idp.telos.host
     version: 1.8.0
   image:
     reference: idp-host:dev
-    id: sha256:b6ce2f7b8f5968e63e4d4b1d2d649fe64be29431c23d402328313817442b8a51
+    id: sha256:3768e458306424e981c71bae4def1fdbce3dbd7a30f79bc558e264bf9caa1a2f
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 4d1df115f7330b38657d31c535f68d582be03b27

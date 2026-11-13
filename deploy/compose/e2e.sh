@@ -487,7 +487,7 @@ fi
 # ---- PATH J0: Office documents in the sandbox's office profile (platform ADR-0002 phase 0, idp-sandbox ADR-0001 D14) ----
 # The skill officecli is a short usage note of ours plus OfficeCLI's own references, taken from the pinned binary in the
 # office image and read on demand (idp-host D23); office-assistant is an agent with that skill and the sandbox tools, and room for
-# a document task: up to 30 steps in 20 minutes (the defaults, 10 and 5, are too tight for a local model working on a file).
+# a document task: up to 50 steps in 30 minutes (a local model building a large workbook used all of 30; the defaults are 10 and 5).
 OSK="$L/officecli-skill"; rm -rf "$OSK"; mkdir -p "$OSK"
 docker run --rm --network none --read-only --cap-drop ALL --user 65534:65534 --tmpfs /tmp:rw,noexec,size=16m -e HOME=/tmp idp-sandbox-office:dev sh -c \
   'officecli skills claude >/dev/null && for s in word excel pptx; do officecli skills install "$s" claude >/dev/null; done && tar -C /tmp/.claude/skills -cf - .' | tar -C "$OSK" -xf -
@@ -496,17 +496,23 @@ import json, os, sys
 d, out = sys.argv[1], sys.argv[2]
 instructions = (
     "You can read, edit and create Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files with officecli in the sandbox. "
-    "Create a workspace with sandbox_create, then run shell scripts with sandbox_run and language office; files you write stay in "
-    "the workspace for later runs. Use officecli's subcommands (create, view, get, query, set, add, remove, move, batch, validate); "
-    "for many changes to one file prefer one batch command. Do not use open, watch, mcp, skills, install or view screenshot: runs have "
-    "no network and nothing keeps running after a run. Put in a document only what the user gave you: no names, places, owners, dates "
-    "or figures of your own; when something is missing, ask, or leave a placeholder the user will see, such as [地点待定]. "
-    "Run officecli validate on every file you produce before you finish. When the user attached files you are told their "
-    "references (attachment:1, attachment:2, ...): copy one into the workspace with sandbox_import_file before you work on it. Give "
-    "the user every file you make or change with sandbox_export_file (target output, and a file name for them), and say in a line or "
-    "two what is in it (officecli view <file> text or outline). The officecli reference is in "
-    "this skill's resources (officecli.md, and docx.md, xlsx.md, pptx.md for each format): read the one you need with resource__read "
-    "before you guess a command.")
+    "Every command you run costs one of a limited number of steps, so plan small and work in this order: first make a "
+    "complete, valid file with the essential content, validate it and deliver it; improve it afterwards only if the user asks "
+    "or you clearly have steps to spare. "
+    "Create a workspace with sandbox_create. Every sandbox_run needs workspaceId, language and code; use language office: a POSIX "
+    "shell in /work (the workspace) with officecli and python3 (language shell has neither). Files you write stay in the workspace "
+    "for later runs. Use officecli's subcommands (create, view, get, query, set, add, remove, move, batch, validate). For many "
+    "cells, rows or paragraphs, write one Python script in a single run that builds the batch as a JSON list of objects "
+    "{\"command\": ..., \"path\": ..., \"props\": {...}}, writes it to a file and applies it with officecli batch FILE --input "
+    "batch.json, printing only the summary; merged ranges must not overlap. Do not use open, watch, mcp, skills, install or view "
+    "screenshot: runs have no network and nothing keeps running after a run. Put in a document only what the user gave you: no "
+    "names, places, owners, dates or figures of your own; when something is missing, leave a placeholder the user will see, such "
+    "as [地点待定], and say so. Run officecli validate on every file you produce before you deliver it. When the user attached "
+    "files you are told their references (attachment:1, attachment:2, ...): copy one into the workspace with sandbox_import_file "
+    "before you work on it. Give the user every file you make or change with sandbox_export_file (target output, and a file name "
+    "for them), and say in a line or two what is in it. The officecli reference is in this skill's resources (officecli.md, and "
+    "docx.md, xlsx.md, pptx.md for each format): read the one for your format once with resource__read; run officecli help "
+    "<format> <element> only for something it does not explain, and keep such output short (| head -40).")
 res = [{"name": n, "mediaType": "text/markdown", "onDemand": True, "content": open(os.path.join(d, sub, "SKILL.md"), encoding="utf-8").read()}
        for n, sub in (("officecli.md", "officecli"), ("docx.md", "officecli-docx"), ("xlsx.md", "officecli-xlsx"), ("pptx.md", "officecli-pptx"))]
 json.dump({"name": "officecli", "displayName": "OfficeCLI", "definition": {"instructions": instructions,
@@ -516,7 +522,7 @@ PY
 call 201 POST "$HOST/api/v1/skills" "$HADMIN" "@$L/officecli-skill.json" >/dev/null
 SREL="$(call 201 POST "$HOST/api/v1/skills/officecli/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/skill-releases/$SREL/approve" "$HAPPROVER" >/dev/null
-call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files","sandbox__sandbox_import_file","sandbox__sandbox_export_file"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":30,"runTimeoutSeconds":1200}}}' >/dev/null
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files","sandbox__sandbox_import_file","sandbox__sandbox_export_file"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":50,"runTimeoutSeconds":1800}}}' >/dev/null
 OREL="$(call 201 POST "$HOST/api/v1/agents/office-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$OREL/approve" "$HAPPROVER" >/dev/null
 # the release carries the skill and its four references, not a pointer to something that can change
