@@ -14,6 +14,7 @@
 # PATH I: a tool call waits for bob's confirmation; he decides it in the Workspace, the code then runs (or does not)
 # PATH J0: bob asks office-assistant (skill officecli) for a Word file; officecli makes and validates it in the sandbox's office profile
 # PATH J: bob uploads a Word file; office-assistant edits it in the sandbox (files move on tickets, never through the model) and bob downloads the result
+# PATH K: a run's gateway credential renews within bob's session (session-bound exchanges) and stops when he signs out
 # (RFC 8693, issued to the client idp-host), the gateway forwards the verified caller to idp-sandbox, which runs the code in an isolated
 # container in a workspace that belongs to bob. The gateway's invocation record names bob and the HOST.
 #
@@ -154,6 +155,7 @@ gateways:
       clientSecretFile: /etc/idp/host.key
       audience: http://mcp-gateway:3320/mcp
       actorToken: true
+      sessionBound: true   # a run renews its credential until bob signs out (idp-host D38)
 YAML
 python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["idp-host"])' > "$L/host.key"
 python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["idp-workspace"])' > "$L/exchange.secret"
@@ -162,7 +164,7 @@ targets:
   host:
     endpoint: "http://host:8450"
     auth: exchange
-    exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: idp-host}
+    exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: idp-host, sessionBound: true}
   eer:
     endpoint: "http://eer-api:8080"
     auth: exchange
@@ -443,6 +445,9 @@ ICALL="${IPENDING%% *}"
 [[ "$(echo "$IPENDING" | awk '{print $2}')" == sandbox__sandbox_run ]] || { echo "FAIL: the waiting call is $IPENDING" >&2; exit 1; }
 [[ "$IPENDING" == *print* ]] || { echo "FAIL: the waiting call does not carry the code it would run: $IPENDING" >&2; exit 1; }
 [[ "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$IRUN" "$BOB" | field "['status']")" == AWAITING_INPUT ]] || { echo "FAIL: run $IRUN is not AWAITING_INPUT" >&2; exit 1; }
+# while it waits, the run holds a renewable credential: the Workspace's and the HOST's exchanges were session-bound (idp-host D38)
+IREFRESH="$("${C[@]}" exec -T postgres psql -U postgres -d idp_host -tAc "SELECT credential_refresh IS NOT NULL FROM runs WHERE id = '$IRUN'")"
+[[ "$IREFRESH" == t ]] || { echo "FAIL: run $IRUN holds no refresh token for its gateway credential ('$IREFRESH')" >&2; exit 1; }
 # the run's events, relayed: the confirmation was asked for on the stream the shell follows
 call 200 GET "$WS/v1/workspaces/us-ops/runs/$IRUN/events" "$BOB" | python3 -c "
 import json,sys
@@ -608,6 +613,13 @@ for where in "$EVENTS" "$CALLS" "$STORED" "$LOGS"; do
 done
 echo "PASS: PATH J — bob uploads 报价单.docx (kept encrypted in the object store files-s3) -> Workspace -> HOST run $FRUN (attachment:1, tickets sealed) -> gateway -> idp-sandbox fetches it with the read ticket on the Workspace's internal listener -> OfficeCLI edits it -> delivered with the write ticket -> bob downloads the edited file (alice cannot); no ticket in events, tool calls, stored input or logs"
 fi
+
+# ---- PATH K: a run's credential lasts while the member's session does (idp-host D38, idp-workspace D25) ----
+# The exchanges a run uses, against this Keycloak: both are session-bound, the HOST's refresh renews the gateway credential
+# for the same user, audience and session, and once bob signs out the renewal is refused (the run then ends with the reason).
+# (PATH I has checked that a real run holds the sealed refresh token while it waits.)
+KOUT="$(python3 -I deploy/compose/session_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" http://mcp-gateway:3320/mcp)" || exit 1
+echo "PASS: PATH K — bob's run credential renews within his session: $KOUT"
 
 # ---- PATH E: memory. bob tells the assistant something; the HOST remembers it in the CMI; in a NEW conversation the CMI brings it back ----
 call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"memory-assistant","displayName":"Assistant with memory","definition":{"instructions":"You are a helpful assistant with a memory. The context you are given may contain things the user told you earlier: use it. Answer briefly.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null

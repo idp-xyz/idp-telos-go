@@ -66,8 +66,12 @@ realm = {
         {"clientId": "workspace-shell", "enabled": True, "protocol": "openid-connect", "publicClient": True, "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
          "redirectUris": [SHELL + "/callback"], "webOrigins": [SHELL], "fullScopeAllowed": True,
          "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": SHELL + "/"}, "protocolMappers": [audience("idp-workspace")] + user_mappers},
+        # standard.token.exchange.enableRefreshRequestedTokenType=SAME_SESSION (idp-host D38, idp-workspace D25): an exchange
+        # may ask for a refresh token in the member's own session. The Workspace asks and discards it (its exchanged token
+        # then has a client session that idp-host may exchange again); idp-host keeps its own and renews a run's gateway
+        # credential with it until the member signs out or the session reaches its limits.
         {"clientId": "idp-workspace", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-workspace"], "standardFlowEnabled": False,
-         "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true"}, "protocolMappers": [audience("idp-host"), audience("eer-runtime"), audience("idp-cmi")] + user_mappers},
+         "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true", "standard.token.exchange.enableRefreshRequestedTokenType": "SAME_SESSION"}, "protocolMappers": [audience("idp-host"), audience("eer-runtime"), audience("idp-cmi")] + user_mappers},
         {"clientId": "svc-eer", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["svc-eer"], "standardFlowEnabled": False,
          "serviceAccountsEnabled": True, "fullScopeAllowed": False,
          "protocolMappers": [audience("idp-workspace"), hardcoded("tenant_id", tenant), hardcoded("roles", json.dumps(["ws-producer"]), "JSON"), username]},
@@ -78,7 +82,7 @@ realm = {
          "serviceAccountsEnabled": True, "fullScopeAllowed": False,
          "protocolMappers": [audience("idp-cmi"), hardcoded("tenant_id", tenant), hardcoded("roles", json.dumps(["cmi-reader", "cmi-writer"]), "JSON"), username]},
         {"clientId": "idp-host", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-host"], "standardFlowEnabled": False,
-         "serviceAccountsEnabled": True, "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true"},
+         "serviceAccountsEnabled": True, "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true", "standard.token.exchange.enableRefreshRequestedTokenType": "SAME_SESSION"},
          "protocolMappers": [audience_uri(GATEWAY), audience("idp-cmi")] + user_mappers},
         {"clientId": GATEWAY, "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "idp-cmi", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
