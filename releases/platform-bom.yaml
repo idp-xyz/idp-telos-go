@@ -17,34 +17,34 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:f975d10e8eb045449ac4271ed96b79990325afd4d088a0759a58bf620f650c37
+    id: sha256:dcb7860c468134b8e09bb9d7a7baceca7bf38ff9c529eb8d81d3a069f4731ace
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: ae82179c4919134b7bdaba6897ac442422416491
+  commit: ef697fcc8adcc033622c29fa657e45d265b408d6
   clean: true
   contract:
     namespace: idp.telos.host
     version: 1.7.0
   image:
     reference: idp-host:dev
-    id: sha256:848da1d8d1a25506e64f8ea407299172343d9ff7ad0b9d1c678566042bb3695e
+    id: sha256:6120897ec3bc43cfbe5b9e59d254227fb064daa02e47214b42298f312ef14e6c
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 4d1df115f7330b38657d31c535f68d582be03b27
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:0192cbab07e48a2813d3327ea21270ad5cbeeedfd2b2c041757182262d986c74
+    id: sha256:7e72180f040a7de0771ce5222a8f5974f2447a3f2b9d0d32eb26032e5767063d
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: 152b5a6ee0b79891952458f5d04a8d67bf68370b
+  commit: e5fa484fe848e873c2e6b539f4010d0dbba0ccba
   clean: true
   contract:
     namespace: idp.telos.cmi
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:ef3ce9f2e7da93d11b405aff97de51fcdf158ae5e46531eed79b6e31fccd9bed
+    id: sha256:67caffa549e4f32143169f30e011d93e9d7e1238c5c1b6c6cfb450d0cb4ea41b
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 3bfc150e4f4b4c64bb8eabc79454a9cd3b83ebf2
@@ -54,11 +54,11 @@ components:
     version: 1.1.0
   image:
     reference: idp-workspace:dev
-    id: sha256:f10328fd294c3b807cd7ceadb8715f4d73e4b3ad791739f6321a940ac76ee15c
+    id: sha256:f8af2f8ae65d0ac3fb300386a9c246d67b36529f2833ad00737062827df53105
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: 07b888f168902326dace1e29e9e33d0afe59690c
+  commit: 6312cdd6d5c6772abf619a2bdce2538021a4e9a3
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:9566b8069daa7331f197e2f94ea8103801fb63bc85c821d745c4af95a08b21c5
+    id: sha256:8ff849868f3f9b56a2d56aaa3038bf19a84359d1dbfcffd7c73009dfc4041bea

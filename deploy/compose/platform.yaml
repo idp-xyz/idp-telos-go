@@ -130,6 +130,7 @@ services:
       IDP_SANDBOX_OWNER: platform
       IDP_SANDBOX_PYTHON_IMAGE: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
       IDP_SANDBOX_SHELL_IMAGE: ${IDP_SANDBOX_SHELL_IMAGE:-public.ecr.aws/docker/library/alpine:3.22}
+      IDP_SANDBOX_OFFICE_IMAGE: ${IDP_SANDBOX_OFFICE_IMAGE:-idp-sandbox-office:dev}
 
   # ---- idp-host ----
   fakemodel:
