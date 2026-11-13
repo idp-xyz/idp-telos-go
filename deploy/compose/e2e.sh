@@ -21,7 +21,8 @@
 #   KEEP=1 ...                          leave the platform running
 #   MODEL=live ...                      the HOST's agent answers with a real OpenAI-compatible model on the Docker
 #                                       host (IDP_LIVE_MODEL_URL, default http://127.0.0.1:8080/v1; IDP_LIVE_MODEL,
-#                                       default the first model it lists) instead of the deterministic double;
+#                                       default the first model it lists; IDP_LIVE_MODEL_KEY_FILE, a file with its API key
+#                                       when it wants one) instead of the deterministic double;
 #                                       PATH A then also checks that the answer uses the CMI context
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -35,7 +36,11 @@ mkdir -p "$L"
 MODEL="${MODEL:-fake}"
 if [[ "$MODEL" == live ]]; then
   LIVE_URL="${IDP_LIVE_MODEL_URL:-http://127.0.0.1:8080/v1}"
-  LIVE_MODEL="${IDP_LIVE_MODEL:-$(curl -sf --noproxy '*' -m 10 "$LIVE_URL/models" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null || true)}"
+  # a model that wants an API key: IDP_LIVE_MODEL_KEY_FILE (sent as Authorization: Bearer; the HOST reads it as apiKeyFile)
+  LIVE_AUTH=(); if [[ -n "${IDP_LIVE_MODEL_KEY_FILE:-}" ]]; then
+    mkdir -p "$L"; (umask 077; printf 'Authorization: Bearer %s\n' "$(cat "$IDP_LIVE_MODEL_KEY_FILE")" > "$L/live-model.auth"); LIVE_AUTH=(-H "@$L/live-model.auth")
+  fi
+  LIVE_MODEL="${IDP_LIVE_MODEL:-$(curl -sf --noproxy '*' -m 10 "${LIVE_AUTH[@]}" "$LIVE_URL/models" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null || true)}"
   [[ -n "$LIVE_MODEL" ]] || { echo "BLOCKED: no model at $LIVE_URL" >&2; exit 2; }
   BRIDGE="$(ip -4 -o addr show docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
   [[ -n "$BRIDGE" ]] || { echo "BLOCKED: no docker0 address for the model forwarder" >&2; exit 2; }
@@ -103,6 +108,12 @@ python3 -c "import json; print(json.load(open('$L/clients.json'))['idp-host-svc'
 MODEL_BASE=http://fakemodel:18080/v1 AGENT_MODEL=fake-1
 [[ "$MODEL" == live ]] && MODEL_BASE="http://host.docker.internal:18088$LIVE_PATH" AGENT_MODEL="$LIVE_MODEL"
 printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\n' "$MODEL_BASE" > "$L/host.yaml"
+# the live model's key, mounted into the HOST (an empty file when there is none, so the mount always has a source)
+: > "$L/live-model.key"
+if [[ "$MODEL" == live && -n "${IDP_LIVE_MODEL_KEY_FILE:-}" ]]; then
+  cat "$IDP_LIVE_MODEL_KEY_FILE" > "$L/live-model.key"
+  printf '    apiKeyFile: /etc/idp/live-model.key\n' >> "$L/host.yaml"
+fi
 # the CMI: the HOST reads AS THE MEMBER (RFC 8693 exchange for the CMI audience, so a member's own memories are the ones
 # retrieved) and writes conversation memory with its own identity (the client idp-host-svc: cmi-writer), for which it
 # mints and refreshes its own token (D36) - a token handed over here would stop working when it expired
@@ -184,7 +195,7 @@ for k, v in (("EER_PRINCIPAL_MAPPINGS", mappings), ("EER_AUTHORIZATION_POLICY", 
     print(k + "=" + json.dumps(v, separators=(",", ":")))
 print("SSL_CERT_FILE=/etc/eer/ca.crt")
 PY
-chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
+chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/live-model.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
 token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
@@ -454,7 +465,8 @@ fi
 
 # ---- PATH J0: Office documents in the sandbox's office profile (platform ADR-0002 phase 0, idp-sandbox ADR-0001 D14) ----
 # The skill officecli is a short usage note of ours plus OfficeCLI's own references, taken from the pinned binary in the
-# office image and read on demand (idp-host D23); office-assistant is an agent with that skill and the sandbox tools.
+# office image and read on demand (idp-host D23); office-assistant is an agent with that skill and the sandbox tools, and room for
+# a document task: up to 30 steps in 20 minutes (the defaults, 10 and 5, are too tight for a local model working on a file).
 OSK="$L/officecli-skill"; rm -rf "$OSK"; mkdir -p "$OSK"
 docker run --rm --network none --read-only --cap-drop ALL --user 65534:65534 --tmpfs /tmp:rw,noexec,size=16m -e HOME=/tmp idp-sandbox-office:dev sh -c \
   'officecli skills claude >/dev/null && for s in word excel pptx; do officecli skills install "$s" claude >/dev/null; done && tar -C /tmp/.claude/skills -cf - .' | tar -C "$OSK" -xf -
@@ -466,7 +478,9 @@ instructions = (
     "Create a workspace with sandbox_create, then run shell scripts with sandbox_run and language office; files you write stay in "
     "the workspace for later runs. Use officecli's subcommands (create, view, get, query, set, add, remove, move, batch, validate); "
     "for many changes to one file prefer one batch command. Do not use open, watch, mcp, skills, install or view screenshot: runs have "
-    "no network and nothing keeps running after a run. Run officecli validate on every file you produce before you finish. The member "
+    "no network and nothing keeps running after a run. Put in a document only what the user gave you: no names, places, owners, dates "
+    "or figures of your own; when something is missing, ask, or leave a placeholder the user will see, such as [地点待定]. "
+    "Run officecli validate on every file you produce before you finish. The member "
     "cannot upload or download files yet: show the result with officecli view <file> text or outline. The officecli reference is in "
     "this skill's resources (officecli.md, and docx.md, xlsx.md, pptx.md for each format): read the one you need with resource__read "
     "before you guess a command.")
@@ -478,7 +492,7 @@ PY
 call 201 POST "$HOST/api/v1/skills" "$HADMIN" "@$L/officecli-skill.json" >/dev/null
 SREL="$(call 201 POST "$HOST/api/v1/skills/officecli/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/skill-releases/$SREL/approve" "$HAPPROVER" >/dev/null
-call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"}}}' >/dev/null
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":30,"runTimeoutSeconds":1200}}}' >/dev/null
 OREL="$(call 201 POST "$HOST/api/v1/agents/office-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$OREL/approve" "$HAPPROVER" >/dev/null
 # the release carries the skill and its four references, not a pointer to something that can change
