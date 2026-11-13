@@ -20,13 +20,13 @@ rows:
   namespace: idp.telos.host
   pinned: 1.5.0
   copy: intelligence/tests/contracts/idp.telos.host/1.5.0/schema.json
-  registered: 1.7.0
+  registered: 1.8.0
   status: COMPATIBLE
-  note: behind (1.5.0 -> 1.7.0, additive)
+  note: behind (1.5.0 -> 1.8.0, additive)
 - consumer: idp-workspace
   namespace: idp.telos.host
-  pinned: 1.7.0
-  copy: tests/contracts/idp.telos.host/1.7.0/schema.json
-  registered: 1.7.0
+  pinned: 1.8.0
+  copy: tests/contracts/idp.telos.host/1.8.0/schema.json
+  registered: 1.8.0
   status: COMPATIBLE
   note: current

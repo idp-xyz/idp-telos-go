@@ -63,7 +63,7 @@ jobs:
         run: |
           set -o pipefail
           bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
-          for p in A B C D E F G H I J0; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
+          for p in A B C D E F G H I J0 J; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
       - name: Image vulnerabilities in our own images (trivy, HIGH and CRITICAL with a fix fail the build)
         run: |
           bash deploy/images/pg-backup/build.sh idp-pg-backup:dev

@@ -458,7 +458,7 @@ if HOST in schemas:
     invariant('host_definitions_are_closed', not host_open, host_open)
 
 if WS in schemas:
-    invariant('workspace_root_documents', roots[WS] == {'Workspace', 'AppManifest', 'AppRelease', 'Installation', 'InboxItem', 'WorkContext', 'Invocation', 'BridgeMessage', 'Problem'}, sorted(roots[WS]))
+    invariant('workspace_root_documents', roots[WS] == {'Workspace', 'AppManifest', 'AppRelease', 'Installation', 'InboxItem', 'WorkContext', 'Invocation', 'BridgeMessage', 'Problem', 'MemberFile'}, sorted(roots[WS]))
     ws_open = [n for n, d in schemas[WS]['$defs'].items() if d.get('additionalProperties') is not False]
     invariant('workspace_definitions_are_closed', not ws_open, ws_open)
 

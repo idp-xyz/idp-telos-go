@@ -40,10 +40,12 @@ def must(token, method, path, body=None, want=(200, 201)):
 
 s = must(operator, 'POST', '/api/v1/servers', {'displayName': 'sandbox', 'targetName': 'sandbox', 'endpoint': sandbox, 'identity': 'forward'})
 sid = s['serverId']
-must(operator, 'POST', f'/api/v1/servers/{sid}/discover')
+found = set(must(operator, 'POST', f'/api/v1/servers/{sid}/discover').get('toolNames') or [])
 must(reviewer, 'POST', f'/api/v1/servers/{sid}/approve')
-g = must(operator, 'POST', '/api/v1/grants', {'serverId': sid, 'roles': [role],
-         'tools': ['sandbox_create', 'sandbox_run', 'sandbox_write_file', 'sandbox_read_file', 'sandbox_list_files', 'sandbox_delete']})
+tools = ['sandbox_create', 'sandbox_run', 'sandbox_write_file', 'sandbox_read_file', 'sandbox_list_files', 'sandbox_delete']
+# a member's files (idp-sandbox D15): offered only where the sandbox has the Workspace's file endpoint (compose), not on kind
+tools += [t for t in ('sandbox_import_file', 'sandbox_export_file') if t in found]
+g = must(operator, 'POST', '/api/v1/grants', {'serverId': sid, 'roles': [role], 'tools': tools})
 must(reviewer, 'POST', f"/api/v1/grants/{g['grantId']}/approve")
 rel = must(operator, 'POST', '/api/v1/releases', {'gatewayId': gateway_id})
 must(reviewer, 'POST', f"/api/v1/releases/{rel['releaseId']}/approve")

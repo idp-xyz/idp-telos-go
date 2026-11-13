@@ -26,20 +26,27 @@
       ]
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.7.0",
-      "version": "1.7.0",
+      "id": "urn:idp:telos:host:1.8.0",
+      "version": "1.8.0",
       "status": "PUBLISHED",
-      "published": "2026-11-04",
-      "schema": "idp.telos.host/1.7.0/schema.json",
-      "examples": "idp.telos.host/1.7.0/examples.json",
+      "published": "2026-11-13",
+      "schema": "idp.telos.host/1.8.0/schema.json",
+      "examples": "idp.telos.host/1.8.0/examples.json",
       "producer": {
         "repository": "idp-host",
         "path": "api/contracts",
         "consistency_test": "go test ./internal/run -run TestContract",
         "regenerate_examples": "go test ./internal/run -run TestContract -update"
       },
-      "note": "Agent Hosting & Coordination（idp-host）的 AgentRelease（idp.host.agent/v1，可嵌入 Skill、引用本地或远端 A2A 子 agent，带护栏、评估集、模型路由与 CMI 上下文策略（含 onStale 复验））、SkillRelease（idp.host.skill/v1，可带资源）、Envelope、AgentRun（含子 agent 运行、评估运行与 contextPackageId）与 RunOptions（创建运行时的调用方选项）。权威副本在 idp-host/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。",
+      "note": "Agent Hosting & Coordination（idp-host）的 AgentRelease（idp.host.agent/v1，可嵌入 Skill、引用本地或远端 A2A 子 agent，带护栏、评估集、模型路由与 CMI 上下文策略（含 onStale 复验））、SkillRelease（idp.host.skill/v1，可带资源）、Envelope、AgentRun（含子 agent 运行、评估运行与 contextPackageId）与 RunOptions（创建运行时的调用方选项，1.8.0 起含成员文件的附件与交付票据）。权威副本在 idp-host/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。",
       "previous": [
+        {
+          "version": "1.7.0",
+          "status": "SUPERSEDED",
+          "schema": "idp.telos.host/1.7.0/schema.json",
+          "published": "2026-11-04",
+          "note": "文件保留；1.8.0 对其只有向后兼容的新增（validate.py 检查）"
+        },
         {
           "version": "1.6.0",
           "status": "SUPERSEDED",
@@ -137,12 +144,12 @@
       ]
     },
     "idp.telos.workspace": {
-      "id": "urn:idp:telos:workspace:1.1.0",
-      "version": "1.1.0",
+      "id": "urn:idp:telos:workspace:1.2.0",
+      "version": "1.2.0",
       "status": "PUBLISHED",
-      "published": "2026-11-04",
-      "schema": "idp.telos.workspace/1.1.0/schema.json",
-      "examples": "idp.telos.workspace/1.1.0/examples.json",
+      "published": "2026-11-13",
+      "schema": "idp.telos.workspace/1.2.0/schema.json",
+      "examples": "idp.telos.workspace/1.2.0/examples.json",
       "producer": {
         "repository": "idp-workspace",
         "path": "api/contracts",
@@ -151,6 +158,13 @@
       },
       "note": "企业工作入口（idp-workspace）的 Workspace、AppManifest（idp.workspace.app/v1，含动作契约与目标）、AppRelease、Installation、InboxItem（收件箱事项是其他系统所拥有对象的视图）、WorkContext、Invocation 与 BridgeMessage（应用桥 idp.bridge/v1，含应用令牌 identity.token）。权威副本在 idp-workspace/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。",
       "previous": [
+        {
+          "version": "1.1.0",
+          "status": "SUPERSEDED",
+          "schema": "idp.telos.workspace/1.1.0/schema.json",
+          "published": "2026-11-04",
+          "note": "文件保留；1.2.0 对其只有向后兼容的新增（validate.py 检查）"
+        },
         {
           "version": "1.0.0",
           "status": "SUPERSEDED",
@@ -261,226 +275,242 @@
     {
       "name": "AgentRelease",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "SkillRelease",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Envelope",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "AgentRun",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "RunOptions",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Definition",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "ModelProfile",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "ModelRef",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "ToolPolicy",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "ConfirmationPolicy",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Limits",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "SkillRef",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "SkillDefinition",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "EmbeddedSkill",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "SubagentRef",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "EmbeddedSubagent",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "SkillMerge",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Resource",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Guards",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "InputGuard",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "OutputGuard",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Evaluation",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "EvalCase",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Expectation",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Routing",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "Candidate",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "A2ARef",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "ContextPolicy",
       "owner": "idp.telos.host",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.7.0/schema.json"
+      "file": "idp.telos.host/1.8.0/schema.json"
+    },
+    {
+      "name": "FileAttachment",
+      "owner": "idp.telos.host",
+      "version": "1.8.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.8.0/schema.json"
+    },
+    {
+      "name": "FileDelivery",
+      "owner": "idp.telos.host",
+      "version": "1.8.0",
+      "role": "HELPER",
+      "status": "PUBLISHED",
+      "file": "idp.telos.host/1.8.0/schema.json"
     },
     {
       "name": "ContextPackage",
@@ -621,154 +651,162 @@
     {
       "name": "Workspace",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "AppManifest",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "AppEntry",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "ConfigSpec",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "ActionContract",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Target",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Revocation",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "AppRelease",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Installation",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Ref",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Assignees",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "ItemAction",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Resolution",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Entity",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "InboxItem",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "WorkContext",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Problem",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "Invocation",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
+    },
+    {
+      "name": "MemberFile",
+      "owner": "idp.telos.workspace",
+      "version": "1.2.0",
+      "role": "CONTRACT",
+      "status": "PUBLISHED",
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     },
     {
       "name": "BridgeMessage",
       "owner": "idp.telos.workspace",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.workspace/1.1.0/schema.json"
+      "file": "idp.telos.workspace/1.2.0/schema.json"
     }
   ]
 }

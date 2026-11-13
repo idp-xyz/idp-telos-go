@@ -1,6 +1,6 @@
 {
   "scope": "FILE_LEVEL_ONLY",
-  "checked_on": "2026-11-05",
+  "checked_on": "2026-11-13",
   "validator": "jsonschema 4.26.0",
   "referencing": "0.37.0",
   "draft": "2020-12",
@@ -12,9 +12,9 @@
       "definitions": 12
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.7.0",
-      "version": "1.7.0",
-      "definitions": 28
+      "id": "urn:idp:telos:host:1.8.0",
+      "version": "1.8.0",
+      "definitions": 30
     },
     "idp.telos.cmi": {
       "id": "urn:idp:telos:cmi:1.4.0",
@@ -22,17 +22,17 @@
       "definitions": 17
     },
     "idp.telos.workspace": {
-      "id": "urn:idp:telos:workspace:1.1.0",
-      "version": "1.1.0",
-      "definitions": 19
+      "id": "urn:idp:telos:workspace:1.2.0",
+      "version": "1.2.0",
+      "definitions": 20
     }
   },
-  "positive_cases": 105,
+  "positive_cases": 108,
   "negative_cases": 173,
-  "passed": 278,
-  "total": 278,
-  "invariants_passed": 33,
-  "invariants_total": 33,
+  "passed": 281,
+  "total": 281,
+  "invariants_passed": 35,
+  "invariants_total": 35,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -68,25 +68,28 @@
     "idp_telos_mcp_1_1_0_is_additive_over_1_0_0": {
       "passed": true
     },
-    "idp_telos_host_1_7_0_is_additive_over_1_6_0": {
+    "idp_telos_host_1_8_0_is_additive_over_1_7_0": {
       "passed": true
     },
-    "idp_telos_host_1_7_0_is_additive_over_1_5_0": {
+    "idp_telos_host_1_8_0_is_additive_over_1_6_0": {
       "passed": true
     },
-    "idp_telos_host_1_7_0_is_additive_over_1_4_0": {
+    "idp_telos_host_1_8_0_is_additive_over_1_5_0": {
       "passed": true
     },
-    "idp_telos_host_1_7_0_is_additive_over_1_3_0": {
+    "idp_telos_host_1_8_0_is_additive_over_1_4_0": {
       "passed": true
     },
-    "idp_telos_host_1_7_0_is_additive_over_1_2_0": {
+    "idp_telos_host_1_8_0_is_additive_over_1_3_0": {
       "passed": true
     },
-    "idp_telos_host_1_7_0_is_additive_over_1_1_0": {
+    "idp_telos_host_1_8_0_is_additive_over_1_2_0": {
       "passed": true
     },
-    "idp_telos_host_1_7_0_is_additive_over_1_0_0": {
+    "idp_telos_host_1_8_0_is_additive_over_1_1_0": {
+      "passed": true
+    },
+    "idp_telos_host_1_8_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "idp_telos_cmi_1_4_0_is_additive_over_1_3_0": {
@@ -101,7 +104,10 @@
     "idp_telos_cmi_1_4_0_is_additive_over_1_0_0": {
       "passed": true
     },
-    "idp_telos_workspace_1_1_0_is_additive_over_1_0_0": {
+    "idp_telos_workspace_1_2_0_is_additive_over_1_1_0": {
+      "passed": true
+    },
+    "idp_telos_workspace_1_2_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "registry_names_unique_per_namespace": {
@@ -290,6 +296,14 @@
     },
     {
       "case": "example:RunOptions#12",
+      "namespace": "idp.telos.host",
+      "definition": "RunOptions",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:RunOptions#13",
       "namespace": "idp.telos.host",
       "definition": "RunOptions",
       "expected_valid": true,
@@ -540,6 +554,22 @@
       "case": "example:Problem#18",
       "namespace": "idp.telos.workspace",
       "definition": "Problem",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:MemberFile#19",
+      "namespace": "idp.telos.workspace",
+      "definition": "MemberFile",
+      "expected_valid": true,
+      "passed": true,
+      "errors": []
+    },
+    {
+      "case": "example:MemberFile#20",
+      "namespace": "idp.telos.workspace",
+      "definition": "MemberFile",
       "expected_valid": true,
       "passed": true,
       "errors": []

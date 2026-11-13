@@ -131,6 +131,8 @@ services:
       IDP_SANDBOX_PYTHON_IMAGE: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
       IDP_SANDBOX_SHELL_IMAGE: ${IDP_SANDBOX_SHELL_IMAGE:-public.ecr.aws/docker/library/alpine:3.22}
       IDP_SANDBOX_OFFICE_IMAGE: ${IDP_SANDBOX_OFFICE_IMAGE:-idp-sandbox-office:dev}
+      # a member's files move between the Workspace and a workspace on the Workspace's internal listener (idp-sandbox D15)
+      IDP_SANDBOX_FILES_URL: http://workspace:8561/internal/v1/files
 
   # ---- idp-host ----
   fakemodel:
@@ -200,6 +202,8 @@ services:
       IDP_WORKSPACE_OIDC_CLIENT_ID: workspace-shell
       IDP_WORKSPACE_SUBJECT_CLAIM: preferred_username
       IDP_WORKSPACE_PUBLIC_URL: http://127.0.0.1:8560
+      # the internal file endpoint for idp-sandbox (idp-workspace D23): file tickets for host.run; not published to the host
+      IDP_WORKSPACE_INTERNAL_LISTEN: 0.0.0.0:8561
       IDP_WORKSPACE_CONFIG: /etc/idp/workspace.yaml
     volumes: ['../../.local/platform/workspace.yaml:/etc/idp/workspace.yaml:ro', '../../.local/platform/exchange.secret:/etc/idp/exchange.secret:ro']
     depends_on: [host]

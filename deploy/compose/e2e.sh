@@ -13,6 +13,7 @@
 # PATH D (P4): bob asks an agent to run code; the HOST calls the idp-mcp gateway with a token it exchanged for bob
 # PATH I: a tool call waits for bob's confirmation; he decides it in the Workspace, the code then runs (or does not)
 # PATH J0: bob asks office-assistant (skill officecli) for a Word file; officecli makes and validates it in the sandbox's office profile
+# PATH J: bob uploads a Word file; office-assistant edits it in the sandbox (files move on tickets, never through the model) and bob downloads the result
 # (RFC 8693, issued to the client idp-host), the gateway forwards the verified caller to idp-sandbox, which runs the code in an isolated
 # container in a workspace that belongs to bob. The gateway's invocation record names bob and the HOST.
 #
@@ -480,19 +481,22 @@ instructions = (
     "for many changes to one file prefer one batch command. Do not use open, watch, mcp, skills, install or view screenshot: runs have "
     "no network and nothing keeps running after a run. Put in a document only what the user gave you: no names, places, owners, dates "
     "or figures of your own; when something is missing, ask, or leave a placeholder the user will see, such as [地点待定]. "
-    "Run officecli validate on every file you produce before you finish. The member "
-    "cannot upload or download files yet: show the result with officecli view <file> text or outline. The officecli reference is in "
+    "Run officecli validate on every file you produce before you finish. When the user attached files you are told their "
+    "references (attachment:1, attachment:2, ...): copy one into the workspace with sandbox_import_file before you work on it. Give "
+    "the user every file you make or change with sandbox_export_file (target output, and a file name for them), and say in a line or "
+    "two what is in it (officecli view <file> text or outline). The officecli reference is in "
     "this skill's resources (officecli.md, and docx.md, xlsx.md, pptx.md for each format): read the one you need with resource__read "
     "before you guess a command.")
 res = [{"name": n, "mediaType": "text/markdown", "onDemand": True, "content": open(os.path.join(d, sub, "SKILL.md"), encoding="utf-8").read()}
        for n, sub in (("officecli.md", "officecli"), ("docx.md", "officecli-docx"), ("xlsx.md", "officecli-xlsx"), ("pptx.md", "officecli-pptx"))]
 json.dump({"name": "officecli", "displayName": "OfficeCLI", "definition": {"instructions": instructions,
-           "tools": ["sandbox__sandbox_create", "sandbox__sandbox_run", "sandbox__sandbox_list_files"], "resources": res}}, open(out, "w"))
+           "tools": ["sandbox__sandbox_create", "sandbox__sandbox_run", "sandbox__sandbox_list_files", "sandbox__sandbox_import_file",
+                     "sandbox__sandbox_export_file"], "resources": res}}, open(out, "w"))
 PY
 call 201 POST "$HOST/api/v1/skills" "$HADMIN" "@$L/officecli-skill.json" >/dev/null
 SREL="$(call 201 POST "$HOST/api/v1/skills/officecli/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/skill-releases/$SREL/approve" "$HAPPROVER" >/dev/null
-call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":30,"runTimeoutSeconds":1200}}}' >/dev/null
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files","sandbox__sandbox_import_file","sandbox__sandbox_export_file"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":30,"runTimeoutSeconds":1200}}}' >/dev/null
 OREL="$(call 201 POST "$HOST/api/v1/agents/office-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$OREL/approve" "$HAPPROVER" >/dev/null
 # the release carries the skill and its four references, not a pointer to something that can change
@@ -501,7 +505,7 @@ import json,sys
 doc=json.load(sys.stdin); text=json.dumps(doc)
 assert 'officecli' in text and all(n in text for n in ('officecli.md','docx.md','xlsx.md','pptx.md')), 'the release does not embed the officecli skill and its resources'
 " || { echo "FAIL: office-assistant's release does not carry the officecli skill" >&2; exit 1; }
-call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"office","version":"1.0.0","title":"Office","publisher":"IDP","capabilities":[],"actions":[{"name":"office.run","title":"Work on a document","target":{"kind":"host.run","agent":"office-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}},"additionalProperties":false}}]}' >/dev/null
+call 201 POST "$WS/api/v1/apps" "$ALICE" '{"schemaVersion":"idp.workspace.app/v1","name":"office","version":"1.0.0","title":"Office","publisher":"IDP","capabilities":[],"actions":[{"name":"office.run","title":"Work on a document","target":{"kind":"host.run","agent":"office-assistant"},"input":{"type":"object","required":["message"],"properties":{"message":{"type":"string"},"files":{"type":"array","maxItems":10,"items":{"type":"string","format":"idp-file"}}},"additionalProperties":false}}]}' >/dev/null
 call 201 PUT "$WS/api/v1/workspaces/us-ops/installations/office" "$ALICE" '{"version":"1.0.0"}' >/dev/null
 if [[ "$MODEL" == live ]]; then
   echo "NOT_RUN: PATH J0 uses the model double's scripted sandbox flow (MODEL=fake); office-assistant is installed for a live try"
@@ -527,6 +531,61 @@ for it in json.load(sys.stdin)['items']:
     if it['externalRef']=='run:$JRUN': print(it.get('summary',''))")"
 [[ "$JANSWER" == *"exit code 0"* && "$JANSWER" == *"Validation passed"* && "$JANSWER" == *"平台验收报告"* ]] || { echo "FAIL: the office result is not in bob's inbox: $JANSWER" >&2; exit 1; }
 echo "PASS: PATH J0 — bob -> Workspace -> HOST run $JRUN (office-assistant, skill officecli with OfficeCLI's references) -> gateway -> idp-sandbox office profile -> a .docx created, validated and read back in an isolated container"
+fi
+
+# ---- PATH J: a member's file goes through the agent and comes back (platform ADR-0002 phase 1; idp-workspace D23, idp-host D37,
+# idp-sandbox D15). bob uploads a Word file; office-assistant gets it as attachment:1, idp-host swaps in the Workspace's read
+# ticket only on the sandbox's file property, the sandbox fetches the bytes on the Workspace's internal listener, OfficeCLI edits
+# them in an isolated container, and the sandbox delivers the result with the write ticket. bob downloads it; nobody else can,
+# and no ticket is in the run's events, its tool calls, its stored input, or the gateway's and the sandbox's logs.
+if [[ "$MODEL" == live ]]; then
+  echo "NOT_RUN: PATH J uses the model double's scripted file flow (MODEL=fake)"
+else
+BOB="$(user_token bob)"; ALICE="$(user_token alice)"
+docker run --rm --network none --read-only --cap-drop ALL --user 65534:65534 --tmpfs /tmp:rw,noexec,size=16m -e HOME=/tmp idp-sandbox-office:dev sh -c \
+  'cd /tmp && officecli create q.docx >/dev/null && officecli add q.docx /body --type paragraph --prop text=报价：第一版 >/dev/null && cat q.docx' > "$L/quote.docx"
+UP="$(curl -sS --noproxy '*' -w '\n%{http_code}' -X POST -H "Authorization: Bearer $BOB" -H 'Content-Type: application/octet-stream' \
+  --data-binary "@$L/quote.docx" "$WS/v1/workspaces/us-ops/files?name=%E6%8A%A5%E4%BB%B7%E5%8D%95.docx")"
+[[ "$(echo "$UP" | tail -1)" == 201 ]] || { echo "FAIL: bob could not upload the file: $UP" >&2; exit 1; }
+FILE="$(echo "$UP" | head -1 | field "['id']")"
+python3 -c "
+import json
+code='officecli set in.docx \"/body/p[1]\" --prop text=报价：第二版 && officecli validate in.docx && cp in.docx out.docx && officecli view out.docx text'
+print(json.dumps({'app':'office','action':'office.run','input':{'message':'edit office: '+code,'files':['$FILE']}}, ensure_ascii=False))" > "$L/office-edit.json"
+INV="$(call 201 POST "$WS/v1/workspaces/us-ops/actions/invoke" "$BOB" "@$L/office-edit.json")"
+FRUN="$(echo "$INV" | field "['result']['id']")"
+FRESULT=""
+for _ in $(seq 1 600); do
+  FRESULT="$(call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run" "$BOB" | python3 -c "
+import json,sys
+for it in json.load(sys.stdin)['items']:
+    if it['externalRef']=='run:$FRUN' and not it['title'].endswith('running'): print(it['title'] + ' | ' + it.get('summary','').replace(chr(10),' '))")"
+  [[ -n "$FRESULT" ]] && break; sleep 0.5
+done
+[[ "$FRESULT" == *"— finished"*"Files delivered: 报价单-edited.docx"* ]] || { "${C[@]}" logs --tail 40 host-worker mcp-gateway sandbox workspace; echo "FAIL: the edit run did not deliver a file: '$FRESULT'" >&2; exit 1; }
+DELIVERED="$(call 200 GET "$WS/v1/workspaces/us-ops/files?source=run:$FRUN" "$BOB" | python3 -c "
+import json,sys
+fs=json.load(sys.stdin)['files']
+assert len(fs)==1 and fs[0]['name']=='报价单-edited.docx', fs
+print(fs[0]['id'], fs[0]['sha256'])")" || { echo "FAIL: bob's files do not hold what the run delivered" >&2; exit 1; }
+OUT_ID="${DELIVERED% *}"; OUT_SHA="${DELIVERED#* }"
+curl -sSf --noproxy '*' -H "Authorization: Bearer $BOB" -o "$L/quote-edited.docx" "$WS/v1/workspaces/us-ops/files/$OUT_ID/content"
+[[ "$(sha256sum "$L/quote-edited.docx" | cut -c1-64)" == "$OUT_SHA" && "$OUT_SHA" != "$(sha256sum "$L/quote.docx" | cut -c1-64)" ]] || { echo "FAIL: the download is not the delivered, edited file" >&2; exit 1; }
+TEXT="$(docker run --rm -i --network none --read-only --cap-drop ALL --user 65534:65534 --tmpfs /tmp:rw,noexec,size=16m -e HOME=/tmp idp-sandbox-office:dev sh -c 'cat > /tmp/o.docx && officecli view /tmp/o.docx text' < "$L/quote-edited.docx")"
+[[ "$TEXT" == *"报价：第二版"* && "$TEXT" != *"第一版"* ]] || { echo "FAIL: the delivered document does not carry the edit: $TEXT" >&2; exit 1; }
+DENIED="$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ALICE" "$WS/v1/workspaces/us-ops/files/$OUT_ID/content")"
+[[ "$DENIED" == 404 ]] || { echo "FAIL: alice (an administrator, not the owner) got bob's file: $DENIED" >&2; exit 1; }
+# no ticket anywhere but in the one call that needed it
+EVENTS="$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$FRUN/events" "$BOB")"
+CALLS="$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$FRUN/tool-calls" "$BOB")"
+[[ "$EVENTS" == *"idp.host/file.delivered"*"$OUT_ID"* && "$CALLS" == *"attachment:1"* && "$CALLS" == *'\"target\":\"output\"'* ]] || { echo "FAIL: the run's record does not show the file flow: $CALLS" >&2; exit 1; }
+STORED="$("${C[@]}" exec -T postgres psql -U postgres -d idp_host -tAc "SELECT input::text || ' | ' || (file_tickets IS NULL)::text FROM runs WHERE id = '$FRUN'")"
+[[ "$STORED" == *"报价单.docx"* && "$STORED" == *"| true" ]] || { echo "FAIL: the HOST's stored run: $STORED" >&2; exit 1; }
+LOGS="$("${C[@]}" logs mcp-gateway sandbox 2>&1)"
+for where in "$EVENTS" "$CALLS" "$STORED" "$LOGS"; do
+  [[ "$where" != *eyJ* ]] || { echo "FAIL: a token or ticket leaked into a record or a log" >&2; exit 1; }
+done
+echo "PASS: PATH J — bob uploads 报价单.docx -> Workspace -> HOST run $FRUN (attachment:1, tickets sealed) -> gateway -> idp-sandbox fetches it with the read ticket on the Workspace's internal listener -> OfficeCLI edits it -> delivered with the write ticket -> bob downloads the edited file (alice cannot); no ticket in events, tool calls, stored input or logs"
 fi
 
 # ---- PATH E: memory. bob tells the assistant something; the HOST remembers it in the CMI; in a NEW conversation the CMI brings it back ----
