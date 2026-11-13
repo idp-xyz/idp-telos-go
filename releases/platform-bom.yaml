@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:91db1c2ed6147391ae7c438f75058a99651239de43cc27e34f648bff19a6d03a
+    id: sha256:83b2c1485d50607d2b69282f8b02396299ff25458345fd79cff15c076859407d
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: c5433384cbd30f0920b8e7db3da741fff786f30c
@@ -27,14 +27,14 @@ components:
     version: 1.8.0
   image:
     reference: idp-host:dev
-    id: sha256:9fe15ca585e8cc343e75937b6b8374533fc54203c680b000827afc366ae557c9
+    id: sha256:2976fe171c8cdd0a3f0aba92ba74f85279bdf82795a1c05d4399faa73df5981f
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 4d1df115f7330b38657d31c535f68d582be03b27
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:5f72429eca6d5a5206d45f4c5708f7fe3a277374a638501c402a1c177ae9ca47
+    id: sha256:a60c1fba4659f4107069a686d23219bb473cc12f56588c3be168997f82223cee
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: e5fa484fe848e873c2e6b539f4010d0dbba0ccba
@@ -44,21 +44,21 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:bd1073c37ec59ba21c34425388942ffb38d1ef4c8f17424bdc856720398c4ced
+    id: sha256:59e650446b4e61cda3d401d7e713d6ae9ad61ebe80c01599788e05b465bdd92e
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: cdc67bd9d9ae8f39defcb50a7719088897a328f7
+  commit: 504c3e2eeb0f7ada5a9b519cfdf9282b825b6986
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.2.0
   image:
     reference: idp-workspace:dev
-    id: sha256:4c9df84dfd405b4e09cd69cb8c7402e9fd8bb4f9d764132a8564f1559f1eb9e6
+    id: sha256:d2939643402c53b3e04d358cbb215edaf70c6535312268ddf2401a2f0f05d39d
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: 2e9b07e042509fe40301fe781ddbfcc9b87de6ff
+  commit: ee7d3e4e1a221e64cb1a49d191cf20f524e64496
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:83204605aad49c6920128dd4496c747c6bf31d2680214baa627b00dea80a7f57
+    id: sha256:dd5df3289fb257e6a035ae6b565bc962c4a4a3dac401338eee4b90e3446a4995
