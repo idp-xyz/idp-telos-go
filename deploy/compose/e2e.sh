@@ -487,7 +487,13 @@ fi
 # ---- PATH J0: Office documents in the sandbox's office profile (platform ADR-0002 phase 0, idp-sandbox ADR-0001 D14) ----
 # The skill officecli is a short usage note of ours plus OfficeCLI's own references, taken from the pinned binary in the
 # office image and read on demand (idp-host D23); office-assistant is an agent with that skill and the sandbox tools, and room for
-# a document task: up to 50 steps in 30 minutes (a local model building a large workbook used all of 30; the defaults are 10 and 5).
+# a document task: up to 120 steps in 45 minutes. On 2026-11-17 the local model, asked to reorganise a 282 KB
+# price workbook, used 50 steps in 12.5 minutes and then, after this limit was raised, all 120 steps in 34
+# minutes. It exported nothing either time: it kept reprinting tables it had already extracted. The skill
+# therefore tells it to deliver a first complete file before it looks again, and to look at an existing workbook
+# once with sheetskel (idp-sandbox D16) instead of unpacking it. The host says which step this is, offers only
+# delivery on the last two steps, and at the step limit delivers a validated office file still in the workspace
+# (idp-host D41). The defaults are 10 steps and 5 minutes.
 OSK="$L/officecli-skill"; rm -rf "$OSK"; mkdir -p "$OSK"
 docker run --rm --network none --read-only --cap-drop ALL --user 65534:65534 --tmpfs /tmp:rw,noexec,size=16m -e HOME=/tmp idp-sandbox-office:dev sh -c \
   'officecli skills claude >/dev/null && for s in word excel pptx; do officecli skills install "$s" claude >/dev/null; done && tar -C /tmp/.claude/skills -cf - .' | tar -C "$OSK" -xf -
@@ -496,11 +502,18 @@ import json, os, sys
 d, out = sys.argv[1], sys.argv[2]
 instructions = (
     "You can read, edit and create Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files with officecli in the sandbox. "
-    "Every command you run costs one of a limited number of steps, so plan small and work in this order: first make a "
+    "Every command you run costs one of a limited number of steps. The host says which step this is and how many remain; "
+    "on the last two steps it offers only file delivery, so work in this order: first make a "
     "complete, valid file with the essential content, validate it and deliver it; improve it afterwards only if the user asks "
-    "or you clearly have steps to spare. "
+    "or the host says you still have steps to spare. "
+    "Reading an attached workbook is one command: sheetskel FILE.xlsx (language office; it is on PATH next to officecli). "
+    "It prints each sheet's name, used range and header. Do not unpack the xlsx yourself and do not page through it. "
+    "The very next commands write the file the user asked for: one Python script that builds a batch from what you "
+    "already extracted, then officecli batch, officecli validate and sandbox_export_file. Do that before you open the workbook "
+    "again, reprint a table, or rewrite a parser. A cell you are not sure of becomes a placeholder the user can see, such as [?], "
+    "and you say which cells those are. Improving the file comes after it has been delivered. "
     "Create a workspace with sandbox_create. Every sandbox_run needs workspaceId, language and code; use language office: a POSIX "
-    "shell in /work (the workspace) with officecli and python3 (language shell has neither). Files you write stay in the workspace "
+    "shell in /work (the workspace) with officecli, sheetskel and python3 (language shell has neither). Files you write stay in the workspace "
     "for later runs. Use officecli's subcommands (create, view, get, query, set, add, remove, move, batch, validate). For many "
     "cells, rows or paragraphs, write one Python script in a single run that builds the batch as a JSON list of objects "
     "{\"command\": ..., \"path\": ..., \"props\": {...}}, writes it to a file and applies it with officecli batch FILE --input "
@@ -522,7 +535,7 @@ PY
 call 201 POST "$HOST/api/v1/skills" "$HADMIN" "@$L/officecli-skill.json" >/dev/null
 SREL="$(call 201 POST "$HOST/api/v1/skills/officecli/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/skill-releases/$SREL/approve" "$HAPPROVER" >/dev/null
-call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files","sandbox__sandbox_import_file","sandbox__sandbox_export_file"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":50,"runTimeoutSeconds":1800}}}' >/dev/null
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files","sandbox__sandbox_import_file","sandbox__sandbox_export_file"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":120,"runTimeoutSeconds":2700}}}' >/dev/null
 OREL="$(call 201 POST "$HOST/api/v1/agents/office-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$OREL/approve" "$HAPPROVER" >/dev/null
 # the release carries the skill and its four references, not a pointer to something that can change
