@@ -492,8 +492,9 @@ fi
 # minutes. It exported nothing either time: it kept reprinting tables it had already extracted. The skill
 # therefore tells it to deliver a first complete file before it looks again, and to look at an existing workbook
 # once with sheetskel (idp-sandbox D16) instead of unpacking it. The host says which step this is, offers only
-# delivery on the last two steps, and at the step limit delivers a validated office file still in the workspace
-# (idp-host D41). The defaults are 10 steps and 5 minutes.
+# delivery on the last two steps, and at the step limit delivers the finished files still in the workspace
+# (idp-host D41, D42). The defaults are 10 steps and 5 minutes.
+# The same skill covers PDF and Markdown (idp-sandbox D17): pdftext reads a PDF, md2pdf writes one from Markdown.
 OSK="$L/officecli-skill"; rm -rf "$OSK"; mkdir -p "$OSK"
 docker run --rm --network none --read-only --cap-drop ALL --user 65534:65534 --tmpfs /tmp:rw,noexec,size=16m -e HOME=/tmp idp-sandbox-office:dev sh -c \
   'officecli skills claude >/dev/null && for s in word excel pptx; do officecli skills install "$s" claude >/dev/null; done && tar -C /tmp/.claude/skills -cf - .' | tar -C "$OSK" -xf -
@@ -501,7 +502,8 @@ python3 - "$OSK" "$L/officecli-skill.json" <<'PY'
 import json, os, sys
 d, out = sys.argv[1], sys.argv[2]
 instructions = (
-    "You can read, edit and create Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files with officecli in the sandbox. "
+    "You can read, edit and create Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files with officecli in the sandbox, "
+    "read PDF files, and write PDF and Markdown files. "
     "Every command you run costs one of a limited number of steps. The host says which step this is and how many remain; "
     "on the last two steps it offers only file delivery, so work in this order: first make a "
     "complete, valid file with the essential content, validate it and deliver it; improve it afterwards only if the user asks "
@@ -512,15 +514,29 @@ instructions = (
     "already extracted, then officecli batch, officecli validate and sandbox_export_file. Do that before you open the workbook "
     "again, reprint a table, or rewrite a parser. A cell you are not sure of becomes a placeholder the user can see, such as [?], "
     "and you say which cells those are. Improving the file comes after it has been delivered. "
-    "Create a workspace with sandbox_create. Every sandbox_run needs workspaceId, language and code; use language office: a POSIX "
-    "shell in /work (the workspace) with officecli, sheetskel and python3 (language shell has neither). Files you write stay in the workspace "
-    "for later runs. Use officecli's subcommands (create, view, get, query, set, add, remove, move, batch, validate). For many "
+    "Create a workspace with sandbox_create. Every sandbox_run needs workspaceId, language and code. Use language office for "
+    "every run, also for plain commands such as cat, ls or mkdir: it is a POSIX shell in /work (the workspace) with officecli, "
+    "sheetskel, pdftext, md2pdf and python3, and language shell has none of them. "
+    "Files you write stay in the workspace for later runs; put every file meant for the user under out/. "
+    "Use officecli's subcommands (create, view, get, query, set, add, remove, move, batch, validate). For many "
     "cells, rows or paragraphs, write one Python script in a single run that builds the batch as a JSON list of objects "
     "{\"command\": ..., \"path\": ..., \"props\": {...}}, writes it to a file and applies it with officecli batch FILE --input "
     "batch.json, printing only the summary; merged ranges must not overlap. Do not use open, watch, mcp, skills, install or view "
-    "screenshot: runs have no network and nothing keeps running after a run. Put in a document only what the user gave you: no "
+    "screenshot: runs have no network and nothing keeps running after a run. "
+    "Read an attached PDF with pdftext FILE.pdf: it prints the page count and the text page by page, up to a limit, and says "
+    "how to get the rest (--pages 3-5 for a range, --layout to keep each row of a table on one line). When you need all of a "
+    "long PDF, or the numbers of its tables, write it to a file once (pdftext FILE.pdf --layout -o text.txt) and work on that "
+    "file with one script instead of printing page after page. A page pdftext reports as having no text is a scan and cannot "
+    "be read here: tell the user so, and do not guess what it says. To give the user a PDF, write the content as a Markdown "
+    "file (headings, lists, tables, fenced code, local PNG or JPEG pictures) and run md2pdf IN.md out/NAME.pdf; it sets Chinese "
+    "in a font the PDF carries. For a layout Markdown cannot express, python3 has reportlab: register "
+    "/usr/share/fonts/truetype/noto/NotoSansSC-Regular.ttf first, or Chinese prints as empty boxes. A Markdown file is plain "
+    "text: read and write it directly. Nothing here converts a Word, Excel or PowerPoint file to PDF: say so "
+    "when asked, and offer a PDF made from the content instead. "
+    "Put in a document only what the user gave you: no "
     "names, places, owners, dates or figures of your own; when something is missing, leave a placeholder the user will see, such "
-    "as [地点待定], and say so. Run officecli validate on every file you produce before you deliver it. When the user attached "
+    "as [地点待定], and say so. Check every file before you deliver it: officecli validate for an Office file, pdftext --check "
+    "for a PDF. When the user attached "
     "files you are told their references (attachment:1, attachment:2, ...): copy one into the workspace with sandbox_import_file "
     "before you work on it. Give the user every file you make or change with sandbox_export_file (target output, and a file name "
     "for them), and say in a line or two what is in it. The officecli reference is in this skill's resources (officecli.md, and "
@@ -535,7 +551,7 @@ PY
 call 201 POST "$HOST/api/v1/skills" "$HADMIN" "@$L/officecli-skill.json" >/dev/null
 SREL="$(call 201 POST "$HOST/api/v1/skills/officecli/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/skill-releases/$SREL/approve" "$HAPPROVER" >/dev/null
-call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel and PowerPoint documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files","sandbox__sandbox_import_file","sandbox__sandbox_export_file"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":120,"runTimeoutSeconds":2700}}}' >/dev/null
+call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"office-assistant","displayName":"Office assistant","definition":{"instructions":"Help the user with Word, Excel, PowerPoint, PDF and Markdown documents.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{"gateway":"edge","allow":["sandbox__sandbox_create","sandbox__sandbox_run","sandbox__sandbox_list_files","sandbox__sandbox_import_file","sandbox__sandbox_export_file"]},"skills":[{"name":"officecli"}],"confirmation":{"default":"auto"},"limits":{"maxSteps":120,"runTimeoutSeconds":2700}}}' >/dev/null
 OREL="$(call 201 POST "$HOST/api/v1/agents/office-assistant/releases" "$HADMIN" | field "['releaseId']")"
 call 200 POST "$HOST/api/v1/releases/$OREL/approve" "$HAPPROVER" >/dev/null
 # the release carries the skill and its four references, not a pointer to something that can change
