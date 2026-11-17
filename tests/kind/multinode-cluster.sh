@@ -29,6 +29,7 @@ docker image inspect "$NODE_IMG" >/dev/null 2>&1 || { echo "BLOCKED: $NODE_IMG i
 docker exec kind-control-plane sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=1048576 >/dev/null 2>&1 || true
 kind get clusters 2>/dev/null | grep -qx "$NAME" || kind create cluster --name "$NAME" --config tests/kind/multinode.yaml --image "$NODE_IMG" --wait 0s
 restore
+KIND_CLUSTER="$NAME" bash tests/kind/pin-node-ips.sh >/dev/null   # its nodes keep their addresses across restarts (full.sh renders them)
 docker exec "$NAME-control-plane" sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=1048576 >/dev/null
 
 log "Calico $CALICO"

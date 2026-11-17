@@ -221,6 +221,7 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 | 迁移 / 建租户的 Job 显示 `Error` | 数据库还没起来时的重试 | 看最后一次是否 `Completed` |
 | `kustomize: go: … goproxy.cn … EOF` | 代理偶发中断 | 重试 |
 | 机器重启后两个 kind 集群的 Pod 全是 `Unknown`，kube-proxy `CrashLoopBackOff`：`too many open files` | 5 个节点容器共用宿主机的 inotify 上限（默认 128 个实例） | `docker exec kind-control-plane sysctl -w fs.inotify.max_user_instances=8192`，再删掉 kube-proxy 和 calico-node 的 Pod 让它们重建；`multinode-cluster.sh` 建集群时会调高，但重启后要重新执行 |
+| 机器重启后 cert-manager、CNPG operator、PostgreSQL、各组件全部 `CrashLoopBackOff`，日志 `dial tcp 10.96.0.1:443: i/o timeout` / `connect PostgreSQL: context deadline exceeded` | Docker 重启时重新分配 kind 网络上的地址，节点换了 IP；`full.sh` 写进 NetworkPolicy 的 API Server 地址（`ipBlock` /32）过期，`default-deny` 拦下了到 API Server 的流量 | `bash tests/kind/pin-node-ips.sh`（`KIND_CLUSTER=ha` 换集群）：给节点固定当前 IP，把 NetworkPolicy 里过期的 API Server 地址改成当前的，不清数据；之后删掉崩溃的 Pod 或等它们下一次重启。`local-cluster.sh`、`multinode-cluster.sh` 建集群时、`full.sh` 每次运行时都会固定，固定后重启不再换 IP |
 | `scan_images.sh` 一行 `not scanned`：`… context deadline exceeded` | 代理慢，trivy 下载数据库超过默认 5 分钟 | 离线扫（"镜像漏洞扫描"） |
 | `not scanned`：`… Unable to initialize the Java DB … cannot be specified on the first run` | 跳过更新时缺 Java 索引，扫到 Keycloak 这类带 jar 的镜像 | 把 `java-db/` 一起打包解开；`TRIVY_OFFLINE=1` 会先检查两个库 |
 | `gh` 命令 `EOF` / CI 克隆 `403` | GitHub 偶发限流 | 稍后重试；`gh run rerun --failed` |

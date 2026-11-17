@@ -54,6 +54,8 @@ for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox; do
 done
 for tool in kubectl kind docker openssl python3 curl; do command -v "$tool" >/dev/null || { echo "BLOCKED: $tool not found" >&2; exit 2; }; done
 kubectl get nodes >/dev/null || { echo "BLOCKED: no cluster (kubectl context kind-$CLUSTER)" >&2; exit 2; }
+# the API server's address goes into NetworkPolicies below: the node's must not move when Docker restarts
+KIND_CLUSTER="$CLUSTER" bash tests/kind/pin-node-ips.sh >/dev/null
 MODEL="${MODEL:-fake}"
 if [[ "$MODEL" == live ]]; then
   LIVE_URL="${IDP_LIVE_MODEL_URL:-http://127.0.0.1:8080/v1}"
