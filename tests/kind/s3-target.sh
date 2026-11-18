@@ -19,7 +19,7 @@ docker image inspect idp-pg-backup:dev >/dev/null 2>&1 || { echo "BLOCKED: idp-p
 docker rm -f "$NAME" >/dev/null 2>&1 || true; docker volume rm -f "$NAME" >/dev/null 2>&1 || true
 if ! docker image inspect "$S3_IMG" >/dev/null 2>&1; then   # loaded by digest, named by its tag
   tar="$(mktemp --suffix=.tar)"
-  crane pull --platform linux/amd64 "${S3_IMG%%:*}@$S3_DIGEST" "$tar" >/dev/null && docker tag "$(docker load -i "$tar" | sed -n 's/^Loaded image: //p' | tail -1)" "$S3_IMG"
+  bash tests/kind/crane-pull.sh "${S3_IMG%%:*}@$S3_DIGEST" "$tar" && docker tag "$(docker load -i "$tar" | sed -n 's/^Loaded image: //p' | tail -1)" "$S3_IMG"
   rm -f "$tar"
 fi
 docker run -d --name "$NAME" --restart unless-stopped -p "$ADDR:$PORT:9000" -v "$NAME:/data" \

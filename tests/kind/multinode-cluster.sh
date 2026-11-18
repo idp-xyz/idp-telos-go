@@ -40,7 +40,7 @@ if [[ ! -s "$L/calico-images-$CALICO.tar" ]]; then
     docker exec kind-control-plane cat /tmp/calico.tar > "$L/calico-images-$CALICO.tar"   # its /tmp is a tmpfs, which docker cp cannot read
     docker exec kind-control-plane rm -f /tmp/calico.tar
   else
-    for i in "${IMAGES[@]}"; do crane pull --platform linux/amd64 "$i" "$L/$(basename "${i%%:*}").tar"; kind load image-archive "$L/$(basename "${i%%:*}").tar" --name "$NAME" >/dev/null; done
+    for i in "${IMAGES[@]}"; do bash tests/kind/crane-pull.sh "$i" "$L/$(basename "${i%%:*}").tar"; kind load image-archive "$L/$(basename "${i%%:*}").tar" --name "$NAME" >/dev/null; done
   fi
 fi
 [[ ! -s "$L/calico-images-$CALICO.tar" ]] || kind load image-archive "$L/calico-images-$CALICO.tar" --name "$NAME" >/dev/null   # every node
@@ -50,6 +50,16 @@ sed 's#docker.io/calico/#quay.io/calico/#' "$L/calico-$CALICO.yaml" | k apply -f
 k -n kube-system rollout status ds/calico-node --timeout=300s >/dev/null
 k wait --for=condition=Ready nodes --all --timeout=300s >/dev/null
 
+# kind's two CoreDNS replicas only prefer different nodes, and both start on the first node Calico makes ready. With that node lost
+# no name resolves in the cluster until its Pods are evicted (5 minutes): the node-loss drill then fails for want of DNS, not of
+# PostgreSQL (four nights in CI: the writer could not find postgresql-rw, the operator could not find the plugin). A cluster that is
+# to survive a node needs its DNS on more than one, so: never two replicas on a node.
+log "CoreDNS: never two replicas on a node"
+k -n kube-system patch deploy coredns --type=strategic -p '{"spec":{"template":{"spec":{"affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"k8s-app":"kube-dns"}},"topologyKey":"kubernetes.io/hostname"}]}}}}}}' >/dev/null
+k -n kube-system rollout status deploy/coredns --timeout=300s >/dev/null
+DNS_NODES="$(k -n kube-system get pods -l k8s-app=kube-dns --field-selector=status.phase=Running --no-headers -o custom-columns=NODE:.spec.nodeName,GOING:.metadata.deletionTimestamp | awk '$2 == "<none>" {print $1}' | sort -u | tr '\n' ' ')"
+[[ "$(echo "$DNS_NODES" | wc -w)" -ge 2 ]] || { echo "FAIL: CoreDNS runs on one node only: $DNS_NODES" >&2; exit 1; }
+
 ZONES="$(k get nodes -l '!node-role.kubernetes.io/control-plane' -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.labels.topology\.kubernetes\.io/zone} {end}')"
 [[ "$(echo "$ZONES" | tr ' ' '\n' | grep -c '=zone-')" == 3 ]] || { echo "FAIL: expected 3 workers with a zone, got: $ZONES" >&2; exit 1; }
-echo "PASS: cluster $NAME ready with Calico; workers: $ZONES; kubectl's context is still ${PREV:-unset}"
+echo "PASS: cluster $NAME ready with Calico; workers: $ZONES; CoreDNS on $DNS_NODES; kubectl's context is still ${PREV:-unset}"

@@ -22,7 +22,28 @@ CLUSTER="${KIND_CLUSTER:-ha}"; NS=ha-test; L=.local/ha-maintenance; IMG=idp-post
 kubectl() { command kubectl --context "kind-$CLUSTER" "$@"; }
 mkdir -p "$L"
 log() { echo "== $*"; }
-fail() { echo "FAIL: $*" >&2; exit 1; }
+# what a failed step looked like, said before cleanup() starts the stopped node again and deletes the writer: afterwards the
+# writer's own error (which name it could not resolve, which connection was refused) is gone, and the nights this failed in CI only
+# the Pod list was left to tell why
+diagnose() {
+  set +e
+  echo "--- the writer's last lines, and what one more try of its says"; kubectl -n "$NS" logs maint-writer --tail=6 2>&1
+  kubectl --request-timeout=30s -n "$NS" exec maint-writer -- bash -c 'timeout 10 getent hosts "$PGHOST" || echo "the writer cannot resolve $PGHOST (exit $?; 124: no answer in 10 s)"; timeout 8 psql -qAt -c "SELECT 1" 2>&1 | tail -2' 2>&1
+  echo "--- nodes"; kubectl get nodes 2>&1
+  echo "--- the cluster"; kubectl -n "$NS" get cluster postgresql 2>&1; kubectl -n "$NS" get pods -o wide 2>&1
+  echo "--- operator, plugin and DNS"; kubectl get pods -A -o wide 2>&1 | grep -E 'cnpg-system|coredns'
+  echo "--- the operator's errors (a replica on a lost node cannot be read)"
+  kubectl --request-timeout=20s -n cnpg-system logs -l app.kubernetes.io/name=cloudnative-pg --prefix --tail=200 --ignore-errors 2>/dev/null | python3 -c '
+import json, sys
+for line in sys.stdin:
+    pod, _, rest = line.partition("] ")
+    try: d = json.loads(rest)
+    except ValueError: continue
+    if d.get("level") == "error": print(pod.rsplit("/", 2)[-2][-5:], d.get("ts", "")[11:19], d.get("msg", ""), "|", str(d.get("error", ""))[:300])' | tail -8
+  echo "---"
+  set -e
+}
+fail() { echo "FAIL: $*" >&2; diagnose >&2 || true; exit 1; }
 primary() { kubectl -n "$NS" get cluster postgresql -o jsonpath='{.status.currentPrimary}'; }
 node_of() { kubectl -n "$NS" get pod "$1" -o jsonpath='{.spec.nodeName}'; }
 ready() { kubectl -n "$NS" get cluster postgresql -o jsonpath='{.status.readyInstances}'; }
@@ -213,7 +234,11 @@ if kubectl -n cnpg-system get deploy barman-cloud >/dev/null 2>&1; then
   kubectl -n cnpg-system rollout status deploy/barman-cloud --timeout=180s >/dev/null
   PLUGIN="; plugin replicas on $(pods_of app=barman-cloud | cut -d= -f2 | tr '\n' ' ')"
 fi
-echo "   on $N4: the primary $P4 and the operator's leader $(leader); the other operator replica on $(op_pods | grep -v "=$N4$" | cut -d= -f2 | head -1)$PLUGIN"
+# the cluster's DNS must outlive the node: with every CoreDNS replica on it the writer cannot find postgresql-rw nor the operator
+# its plugin until the Pods are evicted, and the step would fail for that
+DNS="$(kubectl -n kube-system get pods -l k8s-app=kube-dns --field-selector=status.phase=Running --no-headers -o custom-columns=NODE:.spec.nodeName,GOING:.metadata.deletionTimestamp | awk '$2 == "<none>" {print $1}')"
+echo "   on $N4: the primary $P4 and the operator's leader $(leader); the other operator replica on $(op_pods | grep -v "=$N4$" | cut -d= -f2 | head -1)$PLUGIN; CoreDNS on $(echo $DNS)"
+[[ -z "$DNS" ]] || grep -qvx "$N4" <<< "$DNS" || fail "every CoreDNS replica runs on $N4: losing it takes the cluster's DNS away (tests/kind/multinode-cluster.sh keeps them on different nodes)"
 r="$(await_acks "$(date +%s.%N)")"; [[ "${r%% *}" != open ]] || fail "the writer is not acknowledged before the node loss"
 T4="$(date +%s.%N)"; S4=$SECONDS
 docker stop "$N4" >/dev/null; STOPPED="$N4"

@@ -54,3 +54,7 @@ jobs:
           kubectl --context kind-ha get pods -A -o wide || true
           kubectl --context kind-ha -n ha-test get cluster,pdb,backups || true
           kubectl --context kind-ha get events -A --sort-by=.lastTimestamp | tail -80 || true
+          # the drill prints the writer's last lines itself, before it cleans up; what is still there afterwards:
+          kubectl --context kind-ha -n cnpg-system logs -l app.kubernetes.io/name=cloudnative-pg --prefix --tail=60 | cut -c1-500 || true
+          kubectl --context kind-ha -n cnpg-system logs -l app=barman-cloud --prefix --tail=30 | cut -c1-500 || true
+          kubectl --context kind-ha -n kube-system logs -l k8s-app=kube-dns --prefix --tail=20 | cut -c1-300 || true

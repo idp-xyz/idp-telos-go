@@ -109,7 +109,7 @@ ensure_image() { # ensure_image IMAGE [NODE-NAME]
   in_node "$want" && return 0
   if ! docker image inspect "$img" >/dev/null 2>&1; then
     if command -v crane >/dev/null; then
-      local tar; tar="$(mktemp --suffix=.tar)"; crane pull --platform linux/amd64 "$img" "$tar" >/dev/null && kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
+      local tar; tar="$(mktemp --suffix=.tar)"; bash tests/kind/crane-pull.sh "$img" "$tar" && kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
       return 0
     fi
     docker pull -q "$img" >/dev/null

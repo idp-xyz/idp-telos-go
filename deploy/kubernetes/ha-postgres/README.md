@@ -203,6 +203,16 @@ node stopped; writes were refused for **49 s** (a killed Pod costs 25–29 s: he
 primary's loss is noticed by the instances' status no longer answering). When the node came back, its instance rejoined as a
 standby (3 ready 60 s after the node started). Over the drill's four steps: 1013 acknowledged rows, none missing.
 
+**The cluster's DNS has to outlive the node too** (2026-11-18). kind's two CoreDNS replicas only *prefer* different nodes, and both
+start on the first worker Calico makes ready. The drill then failed four nights out of five in CI, and not for PostgreSQL: whenever
+the two drains before it had not moved CoreDNS, both replicas sat on the node the drill stops. Reproduced by putting them there:
+the writer cannot resolve `postgresql-rw`, the surviving operator replica cannot reach the plugin by its Service name ("while
+getting plugin connection: context deadline exceeded"), and the drill ends with "the writer is not acknowledged again" or "no new
+primary 4 minutes after the node stopped", the two endings seen in CI. Nothing resolves until the Pods of the lost node are evicted
+(5 minutes by default). `tests/kind/multinode-cluster.sh` now gives CoreDNS a required anti-affinity on the node, and the drill
+refuses to stop a node that holds every replica. A production cluster needs the same: its DNS on more than one node, by a rule and
+not by a preference (kubeadm's default is the preference).
+
 **The whole platform on the three workers** (`KIND_CLUSTER=ha PG_HA=1 bash tests/kind/full.sh`): paths A to H pass, with `cluster.yaml`
 unrelaxed. One thing had to change first: the API server calls a webhook on another node from the control plane's address on the Pod
 network (Calico's tunnel address), not from its node address, and the policies of `platform.yaml` admitted the node address only.

@@ -27,7 +27,7 @@ load() { # load IMAGE: into every node that does not have it
   [[ -n "$missing" ]] || return 0
   tar="$(mktemp --suffix=.tar)"
   if docker image inspect "$img" >/dev/null 2>&1; then docker save --platform linux/amd64 "$img" -o "$tar" 2>/dev/null || docker save "$img" -o "$tar"
-  else crane pull --platform linux/amd64 "$img" "$tar" >/dev/null; fi
+  else bash tests/kind/crane-pull.sh "$img" "$tar"; fi
   kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
 }
 for img in ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1 ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.16.0 ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.16.0 \
