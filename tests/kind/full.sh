@@ -11,7 +11,7 @@
 #   PATH F  my memory: bob lists and erases what was remembered about him, through the Workspace; alice cannot
 #   PATH I  a tool call waits for bob's confirmation; he decides it in the Workspace, the code then runs (or does not)
 #   PATH L  egress: bob's code, with network=egress, reaches the host on his tenant's allow-list through the sandbox's
-#           egress proxy and nothing else (kind only: the compose platform has no egress proxy)
+#           egress proxy and nothing else
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
 # and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
@@ -21,8 +21,7 @@
 #   PG_HA=1 ...                         PostgreSQL as a CloudNativePG cluster (a primary and two synchronous standbys, deploy/kubernetes/ha-postgres)
 #                                       instead of the single Deployment; tests/kind/failover-drill.sh then kills the primary under load
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev
-#                                       eer-runtime:dev idp-mcp:dev idp-sandbox:dev; idp-sandbox-egress:dev, which the compose
-#                                       acceptance does not build, is built here when it is missing)
+#                                       eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev)
 #   KIND_CLUSTER=kind ...               the cluster (default kind; kubectl context kind-$KIND_CLUSTER)
 #   TEARDOWN=1 ...                      delete the platform's namespaces at the end (default: leave it running)
 #   MODEL=live ...                      the HOST's agents answer with a real OpenAI-compatible model on this host
@@ -95,10 +94,9 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-eer/tools/development/runtime_image_offline.sh eer-runtime:dev
   bash idp-mcp/deploy/build.sh idp-mcp:dev
   bash idp-sandbox/deploy/build.sh idp-sandbox:dev
+  bash idp-sandbox/deploy/build-egress.sh idp-sandbox-egress:dev
   bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
 fi
-# the sandbox's egress proxy: built with the others, and also when it is missing (only this script uses it)
-if [[ "${SKIP_BUILD:-0}" != 1 ]] || ! docker image inspect idp-sandbox-egress:dev >/dev/null 2>&1; then bash idp-sandbox/deploy/build-egress.sh idp-sandbox-egress:dev; fi
 # load an image into the cluster; a Docker with the containerd image store saves all platforms and kind's import fails
 # then, so save the one platform the nodes run
 load_image() {
@@ -814,22 +812,11 @@ SBLOG="$(kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null || true)"
 ORIGIN_IP="$(kubectl -n egress-origin get svc origin -o jsonpath='{.spec.clusterIP}')"
 PROXY_IP="$(kubectl -n idp-sandbox get svc idp-sandbox-egress -o jsonpath='{.spec.clusterIP}')"
 UNLISTED="$KCS:7080"   # a host of the platform itself, and on nobody's list
-LOUT="$(python3 -I tests/kind/egress_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" "$GATEWAY_URL" http://127.0.0.1:17320/mcp "$EGRESS_ORIGIN" "$ORIGIN_IP" "$PROXY_IP" "$UNLISTED")" \
+LOUT="$(python3 -I deploy/compose/egress_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" "$GATEWAY_URL" http://127.0.0.1:17320/mcp "$EGRESS_ORIGIN" "$ORIGIN_IP" "$PROXY_IP" "$UNLISTED")" \
   || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=30; kubectl -n idp-sandbox logs deploy/idp-sandbox-egress --tail=30; kubectl -n idp-mcp logs deploy/idp-mcp-gateway-edge-1 --tail=20; exit 1; }
 # the proxy's own record: the tenant the gateway verified, what it was let through to and what it was refused, and no credential
-kubectl -n idp-sandbox logs deploy/idp-sandbox-egress --tail=-1 | TENANT="$TENANT" ORIGIN="$EGRESS_ORIGIN" UNLISTED="${UNLISTED%%:*}" python3 -c "
-import json, os, sys
-raw = sys.stdin.read()
-log = [json.loads(l) for l in raw.splitlines() if l.startswith('{')]
-t, origin, unlisted = os.environ['TENANT'], os.environ['ORIGIN'], os.environ['UNLISTED']
-allows = [l for l in log if l.get('decision') == 'allow']
-denies = [l for l in log if l.get('decision') == 'deny']
-assert any(l.get('tenant') == t and l.get('host') == origin and l.get('status') == 200 for l in allows), ('no allow for the tenant', allows)
-assert all(l.get('tenant') == t and l.get('host') == origin for l in allows), ('the proxy let something else through', allows)
-assert any(l.get('tenant') == t and l.get('host') == unlisted and l.get('why') == 'not on the allow-list' for l in denies), ('no deny for the tenant', denies)
-assert 'Proxy-Authorization' not in raw and 'eyJ' not in raw, 'a credential in the proxy log'
-print('proxy records:', len(allows), 'allowed (tenant', t[:8] + '…,', origin + '),', len(denies), 'refused')
-" || { kubectl -n idp-sandbox logs deploy/idp-sandbox-egress --tail=20; echo "FAIL: the egress proxy's log" >&2; exit 1; }
+kubectl -n idp-sandbox logs deploy/idp-sandbox-egress --tail=-1 | python3 -I deploy/compose/egress_log.py "$TENANT" "$EGRESS_ORIGIN" "${UNLISTED%%:*}" \
+  || { kubectl -n idp-sandbox logs deploy/idp-sandbox-egress --tail=20; exit 1; }
 # and the sandbox's audit log names the network of each run
 SBLOG="$(kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null || true)"
 grep -q '"tool":"sandbox_run".*network=egress' <<<"$SBLOG" || { tail -20 <<<"$SBLOG"; echo "FAIL: the sandbox did not record a run with network=egress" >&2; exit 1; }

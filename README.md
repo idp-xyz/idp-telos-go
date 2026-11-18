@@ -13,7 +13,7 @@ IDP TELOS 的 Go 实现。本仓库是平台仓库（仓库工程架构中的 id
 | `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.1.0、`idp.telos.host` 1.7.0、`idp.telos.cmi` 1.4.0、`idp.telos.workspace` 1.1.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
 | `catalog/` | 组件目录、允许的跨系统调用及其证据、状态权威归属 | 本仓库 |
 | `releases/` | 平台发布清单 `platform-bom.yaml`（组件提交、镜像、契约版本）与兼容性矩阵 `compatibility-matrix.yaml`，由 `tools/platform.py` 生成与校验 | 本仓库 |
-| `deploy/` | 整平台组装（`deploy/compose/platform.yaml`：Keycloak（https 发行者）、idp-cmi、idp-host、idp-workspace、idp-eer、idp-mcp 的注册服务与网关、idp-sandbox 与 Temporal）与跨系统验收（`deploy/compose/e2e.sh`：PATH A 问答经 Workspace→HOST→CMI；PATH B T2 审批经 EER→Workspace 收件箱→成员批准→EER 完成；PATH D 成员让 Agent 运行代码：Workspace→HOST→idp-mcp 网关（HOST 为成员换来的令牌）→idp-sandbox（网关转发调用者）→隔离容器；PATH E 记忆：成员说过的话由 HOST 写进 CMI（情景记忆，作用域为该成员），新对话的上下文包里能取回，同一对话保留历史；PATH F 成员在壳里查看并删除自己的记忆（经 Workspace 以成员身份访问 CMI，别人删不了）；PATH C EER Intelligence 经平台 CMI） | 本仓库 |
+| `deploy/` | 整平台组装（`deploy/compose/platform.yaml`：Keycloak（https 发行者）、idp-cmi、idp-host、idp-workspace、idp-eer、idp-mcp 的注册服务与网关、idp-sandbox 及其出口代理与 Temporal）与跨系统验收（`deploy/compose/e2e.sh`：PATH A 问答经 Workspace→HOST→CMI；PATH B T2 审批经 EER→Workspace 收件箱→成员批准→EER 完成；PATH D 成员让 Agent 运行代码：Workspace→HOST→idp-mcp 网关（HOST 为成员换来的令牌）→idp-sandbox（网关转发调用者）→隔离容器；PATH L 出口：带 `network=egress` 的运行只能经沙箱的出口代理访问到成员所在租户名单上的主机；PATH E 记忆：成员说过的话由 HOST 写进 CMI（情景记忆，作用域为该成员），新对话的上下文包里能取回，同一对话保留历史；PATH F 成员在壳里查看并删除自己的记忆（经 Workspace 以成员身份访问 CMI，别人删不了）；PATH C EER Intelligence 经平台 CMI） | 本仓库 |
 | `docs/` | 平台 ADR、建设记录与运维手册（`docs/reports/`）、架构蓝图、系统架构、仓库工程架构——只保存在本地，不纳入版本库（`.gitignore`） | 本地 |
 | `brand/` | 品牌资源 | 本仓库 |
 
@@ -49,6 +49,8 @@ uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py --full    
 ```
 
 整平台 kind 部署（`deploy/kubernetes/full`，驱动脚本 `tests/kind/full.sh`）与轻量覆盖层（`deploy/kubernetes/kind`，开发令牌，仅 CMI、HOST、Workspace，CI 用）并存；前者在组件自带清单之上只用补丁与额外的 NetworkPolicy，不改组件仓库。
+
+沙箱的出口代理在两种部署里都接上了（idp-sandbox ADR-0001 D13、D21、D22）：`sandbox_run` 带 `network=egress` 的运行只能经代理访问到调用者所在租户名单上的主机，不带的运行没有网络。compose 版的名单是 `.local/platform/egress-tenants.yaml`，`e2e.sh` 每次运行重写它（本次的租户只能访问验收用的测试源站，其他人为空），改后 `docker restart idp-telos-platform-sandbox-egress-1`；代理接受私有地址的开关 `IDP_EGRESS_ALLOW_PRIVATE` 在 `platform.yaml` 里默认关闭，`e2e.sh` 为测试源站把它打开，所以 `KEEP=1` 留下的平台里它是开着的。kind 版见手册的"沙箱的出口代理"。
 
 手册：本机 Kubernetes 测试环境（kind、整平台 PATH A–D、gVisor / Kata）见 [`deploy/kubernetes/RUNBOOK.md`](deploy/kubernetes/RUNBOOK.md)；沙箱的运维见 `idp-sandbox/docs/RUNBOOK.md`。
 

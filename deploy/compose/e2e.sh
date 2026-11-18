@@ -15,6 +15,8 @@
 # PATH J0: bob asks office-assistant (skill officecli) for a Word file; officecli makes and validates it in the sandbox's office profile
 # PATH J: bob uploads a Word file; office-assistant edits it in the sandbox (files move on tickets, never through the model) and bob downloads the result
 # PATH K: a run's gateway credential renews within bob's session (session-bound exchanges) and stops when he signs out
+# PATH L: egress. bob's code, with network=egress, reaches the host on his tenant's allow-list through the sandbox's egress
+#         proxy and nothing else (idp-sandbox ADR-0001 D13, D21); the host is a container of this project (profile egress-test)
 # (RFC 8693, issued to the client idp-host), the gateway forwards the verified caller to idp-sandbox, which runs the code in an isolated
 # container in a workspace that belongs to bob. The gateway's invocation record names bob and the HOST.
 #
@@ -31,7 +33,10 @@ cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 L=.local/platform
 ENVF=$L/compose.env
-C=(docker compose -f deploy/compose/platform.yaml --env-file "$ENVF" --profile tools)
+C=(docker compose -f deploy/compose/platform.yaml --env-file "$ENVF" --profile tools --profile egress-test)
+# PATH L's origin is a container, at a private address: the egress proxy is told to accept those. TESTS ONLY.
+export IDP_EGRESS_ALLOW_PRIVATE=true
+EGRESS_ORIGIN=egress-origin
 ISSUER=https://127.0.0.1:7443/realms/idp
 WS=http://127.0.0.1:8560 HOST=http://127.0.0.1:8450 CMI=http://127.0.0.1:8550 EER=http://127.0.0.1:18180
 mkdir -p "$L"
@@ -71,6 +76,7 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-eer/tools/development/runtime_image_offline.sh eer-runtime:dev
   bash idp-mcp/deploy/build.sh idp-mcp:dev
   bash idp-sandbox/deploy/build.sh idp-sandbox:dev
+  bash idp-sandbox/deploy/build-egress.sh idp-sandbox-egress:dev
 fi
 # the sandbox's runtime images are pulled by the operator (here), never by the service
 for img in public.ecr.aws/docker/library/python:3.12-slim public.ecr.aws/docker/library/alpine:3.22; do
@@ -83,7 +89,7 @@ if ! docker image inspect "$FILES_S3_IMG" >/dev/null 2>&1; then
 fi
 # the sandbox's office run image (idp-sandbox ADR-0001 D14) is built offline on that python image; OfficeCLI is pinned in its script
 [[ "${SKIP_BUILD:-0}" == 1 ]] || BASE=public.ecr.aws/docker/library/python:3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-office:dev "$FILES_S3_IMG"; do
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev "$FILES_S3_IMG"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
 done
 
@@ -213,6 +219,11 @@ PY
 openssl ecparam -name prime256v1 -genkey -noout -out "$L/caller.key" 2>/dev/null
 openssl ec -in "$L/caller.key" -pubout -out "$L/caller.pub" 2>/dev/null
 chmod 644 "$L/caller.key" "$L/caller.pub"
+# the sandbox's egress proxy (idp-sandbox D13, D21): the key the sandbox signs a run's credential with and the proxy verifies it
+# with, and the allow-lists. This run's tenant may reach PATH L's origin; everyone else nothing.
+openssl rand -hex 32 > "$L/egress.key"
+printf 'default:\n  hosts: []\ntenants:\n  %s:\n    hosts: [%s]\n' "$TENANT" "$EGRESS_ORIGIN" > "$L/egress-tenants.yaml"
+chmod 644 "$L/egress.key" "$L/egress-tenants.yaml"
 chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/live-model.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
@@ -264,7 +275,7 @@ field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 "${C[@]}" run --rm -T mcp-admin ensure-login idp_mcp_svc >/dev/null
 got="$("${C[@]}" run --rm -T mcp-admin seed-tenant acme "$TENANT" | sed -n 's/^TENANT_ID=//p')"
 [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: mcp tenant $got != $TENANT" >&2; exit 2; }
-"${C[@]}" up -d mcp-registry sandbox
+"${C[@]}" up -d mcp-registry sandbox egress-origin   # the sandbox brings its egress proxy with it
 for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:8250/api/v1/health && break; sleep 0.5; done
 mcp_token() { "${C[@]}" run --rm -T mcp-admin dev-token "$TENANT" "$1" "$2" | tail -1; }
 MADMIN="$(mcp_token carol admin)"; MOPERATOR="$(mcp_token alice operator)"; MREVIEWER="$(mcp_token bob reviewer)"
@@ -674,6 +685,24 @@ fi
 # (PATH I has checked that a real run holds the sealed refresh token while it waits.)
 KOUT="$(python3 -I deploy/compose/session_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" http://mcp-gateway:3320/mcp)" || exit 1
 echo "PASS: PATH K — bob's run credential renews within his session: $KOUT"
+
+# ---- PATH L: egress. bob's code reaches the host on his tenant's allow-list, through the sandbox's proxy and nothing else ----
+# (idp-sandbox ADR-0001 D13, D21). The tools are called at the gateway with bob's token exchanged as idp-host does it for a
+# run; the gateway forwards bob and his tenant (signed, D18), and the sandbox gives the run a network of its own with only the
+# proxy on it, and a credential for that tenant. No model takes part: the network is an argument of sandbox_run.
+addr_of() { docker inspect -f '{{range $n, $v := .NetworkSettings.Networks}}{{$n}} {{$v.IPAddress}}{{"\n"}}{{end}}' "$("${C[@]}" ps -q "$1")" | awk '$1 ~ /_edge$/ {print $2}'; }   # on the edge network
+ORIGIN_IP="$(addr_of egress-origin)"; PROXY_IP="$(addr_of sandbox-egress)"
+[[ -n "$ORIGIN_IP" && -n "$PROXY_IP" ]] || { "${C[@]}" ps; echo "FAIL: PATH L: the egress origin or the proxy is not running" >&2; exit 1; }
+UNLISTED=keycloak:7080   # a host of the platform itself, and on nobody's list
+LOUT="$(python3 -I deploy/compose/egress_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" http://mcp-gateway:3320/mcp http://127.0.0.1:3320/mcp "$EGRESS_ORIGIN" "$ORIGIN_IP" "$PROXY_IP" "$UNLISTED")" \
+  || { "${C[@]}" logs --tail 30 sandbox sandbox-egress mcp-gateway; exit 1; }
+# the proxy's own record: the tenant the gateway verified, what it was let through to and what it was refused, and no credential
+"${C[@]}" logs --no-log-prefix sandbox-egress 2>/dev/null | python3 -I deploy/compose/egress_log.py "$TENANT" "$EGRESS_ORIGIN" "${UNLISTED%%:*}" \
+  || { "${C[@]}" logs --tail 20 sandbox-egress; exit 1; }
+# and the sandbox's audit log names the network of each run
+SBLOG="$("${C[@]}" logs --no-log-prefix sandbox 2>/dev/null || true)"
+grep -q '"tool":"sandbox_run".*network=egress' <<<"$SBLOG" || { tail -20 <<<"$SBLOG"; echo "FAIL: the sandbox did not record a run with network=egress" >&2; exit 1; }
+echo "PASS: PATH L — bob's token exchanged for the gateway (as idp-host does) -> idp-mcp gateway (caller signed) -> idp-sandbox (docker backend) -> a run with network=egress -> the egress proxy, by bob's tenant: $LOUT"
 
 # ---- PATH E: memory. bob tells the assistant something; the HOST remembers it in the CMI; in a NEW conversation the CMI brings it back ----
 call 201 POST "$HOST/api/v1/agents" "$HADMIN" '{"name":"memory-assistant","displayName":"Assistant with memory","definition":{"instructions":"You are a helpful assistant with a memory. The context you are given may contain things the user told you earlier: use it. Answer briefly.","model":{"provider":"local","model":"'"$AGENT_MODEL"'"},"tools":{},"confirmation":{"default":"auto"},"context":{"cmi":true,"purpose":"assist","maxItems":5}}}' >/dev/null

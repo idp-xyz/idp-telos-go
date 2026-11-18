@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""PATH L (idp-sandbox ADR-0001 D21, D22): a member's code reaches the host on its tenant's allow-list, through the
-sandbox's egress proxy and through nothing else, on the platform as deployed on the cluster.
+"""PATH L (idp-sandbox ADR-0001 D13, D21, D22): a member's code reaches the host on its tenant's allow-list, through
+the sandbox's egress proxy and through nothing else, on the platform as deployed (deploy/compose/e2e.sh: the Docker
+backend; tests/kind/full.sh: the Kubernetes backend).
 
 bob signs in; his token is exchanged for the idp-mcp gateway exactly as idp-host does it for a run (the same client, an
 actor token); the sandbox's tools are then called at the gateway, which verifies the token and forwards bob and his
@@ -13,10 +14,11 @@ the path under test begins at the gateway.
 
 Exit 0 and one line of evidence, or exit 1 with the step that failed.
 
-    python3 -I tests/kind/egress_check.py ISSUER CA_FILE CLIENTS_JSON GATEWAY_AUDIENCE GATEWAY_URL ORIGIN_HOST ORIGIN_IP PROXY_IP UNLISTED_HOST
+    python3 -I deploy/compose/egress_check.py ISSUER CA_FILE CLIENTS_JSON GATEWAY_AUDIENCE GATEWAY_URL ORIGIN_HOST ORIGIN_IP PROXY_IP UNLISTED_HOST
 
 GATEWAY_AUDIENCE is the gateway's canonical MCP URI (the token's audience, and the Host it answers to); GATEWAY_URL is
-where this script reaches it (a port-forward). ORIGIN_IP and PROXY_IP are cluster IPs: a run has no DNS.
+where this script reaches it (a published port or a port-forward). ORIGIN_IP and PROXY_IP are addresses (a container's,
+or cluster IPs): a run has no DNS.
 """
 import json, ssl, sys, urllib.error, urllib.parse, urllib.request
 
@@ -26,7 +28,7 @@ kc = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request
 gw = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 X, AT = 'urn:ietf:params:oauth:grant-type:token-exchange', 'urn:ietf:params:oauth:token-type:access_token'
 BODY = 'hello from the egress origin'
-META = {'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': {'name': 'idp-telos-kind-full', 'version': '1'},
+META = {'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': {'name': 'idp-telos-acceptance', 'version': '1'},
         'io.modelcontextprotocol/clientCapabilities': {}}
 
 
