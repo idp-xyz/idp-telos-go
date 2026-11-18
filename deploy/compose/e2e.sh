@@ -115,7 +115,12 @@ python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev
 python3 -c "import json; print(json.load(open('$L/clients.json'))['idp-host-svc'])" > "$L/cmi-client.secret"
 MODEL_BASE=http://fakemodel:18080/v1 AGENT_MODEL=fake-1
 [[ "$MODEL" == live ]] && MODEL_BASE="http://host.docker.internal:18088$LIVE_PATH" AGENT_MODEL="$LIVE_MODEL"
-printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\n' "$MODEL_BASE" > "$L/host.yaml"
+# the model is this machine's (the double, or with MODEL=live a model server on the Docker host): external: false, so the
+# HOST gives its runs every file a member attaches. A provider without that line counts as external, and files above the
+# tenant's ceiling are withheld from agents that may use it (idp-host D43). IDP_LIVE_MODEL_EXTERNAL=true says the live
+# model is not the enterprise's own.
+EXTERNAL=false; [[ "$MODEL" == live && "${IDP_LIVE_MODEL_EXTERNAL:-false}" == true ]] && EXTERNAL=true
+printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    insecure: true\n    external: %s\n' "$MODEL_BASE" "$EXTERNAL" > "$L/host.yaml"
 # the live model's key, mounted into the HOST (an empty file when there is none, so the mount always has a source)
 : > "$L/live-model.key"
 if [[ "$MODEL" == live && -n "${IDP_LIVE_MODEL_KEY_FILE:-}" ]]; then
@@ -204,6 +209,10 @@ for k, v in (("EER_PRINCIPAL_MAPPINGS", mappings), ("EER_AUTHORIZATION_POLICY", 
     print(k + "=" + json.dumps(v, separators=(",", ":")))
 print("SSL_CERT_FILE=/etc/eer/ca.crt")
 PY
+# the gateway's key for the caller it forwards (idp-mcp D44) and its public half for the sandbox (idp-sandbox D18)
+openssl ecparam -name prime256v1 -genkey -noout -out "$L/caller.key" 2>/dev/null
+openssl ec -in "$L/caller.key" -pubout -out "$L/caller.pub" 2>/dev/null
+chmod 644 "$L/caller.key" "$L/caller.pub"
 chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/live-model.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
@@ -419,7 +428,16 @@ print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'
 " || { echo "FAIL: the gateway's invocation records: $INVS" >&2; exit 1; }
 # and the sandbox knew whose workspace it made: its audit log names the caller (a hash), not the code
 "${C[@]}" logs sandbox 2>/dev/null | grep -q '"tool":"sandbox_run".*caller=' || { "${C[@]}" logs --tail 20 sandbox; echo "FAIL: the sandbox did not see the caller" >&2; exit 1; }
-echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (caller forwarded) -> code ran in an isolated container -> 'answer 42' in bob's inbox"
+# that caller was the gateway's word, not the network's: the sandbox verifies the gateway's signature (idp-sandbox D18), and
+# someone else on its network who names bob, without the signature, is refused before any tool runs
+"${C[@]}" logs sandbox 2>/dev/null | grep -q 'callers must be signed by the gateway' || { echo "FAIL: the sandbox does not verify the gateway's signature" >&2; exit 1; }
+SBXNET="$(docker inspect -f '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}' "$("${C[@]}" ps -q sandbox)")"
+FORGED='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sandbox_create","arguments":{},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
+DIRECT="$(docker run --rm --network "$SBXNET" public.ecr.aws/docker/library/alpine:3.22 wget -q -O - --header 'Content-Type: application/json' \
+  --header 'MCP-Protocol-Version: 2026-07-28' --post-data "$FORGED" http://sandbox:8570/mcp 2>&1 || true)"
+[[ "$DIRECT" == *403* && "$DIRECT" != *workspaceId* ]] && "${C[@]}" logs sandbox 2>/dev/null | grep -q 'caller assertion refused' \
+  || { echo "FAIL: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
+echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (caller signed by the gateway and verified; an unsigned caller refused) -> code ran in an isolated container -> 'answer 42' in bob's inbox"
 
 # ---- PATH I: a tool call waits for the member, who decides it in the Workspace (idp-host D7, Workspace D22) ----
 # The same two sandbox tools, but running code needs the run owner's confirmation. The shell's conversation page
@@ -538,7 +556,8 @@ instructions = (
     "as [地点待定], and say so. Check every file before you deliver it: officecli validate for an Office file, pdftext --check "
     "for a PDF. When the user attached "
     "files you are told their references (attachment:1, attachment:2, ...): copy one into the workspace with sandbox_import_file "
-    "before you work on it. Give the user every file you make or change with sandbox_export_file (target output, and a file name "
+    "before you work on it. An attachment can be imported once: a second import of the same one is refused, so leave the "
+    "imported file as it is and work on a copy (cp in/a.docx out/a.docx). Give the user every file you make or change with sandbox_export_file (target output, and a file name "
     "for them), and say in a line or two what is in it. The officecli reference is in this skill's resources (officecli.md, and "
     "docx.md, xlsx.md, pptx.md for each format): read the one for your format once with resource__read; run officecli help "
     "<format> <element> only for something it does not explain, and keep such output short (| head -40).")

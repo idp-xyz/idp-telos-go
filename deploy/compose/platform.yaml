@@ -133,15 +133,21 @@ services:
       IDP_GATEWAY_ALLOWED_HOSTS: mcp-gateway,mcp-gateway:3320   # the HOST calls it by service name
       IDP_RELEASE_CACHE: /var/cache/idp/release.json
       IDP_METRICS_LISTEN: 0.0.0.0:9464
+      # the gateway signs the caller it forwards to the sandbox (idp-mcp D44); the sandbox holds the public half
+      IDP_GATEWAY_CALLER_KEY_FILE: /etc/idp/caller.key
+    volumes: ['../../.local/platform/caller.key:/etc/idp/caller.key:ro']
     depends_on: [mcp-registry]
   sandbox:
     <<: *hardened
     image: ${IDP_SANDBOX_IMAGE:-idp-sandbox:dev}
     networks: [upstream]
-    volumes: [/var/run/docker.sock:/var/run/docker.sock]
+    volumes: [/var/run/docker.sock:/var/run/docker.sock, '../../.local/platform/caller.pub:/etc/idp/gateway.pub:ro']
     environment:
       IDP_SANDBOX_LISTEN: 0.0.0.0:8570
       IDP_SANDBOX_PRIVATE_NETWORK: 'true'
+      # a call counts as its caller's only with the gateway's signature, made for this endpoint (idp-sandbox D18)
+      IDP_SANDBOX_CALLER_KEYS_FILE: /etc/idp/gateway.pub
+      IDP_SANDBOX_CALLER_AUDIENCE: http://sandbox:8570/mcp
       IDP_SANDBOX_METRICS: 0.0.0.0:9570
       IDP_SANDBOX_OWNER: platform
       IDP_SANDBOX_PYTHON_IMAGE: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
