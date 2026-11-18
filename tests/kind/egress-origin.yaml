@@ -1,0 +1,81 @@
+# TEST ONLY, added by tests/kind/full.sh to the overlay it renders (PATH L): a web server inside the cluster for the
+# sandbox's egress proxy to reach, so that the path does not depend on the internet. full.sh puts its name on the
+# allow-list of the run's tenant and tells the proxy to accept private addresses (IDP_EGRESS_ALLOW_PRIVATE), which a
+# real deployment never sets. The namespace is as closed as the platform's: restricted, default-deny, and in from the
+# proxy's pods only; the last policy is what lets the proxy out to it (its own policy excludes every private range).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: egress-origin
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: egress-origin}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: origin, namespace: egress-origin}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: origin}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-sandbox}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: egress}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: origin, namespace: egress-origin}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: origin}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: origin}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: origin
+          image: python:3.12-slim          # on the nodes already: it is what the sandbox runs
+          imagePullPolicy: IfNotPresent
+          env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
+          command:
+            - python
+            - -c
+            - |
+              import http.server, socketserver
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(s):
+                      s.send_response(200); s.end_headers(); s.wfile.write(b'hello from the egress origin')
+                  def log_message(*a): pass
+              socketserver.ThreadingTCPServer.allow_reuse_address = True
+              socketserver.ThreadingTCPServer(('0.0.0.0', 8080), H).serve_forever()
+          ports: [{containerPort: 8080}]
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 2}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: origin, namespace: egress-origin}
+spec:
+  selector: {app.kubernetes.io/name: origin}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: egress-proxy-test-origin, namespace: idp-sandbox}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: egress}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: egress-origin}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: origin}}
+      ports: [{protocol: TCP, port: 8080}]

@@ -8,7 +8,7 @@ WSL 里的 kind 集群（Calico）、整套平台在集群上的部署与验收�
 |---|---|
 | 集群 / 上下文 | `kind` / `kind-kind`，节点容器 `kind-control-plane`；kind v0.31，Kubernetes v1.35，Calico v3.30.3 |
 | 工具 | `~/.local/bin`：`kind`、`kubectl`、`crane`（无需 root） |
-| 命名空间 | `databases keycloak temporal idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs` |
+| 命名空间 | `databases keycloak temporal idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs`，以及 `full.sh` 为 PATH L 加的测试源站 `egress-origin` |
 | 运行时类 | `gvisor`（runsc 20260126.0，kvm 平台）、`kata`（4.3.1，Go 运行时 + Cloud Hypervisor） |
 | 端口转发（full.sh） | Keycloak 17443（https）· Workspace 17560 · HOST 17450 · CMI 17550 · EER 17180 · idp-mcp 注册服务 17250 · 网关 17320 |
 
@@ -59,19 +59,42 @@ bash idp-sandbox/tests/kind/local-cluster.sh
 
 ## 整平台（PATH A–D）
 
-`SKIP_BUILD=1 bash tests/kind/full.sh`：先删十个平台命名空间再重建（每次都是全新的平台）；生成本次的 CA、realm、密钥到 `.local/kind-full`（已忽略）；用后台端口转发跑与 compose 版相同的验收，成功时输出四行 `PASS: PATH …`。
+`SKIP_BUILD=1 bash tests/kind/full.sh`：先删平台的十一个命名空间再重建（每次都是全新的平台）；生成本次的 CA、realm、密钥到 `.local/kind-full`（已忽略）；用后台端口转发跑与 compose 版相同的验收，成功时输出四行 `PASS: PATH …`。
 
 - **PATH A**：bob（Keycloak）→ Workspace 换令牌 → HOST 运行 → CMI 上下文包 → bob 的收件箱。
 - **PATH B**：operator 提交 T2 意图 → EER → bob 的收件箱 → 经 Workspace 批准 → EER 完成，审计里批准人是 bob。
 - **PATH D**：bob 运行 Python → HOST → idp-mcp 网关（HOST 为 bob 换来的令牌）→ 沙箱（Kubernetes 后端，转发调用者）→ `answer 42` 回到收件箱；网关记录里 subject 是 bob、client 是 idp-host。
 - **PATH E**：bob 对记忆助手说一句话 → HOST 把这次对话作为情景记忆写进 CMI（作用域是 bob）→ 新对话的上下文包里取回它 → 同一对话保留历史 → alice 看不到。
 - **PATH I**：bob 让"谨慎的代码助手"跑代码 → idp-host 停下运行等他确认 → Workspace 把等待中的调用与它将要执行的代码给他看（管理员 alice 对这次运行与决定都是 404）→ bob 确认后代码执行、输出进收件箱；同一对话里第二次点拒绝，代码不执行。壳的"对话"页走的就是这条路径。
+- **PATH L**（只在 kind 上，compose 版没有出口代理）：bob 的令牌按 HOST 为运行换令牌的方式换成网关的令牌 → idp-mcp 网关 → 沙箱 → 带 `network=egress` 的运行经出口代理访问到他租户名单上的主机（集群里的测试源站），名单外的主机被代理拒绝（403），绕过代理直连不通；不带 `network=egress` 的运行环境里没有代理、也连不到代理。代理的日志里是 bob 的租户。见下面"沙箱的出口代理"。
 - **PATH F**：bob 经 Workspace（用他自己的令牌换 CMI 的令牌）列出并删除自己的记忆，alice 删不了；删除后列表和检索里都没有。
 - **PATH C**：EER Intelligence 的集成测试，在宿主上用 uv 对集群里的 CMI 运行（`env -i` 干净环境）。
 - 之后装好"助手"应用（`deploy/apps/assistant`）：两个 agent 的聊天页，页面由 `idp-workspace` 命名空间里的静态服务提供（`deploy/kubernetes/full/assistant.yaml`）。
 - `MODEL=live`：两个 agent 用本机模型；PATH A 另查回答引用了 CMI 里的规定，PATH D 查回答报告了代码的输出（工具确实被调用由网关的记录证明）。
 
-轻量版（只有 CMI、HOST、Workspace，开发令牌，无 Keycloak；GitHub 上的 kind 工作流跑的就是它）：`KIND_CLUSTER=kind SKIP_BUILD=1 LOAD_BASE_IMAGES=1 bash tests/kind/smoke.sh`。静态检查（不需要集群）：`uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py --full`——10 个命名空间都是 restricted 且默认拒绝，18 条流量在两端都被放行。
+轻量版（只有 CMI、HOST、Workspace，开发令牌，无 Keycloak；GitHub 上的 kind 工作流跑的就是它）：`KIND_CLUSTER=kind SKIP_BUILD=1 LOAD_BASE_IMAGES=1 bash tests/kind/smoke.sh`。静态检查（不需要集群）：`uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py --full`——10 个命名空间都是 restricted 且默认拒绝，19 条流量在两端都被放行。
+
+## 沙箱的出口代理
+
+`deploy/kubernetes/full` 用的是沙箱的 `idp-sandbox/deploy/kubernetes-egress`（沙箱自己的清单加出口代理，idp-sandbox ADR-0001 D21、D22）：`idp-sandbox` 命名空间里多一个 `idp-sandbox-egress`（Deployment 与 Service，3128），`sandbox_run` 多一个可选参数 `network=egress`。带这个参数的运行只能连到代理，代理按网关转发来的租户查名单；不带的运行和以前一样没有任何网络。清单里的名单是沙箱自带的空名单，谁也出不去。
+
+`full.sh` 为它做四件事：
+
+- 构建并加载 `idp-sandbox-egress:dev`（compose 验收不构建它；带 `SKIP_BUILD=1` 而镜像不存在时也会构建）；
+- 建密钥 `idp-sandbox-egress-key`（沙箱服务用它给运行签凭据，代理用它验），每次运行新生成；
+- 把名单换成本次运行的：本次的租户可以访问 `origin.egress-origin.svc.cluster.local`，其他人为空（`.local/kind-full/overlay/tenants.yaml`）；
+- 加一个集群内的测试源站（`tests/kind/egress-origin.yaml`，命名空间 `egress-origin`），并给代理设 `IDP_EGRESS_ALLOW_PRIVATE=true`、加一条只通向这个源站的 NetworkPolicy——源站的地址是私有地址，代理默认拒绝。**这两项只属于测试**，真实部署不设。
+
+在跑着的集群上改名单（`full.sh` 下次运行会重写）：
+
+```bash
+CM="$(kubectl -n idp-sandbox get deploy idp-sandbox-egress -o jsonpath='{.spec.template.spec.volumes[?(@.name=="tenants")].configMap.name}')"
+kubectl -n idp-sandbox edit configmap "$CM"                      # tenants.yaml：default 与 tenants.<租户 id>，格式见 idp-sandbox/deploy/kubernetes-egress/tenants.yaml
+kubectl -n idp-sandbox rollout restart deploy/idp-sandbox-egress   # 代理只在启动时读名单
+kubectl -n idp-sandbox logs deploy/idp-sandbox-egress              # 每个请求一行：decision、host、tenant
+```
+
+租户 id 在 `.local/kind-full/overlay/tenants.yaml` 里。名单上的公网主机还要节点本身能连到；代理的 NetworkPolicy 只放行公网地址的 443 和 80。单独再验一次这条路径（转发开着时）：`python3 -I tests/kind/egress_check.py`，参数见文件头。
 
 ## 沙箱的检查与加固运行时
 
@@ -239,5 +262,6 @@ docker rm -f sbx-dind sbx-dind2                   # gVisor 的 docker-in-docker�
 
 - 开发验证环境：开发令牌、测试 realm、测试 CA、idp-mcp 集群内明文 http（数据库连接已加密，服务之间的 HTTP 没有）、沙箱 Docker 后端挂 Docker 套接字，都不能用于真实环境。
 - gVisor、Kata 都是在 WSL2 嵌套虚拟化上测的，真实云节点的行为和性能可能不同；`systrap` 的问题没有查到根因。
-- PVC 容量在 kind 上不被执行；出口代理只有 Docker 后端有；EER 的 Intelligence 没有部署在集群里（PATH C 从宿主运行）。
+- PVC 容量在 kind 上不被执行；EER 的 Intelligence 没有部署在集群里（PATH C 从宿主运行）。
+- 出口代理：PATH L 的源站在集群里，没有测过真实的公网流量；名单按租户，不按人或角色；PATH L 从网关开始，不经过 HOST 和模型（模型替身不会要 `network=egress`）；compose 版平台没有接出口代理。
 - 平台 CI 不跑整平台的集群验收（只有轻量 kind 版和静态检查），整平台验收目前只在本机。

@@ -69,7 +69,7 @@ integrations:
     interface: MCP (streamable HTTP) upstream of mcp-gateway; tools sandbox_create / _run / _write_file / _read_file / _list_files / _delete
     contract: null  # the MCP protocol itself
     auth: [none on the hop: a private network that only the gateway reaches; the gateway authenticates and authorizes the caller and forwards it (identity=forward, idp-mcp ADR-0001 D40)]
-    evidence: [idp-sandbox deploy/e2e.sh (the real gateway and registry: discovery, review, grants by role, argument validation, per-caller isolation, forgery stripped), this repository deploy/compose/e2e.sh (PATH D), idp-sandbox ADR-0001]
+    evidence: [idp-sandbox deploy/e2e.sh (the real gateway and registry: discovery, review, grants by role, argument validation, per-caller isolation, forgery stripped), this repository deploy/compose/e2e.sh (PATH D), this repository tests/kind/full.sh (PATH D; PATH L: a run's egress allow-list is that of the tenant the gateway forwards), idp-sandbox ADR-0001]
   - id: workspace-cmi-memory
     port: 8550   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
     from: idp-workspace
