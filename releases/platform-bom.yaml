@@ -17,7 +17,7 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:db07002caf93f5c2c2df8f0f5e25e683eac5c2a64294122bc37b5ff0c2147436
+    id: sha256:e5ad50df50f033bc9b3c6210751d4dd632602737b2422be049891421e923abcc
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: 44129fe5adb4d5b97f55eda56562742299e706b7
@@ -27,14 +27,14 @@ components:
     version: 1.9.0
   image:
     reference: idp-host:dev
-    id: sha256:652468bbcaa79839bb973cf673e81a7999854fc42c52a4ea1a46841484ea00b4
+    id: sha256:7903b1ada5bef9697710683ee06d85f45f3c6f9f53d803f3b8bf565aa6ef99bf
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 4d1df115f7330b38657d31c535f68d582be03b27
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:2b290ff1a8df9182aa8d6770e6ae5271e9f69f89de649f8e5db4b7b7881482aa
+    id: sha256:2df69af0c317207d4248bbeb92e1bd1c87e6f3efe9dbdc74c9b898ce2224a261
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: e5fa484fe848e873c2e6b539f4010d0dbba0ccba
@@ -44,7 +44,7 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:60ecf8d4ee805697423fc3445726906c6b698ae22bf0126923f7ff2795f197ce
+    id: sha256:b2997fa60359eb8b678e0e08597145e83690248c32317efe8c4d0a4e0e15163f
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 87801bb0c438c09d53cce31fb03253f2383372ec
@@ -54,11 +54,11 @@ components:
     version: 1.2.0
   image:
     reference: idp-workspace:dev
-    id: sha256:4ca008c22441825c817a46d6d321e373f64fd02ac14bf62467f4c4324d6c3739
+    id: sha256:881004e2e2d829b552fdc16b44ea51d1e8c4fd3b3ae4125522fc0cea460cd1ab
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: 2331240c2009f699464e449c02e8de463bbc4b78
+  commit: 4fb90af91d323eb1f6920909a181221dffda3509
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:80c6b86cdbf820a0d97a9e65b265ebf43df73ea4d0e435d271720577027008aa
+    id: sha256:ce1d4f3a7f3af724ebe98b593a66e3093c231d1e337f30bc9cb725584b037bbe
