@@ -40,6 +40,11 @@ EXA_API_KEY=... BRAVE_API_KEY=... PERPLEXITY_API_KEY=... WEB_EVAL_MODEL_KEY_FILE
   uv run --no-project --with trafilatura==2.0.0 --with pypdf==6.1.1 python -m tools.web_eval.run e2 \
   --providers exa-lite,exa-auto,brave,perplexity,no-search --runs 3 --name e2-bakeoff
 
+# E1 只跑 1 遍（与公开榜单对照，不做配对判定）；其余同上
+EXA_API_KEY=... BRAVE_API_KEY=... PERPLEXITY_API_KEY=... WEB_EVAL_MODEL_KEY_FILE=.local/live-model.key \
+  uv run --no-project --with trafilatura==2.0.0 --with pypdf==6.1.1 python -m tools.web_eval.run e1 \
+  --providers exa-lite,exa-auto,brave,perplexity,no-search --runs 1 --name e1-bakeoff
+
 # 中断后用同一个 --name 再跑一次即可接着跑；报告与人工抽查表：
 python3 -m tools.web_eval.run report --name e2-bakeoff   # 生成 report.md 与 spot-check.csv
 ```
