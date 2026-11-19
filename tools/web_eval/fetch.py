@@ -9,8 +9,11 @@ lookup); this harness goes through the shell's proxy when one is set, so it chec
 import html
 import html.parser
 import ipaddress
+import os
 import re
+import shlex
 import socket
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -178,15 +181,18 @@ class _Text(html.parser.HTMLParser):
 FALLBACK_SHARE = 0.10
 
 
-def extract(body: str, url: str, mode: str = "balanced") -> tuple[str, str, str]:
+def extract(body: str, url: str, mode: str = "balanced", command: str | None = None) -> tuple[str, str, str]:
     """(title, main text as Markdown, extractor name). mode: balanced (what web_fetch uses), precision or recall
-    (trafilatura's other settings), or stdlib (the fallback alone).
+    (trafilatura's other settings), or stdlib (the fallback alone). command: an external extractor (see external)
+    that is used instead of all of these.
 
     On 51 annotated real pages (E4, ADR-0003 13.1) trafilatura's balanced setting kept more of the main text than
     precision (which had looked better on the short pages of our own) with no more furniture, and kept tables alike.
     All three settings fail on some pages (gov.cn's documents: nothing, or the title alone); so when trafilatura
     finds nothing, or less than FALLBACK_SHARE of the text the plain reader finds, the plain reader's text is used.
     """
+    if command:
+        return external(command, body, url)
     p = _Text()
     p.feed(body)
     plain = re.sub(r"[ \t]+", " ", "".join(p.out))
@@ -203,6 +209,42 @@ def extract(body: str, url: str, mode: str = "balanced") -> tuple[str, str, str]
         except ImportError:
             pass
     return title, plain, "stdlib"
+
+
+EXTERNAL_TIMEOUT = 30.0
+_STATUS = re.compile(r"^engine=(\S*) title=(.*)$", re.M)
+
+
+def external(command: str, body: str, url: str) -> tuple[str, str, str]:
+    """(title, text, how) from an external extractor: a command that reads the page's decoded HTML on stdin, gets
+    `-url <final url>` appended, and writes the text on stdout (idp-web's cmd/idp-web-extract is one). Its standard
+    error may carry one line `engine=<what produced the text> title=<title>`, which gives how and the title. A
+    non-zero exit, a command that cannot be started, or no answer within EXTERNAL_TIMEOUT seconds counts as empty
+    text, and how says so ("failed: ...") so that the report can count it."""
+    try:
+        done = subprocess.run(shlex.split(command) + ["-url", url], input=body.encode("utf-8"), capture_output=True,
+                              timeout=EXTERNAL_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "", "", f"failed: no answer in {EXTERNAL_TIMEOUT:.0f} s"
+    except OSError as e:
+        return "", "", f"failed: cannot start: {e}"
+    err = done.stderr.decode("utf-8", "replace")
+    if done.returncode != 0:
+        return "", "", f"failed: exit {done.returncode}: {err.strip()[:100]}"
+    m = _STATUS.search(err)
+    return (m.group(2).strip() if m else ""), done.stdout.decode("utf-8", "replace").strip(), (m.group(1) if m else "external")
+
+
+def external_settings() -> dict:
+    """WEB_EVAL_EXTRACTORS="name=command;name=command": the external extractors the evaluation scores next to the
+    built-in settings (run e4-real). Empty when the variable is not set."""
+    out = {}
+    for item in filter(None, (x.strip() for x in os.environ.get("WEB_EVAL_EXTRACTORS", "").split(";"))):
+        name, sep, command = item.partition("=")
+        if not sep or not name.strip() or not command.strip() or name.strip() in out:
+            raise SystemExit(f"WEB_EVAL_EXTRACTORS: '{item}' is not name=command, or its name is used twice")
+        out[name.strip()] = command.strip()
+    return out
 
 
 def _pdf_text(body: bytes) -> str:
@@ -228,7 +270,7 @@ def read(url: str, allow: frozenset = frozenset(), robots: bool = True) -> dict:
     decoded = body.decode(_charset(ctype, body), "replace")
     if kind == "text/plain":
         return {"url": final, "title": "", "text": decoded.strip(), "bytes": len(body), "type": kind, "extractor": "plain"}
-    title, text, how = extract(decoded, final)
+    title, text, how = extract(decoded, final, command=os.environ.get("WEB_EVAL_EXTRACT_CMD") or None)
     return {"url": final, "title": title, "text": text, "bytes": len(body), "type": kind, "extractor": how}
 
 

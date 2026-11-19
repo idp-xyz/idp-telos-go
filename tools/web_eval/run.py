@@ -120,6 +120,8 @@ def run_questions(args, items, out: Path):
 
 
 def _extractor() -> str:
+    if os.environ.get("WEB_EVAL_EXTRACT_CMD"):
+        return "external: " + os.environ["WEB_EVAL_EXTRACT_CMD"]  # E4 and the agent's reads use it instead of the built-in one
     try:
         import trafilatura  # noqa: F401
         return "trafilatura " + __import__("trafilatura").__version__
@@ -153,6 +155,8 @@ def run_e4(args, out: Path):
             else:
                 ok = c["expect"] == "ok" and len(found) == len(c["contain"]) and not leaked and parts >= c.get("pages_at_least", 1)
                 verdict = "ok" if ok else f"missing {len(c['contain']) - len(found)}, furniture {len(leaked)}, parts {parts}"
+                if not ok and os.environ.get("WEB_EVAL_EXTRACT_CMD"):
+                    verdict += f" (extractor says: {page['extractor']})"
             results.append({"id": c["id"], "pass": ok, "verdict": verdict, "extractor": page["extractor"], "chars": len(text),
                             "missing": [s for s in c.get("contain", []) if s not in text], "leaked": leaked, "seconds": round(time.monotonic() - start, 2)})
         except fetch.Refused as e:
@@ -181,17 +185,30 @@ def run_e4_real(args, out: Path):
     if not pages:
         print(f"no annotated pages in {e4real.ROOT}")
         return False
-    modes = e4real.MODES if _extractor().startswith("trafilatura") else ("stdlib",)
+    builtin = e4real.MODES if _extractor().startswith("trafilatura") else ("stdlib",)
+    ext = fetch.external_settings()  # WEB_EVAL_EXTRACTORS: name=command;... scored as more settings
+    if set(ext) & set(e4real.MODES):
+        print(f"WEB_EVAL_EXTRACTORS: a name is one of the built-in settings {e4real.MODES}")
+        return False
+    modes = builtin + tuple(ext)
     rows = []
     for p in pages:
         meta, text = e4real.body(p["id"])
         for m in modes:
-            _, got, how = fetch.extract(text, meta.get("final", p["url"]), m)
+            _, got, how = fetch.extract(text, meta.get("final", p["url"]), m, command=ext.get(m))
             rows.append({"id": p["id"], "lang": p["lang"], "kind": p["kind"], "script_only": p["script_only"], "mode": m,
                          "extractor": how, **e4real.score(got, p)})
     refused = e4real.load_all(prefix="refused-")
     (out / "e4-real.json").write_text(json.dumps({"extractor": _extractor(), "pages": len(pages), "refused": refused, "results": rows},
                                                  ensure_ascii=False, indent=1))
+
+    def fell_back(rs):
+        """Pages where the setting's text is the plain reader's. A built-in setting says "stdlib"; an external one says
+        "plain" (idp-web-extract); a setting that is the plain reader itself says it on every page and fell back on none."""
+        marks = [r["extractor"] for r in rs]
+        if rs[0]["mode"] in ext:
+            return 0 if all(x == "plain" for x in marks) else marks.count("plain")
+        return 0 if rs[0]["mode"] == "stdlib" else marks.count("stdlib")
 
     def summary(rs):
         rs = [r for r in rs if not r["script_only"]]
@@ -201,16 +218,18 @@ def run_e4_real(args, out: Path):
         chars = sorted(r["chars"] for r in rs)
         return {"pages": n, "kept": 100 * sum(r["kept"] for r in rs) / of, "whole": 100 * sum(r["kept"] == r["of"] for r in rs) / n,
                 "leaked": 100 * sum(r["leaked"] for r in rs) / fur, "clean": 100 * sum(not r["leaked"] for r in rs) / n,
-                "fallback": sum(r["extractor"] == "stdlib" for r in rs) if rs[0]["mode"] != "stdlib" else 0, "chars": chars[n // 2]}
+                "fallback": fell_back(rs), "failed": sum(r["extractor"].startswith("failed") for r in rs), "chars": chars[n // 2]}
 
     lines = [f"# E4 on real pages: {out.name}", "", f"extractor {_extractor()}; {len(pages)} pages annotated, "
              f"{sum(p['script_only'] for p in pages)} with their text only in scripts (not scored; what the phase-2 renderer is for); "
              f"{len(refused)} URLs refused while choosing them", "",
-             "| setting | pages | passages kept % | pages with every passage % | furniture leaked % | pages with no furniture % | fell back to stdlib | median chars |",
-             "|---|---|---|---|---|---|---|---|"]
+             "| setting | pages | passages kept % | pages with every passage % | furniture leaked % | pages with no furniture % | fell back to stdlib | median chars |"
+             + (" failed runs (non-zero exit or timeout: empty text) |" if ext else ""),
+             "|---|---|---|---|---|---|---|---|" + ("---|" if ext else "")]
     for m in modes:
         s = summary([r for r in rows if r["mode"] == m])
-        lines.append(f"| {m} | {s['pages']} | {s['kept']:.1f} | {s['whole']:.1f} | {s['leaked']:.1f} | {s['clean']:.1f} | {s['fallback']} | {s['chars']} |")
+        lines.append(f"| {m} | {s['pages']} | {s['kept']:.1f} | {s['whole']:.1f} | {s['leaked']:.1f} | {s['clean']:.1f} | {s['fallback']} | {s['chars']} |"
+                     + (f" {s['failed']} |" if ext else ""))
     for key in ("lang", "kind"):
         groups = sorted({r[key] for r in rows})
         lines += ["", f"By {key} (passages kept % / furniture leaked %):", "", "| " + key + " | pages | " + " | ".join(modes) + " |",
@@ -219,12 +238,14 @@ def run_e4_real(args, out: Path):
             ss = [summary([r for r in rows if r["mode"] == m and r[key] == g]) for m in modes]
             if ss[0]:
                 lines.append(f"| {g} | {ss[0]['pages']} | " + " | ".join(f"{s['kept']:.0f} / {s['leaked']:.0f}" for s in ss) + " |")
-    lines += ["", f"Pages where {modes[0]} lost a passage or kept furniture:", ""]
-    for r in rows:
-        if r["mode"] == modes[0] and not r["script_only"] and (r["kept"] < r["of"] or r["leaked"]):
-            lines.append(f"- {r['id']} ({r['kind']}, {r['lang']}): kept {r['kept']}/{r['of']}, furniture {r['leaked']}/{r['furniture']}"
-                         + (f"; missing: {' | '.join(s[:60] for s in r['missing'])}" if r["missing"] else "")
-                         + (f"; leaked: {' | '.join(s[:40] for s in r['leaked_text'])}" if r["leaked_text"] else ""))
+    for m in (modes if ext else modes[:1]):  # without external settings the report is what it always was: the first setting
+        lines += ["", f"Pages where {m} lost a passage or kept furniture:", ""]
+        for r in rows:
+            if r["mode"] == m and not r["script_only"] and (r["kept"] < r["of"] or r["leaked"]):
+                lines.append(f"- {r['id']} ({r['kind']}, {r['lang']}): kept {r['kept']}/{r['of']}, furniture {r['leaked']}/{r['furniture']}"
+                             + (f"; missing: {' | '.join(s[:60] for s in r['missing'])}" if r["missing"] else "")
+                             + (f"; leaked: {' | '.join(s[:40] for s in r['leaked_text'])}" if r["leaked_text"] else "")
+                             + (f"; {r['extractor']}" if r["extractor"].startswith("failed") else ""))
     if refused:
         reasons = {}
         for x in refused:

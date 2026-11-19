@@ -40,6 +40,16 @@ python3 -m tools.web_eval.e4real view e4r-x-01                  # 可见文字�
 python3 -m tools.web_eval.e4real check .local/web-eval/e4-real/ann-x.jsonl
 uv run --no-project --with trafilatura==2.0.0 python -m tools.web_eval.run e4-real --name e4-real-results
 
+# 外部提取命令（idp-web 的任务 W2）：WEB_EVAL_EXTRACTORS="名字=命令;名字=命令" 让 e4-real 把每个命令当作又一种设置，
+# 与内置设置并排打分（命令从标准输入读已解码的 HTML，末尾追加 `-url <最终地址>`，标准输出是正文；
+# 非零退出或 30 秒超时按空文本算并计入"failed runs"；标准错误里 `engine=<谁产出的> title=<标题>` 一行用来数回退）。
+# 设置了外部命令时，"丢了段落或留了装饰的页面"对每种设置都列出。WEB_EVAL_EXTRACT_CMD="命令" 则让 e4 和读取
+# 一律用这个命令代替内置提取（抓取仍是 Python 的），合成 E4 的检查因此也适用于 Go 的提取。两个变量都不设时行为不变。
+B=$PWD/idp-web/bin/idp-web-extract
+WEB_EVAL_EXTRACTORS="go-trafilatura=$B -engine trafilatura;go-readability=$B -engine readability" \
+  uv run --no-project --with trafilatura==2.0.0 python -m tools.web_eval.run e4-real --name e4-real-go
+WEB_EVAL_EXTRACT_CMD="$B -engine readability" python3 -m tools.web_eval.run e4 --quick --name e4-go-readability
+
 # E3：本机模型；--wrap both 对比"给工具结果加不可信标记"开与关
 WEB_EVAL_MODEL_KEY_FILE=.local/live-model.key \
   uv run --no-project --with trafilatura==2.0.0 python -m tools.web_eval.run e3 --runs 3 --wrap both --name e3-full

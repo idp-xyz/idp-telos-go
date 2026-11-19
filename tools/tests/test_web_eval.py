@@ -1,12 +1,18 @@
 """Tests of tools/web_eval (ADR-0003 phase 0): the guarantees the harness and idp-web rely on (T1 an invented address
 is never read, T2 refs cannot be forged or reused, T3 inward addresses are refused), its paging, grading and statistics.
 Standard library only (CI runs them without the optional extractor)."""
+import argparse
 import json
+import os
 import re
+import shlex
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from tools.web_eval import e3, e4, e4real, fetch, grade, refs, stats
+from tools.web_eval import e3, e4, e4real, fetch, grade, refs, run, stats
 from tools.web_eval.agent import Agent, Model
 from tools.web_eval.origin import Origin
 from tools.web_eval.providers import Fixture
@@ -229,6 +235,90 @@ class RealPages(unittest.TestCase):
     def test_the_stdlib_setting_is_the_fallback_alone(self):
         _, text, how = fetch.extract("<html><body><nav>Menu</nav><p>Body text.</p></body></html>", "https://example.com/", "stdlib")
         self.assertEqual((how, text), ("stdlib", "Body text."))
+
+
+# a tiny external extractor: the text is the page's <p> contents, the status line says which engine "produced" it
+SCRIPT = (
+    "import re, sys\n"
+    "args = sys.argv[1:]\n"
+    "page = sys.stdin.read()\n"
+    "if 'crash' in args:\n"
+    "    sys.exit(3)\n"
+    "if 'hang' in args:\n"
+    "    import time; time.sleep(30)\n"
+    "assert args[-2] == '-url'\n"
+    "print('\\n\\n'.join(re.findall(r'<p>(.*?)</p>', page)) + ' [' + args[-1] + ']')\n"
+    "print('engine=' + ('plain' if 'plain' in args else 'fake') + ' title=Some  title', file=sys.stderr)\n")
+
+
+class ExternalExtractors(unittest.TestCase):
+    """An external extractor command is scored as one more setting, and can replace the built-in one in E4 (W2)."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.script = Path(self.dir.name) / "fake.py"
+        self.script.write_text(SCRIPT)
+        self.cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(self.script))}"
+
+    def test_the_command_gets_the_page_on_stdin_and_the_url_appended(self):
+        title, text, how = fetch.external(self.cmd, "<p>Hello</p><p>world</p>", "https://example.com/a")
+        self.assertEqual((title, text, how), ("Some  title", "Hello\n\nworld [https://example.com/a]", "fake"))
+
+    def test_a_failing_or_slow_command_is_empty_text_and_says_so(self):
+        for arg, why in (("crash", "exit 3"), ("hang", "no answer")):
+            with mock.patch.object(fetch, "EXTERNAL_TIMEOUT", 0.5):
+                self.assertEqual(fetch.external(f"{self.cmd} {arg}", "<p>x</p>", "https://e.com/")[1], "")
+                self.assertIn(why, fetch.external(f"{self.cmd} {arg}", "<p>x</p>", "https://e.com/")[2])
+        self.assertTrue(fetch.external("/no/such/command", "x", "https://e.com/")[2].startswith("failed: cannot start"))
+
+    def test_extract_with_a_command_replaces_the_builtin_and_without_one_changes_nothing(self):
+        html = "<html><body><nav>Menu</nav><p>Body text.</p></body></html>"
+        self.assertEqual(fetch.extract(html, "https://e.com/", "stdlib")[1], "Body text.")
+        self.assertEqual(fetch.extract(html, "https://e.com/", "stdlib", command=self.cmd)[1], "Body text. [https://e.com/]")
+
+    def test_the_settings_variable_is_parsed_and_a_bad_one_is_refused(self):
+        with mock.patch.dict(os.environ, {"WEB_EVAL_EXTRACTORS": f"a=cmd one; b = cmd two -x ;"}):
+            self.assertEqual(fetch.external_settings(), {"a": "cmd one", "b": "cmd two -x"})
+        with mock.patch.dict(os.environ, {"WEB_EVAL_EXTRACTORS": ""}):
+            self.assertEqual(fetch.external_settings(), {})
+        for bad in ("nameonly", "a=x;a=y", "=x"):
+            with mock.patch.dict(os.environ, {"WEB_EVAL_EXTRACTORS": bad}), self.assertRaises(SystemExit):
+                fetch.external_settings()
+
+    def test_e4_real_reports_each_external_command_next_to_the_builtin_settings(self):
+        root = Path(self.dir.name) / "e4"
+        (root / "pages").mkdir(parents=True)
+        (root / "pages" / "p1.json").write_text(json.dumps({"id": "p1", "url": "https://e.com/p1", "charset": "utf-8"}))
+        (root / "pages" / "p1.raw").write_bytes(b"<html><body><nav>Menu words</nav><p>Keep this passage.</p><p>Lose nothing here.</p></body></html>")
+        (root / "ann-t.jsonl").write_text(json.dumps({"id": "p1", "url": "https://e.com/p1", "lang": "en", "kind": "news", "script_only": False,
+                                                       "contain": ["Keep this passage.", "Lose nothing here."], "not_contain": ["Menu words"]}) + "\n")
+        out = Path(self.dir.name) / "out"
+        out.mkdir()
+        env = {"WEB_EVAL_EXTRACTORS": f"fake={self.cmd}; fake-plain={self.cmd} plain; broken={self.cmd} crash"}
+        real_load_all = e4real.load_all  # its default root is bound when it is defined, so the test passes its own
+        with mock.patch.object(run.e4real, "ROOT", root), mock.patch.dict(os.environ, env), \
+                mock.patch.object(run.e4real, "load_all", lambda prefix="ann-": real_load_all(root, prefix)), \
+                mock.patch.object(run, "_extractor", return_value="stdlib (trafilatura not installed)"), mock.patch("builtins.print"):
+            self.assertTrue(run.run_e4_real(argparse.Namespace(), out))
+        report = (out / "report.md").read_text()
+        rows = {l.split("|")[1].strip(): [c.strip() for c in l.split("|")[2:-1]] for l in report.splitlines() if l.startswith("| ") and "|---" not in l}
+        # setting: pages, kept %, whole %, leaked %, clean %, fell back, median chars, failed
+        self.assertEqual(rows["stdlib"][:5], ["1", "100.0", "100.0", "0.0", "100.0"])
+        self.assertEqual(rows["fake"][:5] + [rows["fake"][7]], ["1", "100.0", "100.0", "0.0", "100.0", "0"])
+        self.assertEqual(rows["fake-plain"][5], "0")  # the plain reader itself has not "fallen back"
+        self.assertEqual((rows["broken"][1], rows["broken"][7]), ("0.0", "1"))
+        self.assertIn("Pages where broken lost a passage or kept furniture:", report)
+        self.assertIn("failed: exit 3", report)
+
+    def test_the_e4_variable_replaces_the_builtin_extractor_in_reads(self):
+        origin = Origin({"/a": ("text/html", b"<html><body><nav>Menu</nav><p>Alpha beta.</p></body></html>")})
+        self.addCleanup(origin.close)
+        with mock.patch.dict(os.environ, {"WEB_EVAL_EXTRACT_CMD": self.cmd}):
+            page = fetch.read(origin.base + "/a", origin.allow, robots=False)
+        self.assertEqual((page["text"], page["extractor"]), ("Alpha beta. [" + origin.base + "/a]", "fake"))
+        with mock.patch.dict(os.environ, {"WEB_EVAL_EXTRACT_CMD": ""}):
+            self.assertNotIn("[", fetch.read(origin.base + "/a", origin.allow, robots=False)["text"])
 
 
 if __name__ == "__main__":
