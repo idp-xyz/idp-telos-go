@@ -1119,6 +1119,36 @@ M4ORG="$(web_log web-origin origin | python3 -I deploy/compose/web_check.py m4-o
 web_sql "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null
 echo "PASS: PATH M4 — PDF reading: bob's run read $WEB_TARIFF and the page markers and 29.47 (page 2) reached the model; the scan $WEB_SCAN was answered '${M4SCAN:0:110}'; $M4AUD; $M4ORG; two searches used (the count was $M4USED, zeroed again for PATH N)"
 
+# ---- PATH M5: the run's sources and the check of its citations (idp-host ADR-0001 D49, contract idp.telos.host 1.11.0) ----
+# What bob would be shown, read as he reads it: the run and its events through the Workspace's relay (as PATH N reads them) and the answer in
+# his inbox. (1) A run that searches and reads the article: its sources hold the article's address with a read time and the digest of the
+# text the model was given, the number its answer cites is that source and is marked cited, nothing is unverified, and the run's events
+# carry one idp.host/run.sources before RUN_FINISHED. (2) "web-cite:" is the same flow whose answer also cites 987, a number no source of
+# bob's can have (the model double's InventedCitation; idp-web numbers per caller and bob's count is in the tens): unverifiedCitations is
+# exactly [987], and the answer reached the inbox as the model wrote it, because the HOST marks and does not block. (3) The order assistant has
+# no web tools: asked a question with a bracketed number, its answer repeats it and the run has neither sources nor unverifiedCitations and no
+# event, because there is nothing to check an answer of such a run against.
+# Quota: PATH M4 zeroes the tenant's count when it ends; (1) and (2) make ONE search each, so this path needs two of MLIMIT; it reads the count
+# first and zeroes it again when it ends, so that PATH N has all three. (3) searches nothing.
+M5USED="$(web_sql "$SEARCHES_TODAY")"
+(( M5USED + 2 <= MLIMIT )) || { echo "FAIL: PATH M5: the database counts $M5USED searches of $MLIMIT, and this path needs two (PATH M4 zeroes the count when it ends; if the check ran across 00:00 UTC, run it again)" >&2; exit 1; }
+M5INVENTED=987
+m5_record() { # m5_record RUN ANSWER: the run, its events and the answer, as one document for web_check.py
+  python3 -c "import json,sys; print(json.dumps({'run': json.loads(sys.argv[1]), 'events': json.loads(sys.argv[2]), 'answer': sys.argv[3]}))" \
+    "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$1" "$BOB")" "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$1/events?limit=500" "$BOB")" "$2"
+}
+M5RUN="$(ask_agent websearch ask "web: $MQ")"
+M5ANS="$(run_summary "$M5RUN")"
+M5SRC="$(m5_record "$M5RUN" "$M5ANS" | python3 -I deploy/compose/web_check.py m5-sources "$WEB_ARTICLE")" || { echo "run $M5RUN, answer: $M5ANS" >&2; exit 1; }
+M5CRUN="$(ask_agent websearch ask "web-cite: $MQ")"
+M5CANS="$(run_summary "$M5CRUN")"
+M5CITE="$(m5_record "$M5CRUN" "$M5CANS" | python3 -I deploy/compose/web_check.py m5-cite "$WEB_ARTICLE" "$M5INVENTED")" || { echo "run $M5CRUN, answer: $M5CANS" >&2; exit 1; }
+M5PRUN="$(ask_agent orders order.review "How long does a parcel stay at the depot? [3]")"
+M5PANS="$(run_summary "$M5PRUN")"
+M5PLAIN="$(m5_record "$M5PRUN" "$M5PANS" | python3 -I deploy/compose/web_check.py m5-plain 3)" || { echo "run $M5PRUN, answer: $M5PANS" >&2; exit 1; }
+web_sql "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null
+echo "PASS: PATH M5 — sources and citations: run $M5RUN: $M5SRC; run $M5CRUN (web-cite): $M5CITE; run $M5PRUN (no web tools): $M5PLAIN; two searches used (the count was $M5USED, zeroed again for PATH N)"
+
 # ---- PATH N: a page tells the model to send data away, and the model does as the page says ----
 # The search finds the bulletin, whose text names an address of the attacker's and tells the reader to fetch it with the context. The
 # double obeys: web_fetch of that address with the search result's ref, then web_open_url of it. Neither may reach the attacker (c).

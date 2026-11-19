@@ -211,6 +211,9 @@ if HOST in schemas:
         ('release_context_minimal', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True})),
         ('release_context_fail', HOST, 'AgentRelease', 0, P('definition.context.onError', 'fail')),
         ('run_with_context_package', HOST, 'AgentRun', 1, S(contextPackageId='pkg_01JD7Q3Z8M8T0G3C6N4V9S2B01')),
+        # 1.11.0 (D49)
+        ('run_with_sources_and_an_unverified_number', HOST, 'AgentRun', 0, S(sources=[{'n': 2, 'title': 'Customs times', 'url': 'https://example.org/customs', 'fetchedAt': '2026-11-03T13:41:07Z', 'sha256': 'ab' * 32, 'cited': True}, {'n': 5, 'title': '', 'url': 'http://example.org/a', 'cited': False}], unverifiedCitations=[7])),
+        ('run_with_sources_only', HOST, 'AgentRun', 0, S(sources=[{'n': 2, 'title': 'Customs times', 'url': 'https://example.org/customs', 'fetchedAt': '2026-11-03T13:41:07Z', 'sha256': 'ab' * 32, 'cited': True}])),
         # 1.7.0 (CMI D24)
         ('release_context_on_stale_fail', HOST, 'AgentRelease', 0, P('definition.context.onStale', 'fail')),
     ]
@@ -240,6 +243,11 @@ if HOST in schemas:
         ('host_run_negative_steps', HOST, 'AgentRun', 0, S(stepCount=-1)),
         ('host_run_bad_trace_id', HOST, 'AgentRun', 0, S(traceId='xyz')),
         ('host_run_unknown_field', HOST, 'AgentRun', 0, S(arguments='x')),
+        # 1.11.0 (D49): what the HOST would never record
+        ('host_run_source_ftp_address', HOST, 'AgentRun', 0, S(sources=[{'n': 1, 'title': 't', 'url': 'ftp://example.org/x', 'cited': False}])),
+        ('host_run_source_101_items', HOST, 'AgentRun', 0, S(sources=[{'n': i, 'title': 't', 'url': 'https://example.org/x', 'cited': False} for i in range(1, 102)])),
+        ('host_run_source_excerpt_field', HOST, 'AgentRun', 0, S(sources=[{'n': 1, 'title': 't', 'url': 'https://example.org/x', 'cited': False, 'excerpt': 'page text'}])),
+        ('host_run_unverified_year', HOST, 'AgentRun', 0, S(unverifiedCitations=[2026])),
         ('host_run_empty_owner', HOST, 'AgentRun', 0, S(owner='')),
         # RunOptions: mirrors the option cases of the same test (the API answers these with 422)
         ('host_options_unknown_key', HOST, 'RunOptions', 0, S(**{'idp.host/unknown': 1})),

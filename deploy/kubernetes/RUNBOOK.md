@@ -296,6 +296,10 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 
 | 组件 | 变了什么 | 怎么看出来 | 怎么处理 |
 |---|---|---|---|
+| idp-host（D47） | worker 中断后，进行中的工具调用只有在工具标注为只读或幂等时才重发；其他的不重发，模型读到"被中断，结果未知，先核实"。停机时 worker 等进行中的调用结束、不再发起新的，然后把运行交给别的 worker；超过 `IDP_HOST_STOP_GRACE`（缺省 20 秒）才打断。发布的清单把 Pod 的终止宽限期写明为 30 秒 | 事件 `idp.host/tool.interrupted {resent, reason}`；指标 `idp_host_tool_interruptions_total` | 有副作用的工具被中断后，要人工核对它是否已执行。要禁止某个带"幂等"标注的工具重发，在网关配置里写 `neverResendTools`。宽限期必须小于平台的终止宽限期 |
+| idp-host（D48） | **引用了能联网的子 agent（或远端 agent）的 Agent，自己也按上限筛数据。** 这样的 Agent 不再读到高于上限的附件和记忆 | 事件 `context.withheld`、`attachment.withheld` 里的 `via` 写明是因为哪个子 agent | 这是有意的。需要读机密数据的 Agent 不要引用联网的子 agent：拆成两个 Agent，或按租户调高上限，或不把那个工具列进 `externalTools` |
+| idp-host（D49，契约 1.11.0） | 运行记录它的工具返回的网页来源（`sources`），并把回答里来源表中没有的引用编号列为 `unverifiedCitations`。只标记，不拦截。数据库迁移 0010 | 运行的表示里多两个字段；事件 `idp.host/run.sources` | 先升级 HOST，再升级 Workspace。保存的是编号、标题、地址、读取时间和摘要，不保存页面正文 |
+| idp-host（D50） | 模型服务在流里报告的错误不再记成 `decode`：按对方的类型分为 `provider_overloaded`、`provider_rate_limit`、`provider_server`（可重试）和 `provider_error` | 步骤的 `error_code`；事件 `idp.host/model.error`（只有错误码） | 对方的原话只在 HOST 的日志里：按运行号找 `model call failed` 那一行。日志过了保留期就没有了 |
 | idp-mcp（D46） | **网关必须有一份客户端名单（`IDP_GATEWAY_CLIENTS_FILE`），没有就不启动。** 名单之外的客户端通过了认证也看不到任何工具 | 网关启动即退出，错误里写明这个设置；原来能用的客户端 `tools/list` 变成空的；审计里 `DENIED`，原因 `client not listed` | 在名单里列出每个调用网关的 OAuth 客户端。平台自己的 HOST 是 `idp-host: {kind: platform, host: true}`（compose 与 kind 的配置里都有）。`"*": platform` 会关掉这项控制，只用于开发或过渡 |
 | idp-mcp（D48） | `hostOnlyTools` 里的工具只有标了 `host: true` 的客户端能看到和调用。平台的配置里是 `web__*` | 其他客户端调用得到"Unknown tool"；审计原因 `host-only` | 不需要处理。确实要让别的客户端用，在 `hostOnlyExcept` 里按工具写例外和理由，每次使用都会记审计 |
 | idp-mcp（D49） | 外部客户端有限流（每客户端每分钟 600 次、每成员 120 次，可按客户端改）；平台客户端不限 | HTTP 429 与 `Retry-After`；审计 `RATE_LIMITED` | 按需在名单里给客户端写 `rateLimit`、`subjectRateLimit` |
