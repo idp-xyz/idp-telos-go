@@ -274,6 +274,22 @@ kubectl -n idp-workspace port-forward svc/assistant 17561:8080 &   # "助手"应
 
 Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多一个"管理"页）或 bob（成员）登录，密码在 `clients.json` 的 `users` 里。Keycloak 用的是本次运行的测试 CA：先在浏览器里打开 `https://127.0.0.1:17443` 放行证书（或导入 `ca.crt`），否则点登录没有反应。登录后："发起"按动作的输入 Schema 生成表单（问订单助手、让 agent 跑代码），结果回到收件箱；"助手"是聊天页，订单助手按 CMI 里的取件规定作答（中英文各一份），代码助手在沙箱里写代码并运行；审批在收件箱里批准 / 拒绝。`MODEL=live` 时回答来自本机模型，否则是模型替身的回声。
 
+## 升级须知（2026-11-19 的 BOM）
+
+从 2026-11-17 的 BOM 升到 2026-11-19 的 BOM 时，下面几处行为会变。每条写明：变了什么、怎么看出来、怎么处理。compose 上的配置在 `deploy/compose/e2e.sh` 里是同一组键。
+
+| 组件 | 变了什么 | 怎么看出来 | 怎么处理 |
+|---|---|---|---|
+| idp-host（D44） | **模型提供方没有声明 `external: false` 的，一律算企业之外。** 这样的部署里，敏感级别高于上限（`files.externalModelCeiling`，缺省 `internal`）的附件和 CMI 上下文条目，对所有运行都会扣下 | 运行的事件里出现 `idp.host/context.withheld`、`idp.host/attachment.withheld`；成员发现 agent "不记得"机密级别的记忆 | 自有的模型在 HOST 配置的提供方条目里写 `external: false`（`full/kustomization.yaml` 和 compose 的配置里都有例子）。确实是外部模型的，这是预期的行为：要么不给它机密数据，要么按租户调高上限 |
+| idp-host（D44） | 网关配置里列进 `externalTools` 的工具（例如 `web__*`）也算企业之外：发布件允许其中任何一个，就按同一上限筛附件和上下文；`confirmTools` 里的工具一律要成员确认，不论发布件怎么写；发布件里的 `toolResults: off` 在这种运行里按 `wrap` 处理 | 同上的两个事件；`idp.host/confirmation.required` | 不需要处理。要给某个能联网的 agent 机密数据，只能把它的对外工具去掉 |
+| idp-host（D45） | 对模型服务的可重试错误（408、429、5xx、连接失败）先对同一个模型重试，缺省共 3 次请求 | 事件 `idp.host/model.retry`；`model.usage` 里的 `attempts` | 不需要处理。要关掉就在提供方条目里写 `retry: {attempts: 1}` |
+| idp-host（D46） | **模型的流 60 秒没有新内容就判为超时**，按可重试的错误处理。外部 harness worker 同样适用 | 步骤的 `error_code` 是 `idle_timeout`；重试用尽后运行以 `MODEL_ERROR` 失败 | 模型会排队，或长时间思考而不输出的，把提供方条目的 `idleTimeoutSeconds` 调大 |
+| idp-host（D46） | 运行到期限或被取消时，进行中的模型调用和工具调用会被打断，约 1 秒内结束。被打断的工具调用记为失败，说明里写"可能已执行，也可能没有" | 运行以 `RUN_TIMEOUT` 或 `CANCELED` 结束得比以前快；`tool_calls` 里有 `interrupted:` 开头的失败 | 不需要处理。有副作用的工具被打断后，要人工核对它是否已经执行 |
+| idp-mcp（D12） | 请求必须带 `Mcp-Method` 头；不带的在认证之前就得到 400（原来匿名请求是 401） | 自写的客户端或探活脚本收到 400，错误码 -32020 | 客户端补上这个头，值等于请求体里的 `method` |
+| idp-mcp（D8） | 上游地址的规则收紧：IANA 登记为"不可全球路由"的地址段都不算公网（NAT64、6to4、Teredo、240/4、198.18/15 等） | 登记上游时被拒绝，或原有的上游变为不可达 | 这类地址上的上游要列进注册服务的允许名单（`IDP_ALLOWED_UPSTREAM_HOSTS`），与集群内的上游一样 |
+| idp-sandbox（D22） | 出口代理的拒绝名单按同一张表补齐 | 沙箱里访问这些地址段被代理拒绝 | 不需要处理 |
+| idp-web（新组件） | 新增组件。三个工具默认不授给任何角色 | — | 开启前先读 `idp-web/docs/RUNBOOK.md`。**`web__*` 只授给经 HOST 调用的角色**：成员确认、敏感级别上限、不可信标记都在 HOST 里，直连网关的客户端绕过它们 |
+
 ## 故障排查
 
 | 现象 | 原因 | 处理 |

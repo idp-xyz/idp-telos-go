@@ -483,7 +483,7 @@ print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'
 SBXNET="$(docker inspect -f '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}' "$("${C[@]}" ps -q sandbox)")"
 FORGED='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sandbox_create","arguments":{},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
 DIRECT="$(docker run --rm --network "$SBXNET" public.ecr.aws/docker/library/alpine:3.22 wget -q -O - --header 'Content-Type: application/json' \
-  --header 'MCP-Protocol-Version: 2026-07-28' --post-data "$FORGED" http://sandbox:8570/mcp 2>&1 || true)"
+  --header 'MCP-Protocol-Version: 2026-07-28' --header 'Mcp-Method: tools/call' --post-data "$FORGED" http://sandbox:8570/mcp 2>&1 || true)"
 [[ "$DIRECT" == *403* && "$DIRECT" != *workspaceId* ]] && "${C[@]}" logs sandbox 2>/dev/null | grep -q 'caller assertion refused' \
   || { echo "FAIL: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
 echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (caller signed by the gateway and verified; an unsigned caller refused) -> code ran in an isolated container -> 'answer 42' in bob's inbox"
@@ -982,7 +982,7 @@ MORG="$(web_log web-origin | python3 -I deploy/compose/web_check.py m-origin /ar
 UPNET="$(docker inspect -f '{{range $k, $_ := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$("${C[@]}" ps -q web)" | grep '_upstream$')"
 FORGED='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"'"$MQ"'"},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
 DIRECT="$(docker run --rm --network "$UPNET" public.ecr.aws/docker/library/alpine:3.22 wget -q -O - --header 'Content-Type: application/json' \
-  --header 'MCP-Protocol-Version: 2026-07-28' --post-data "$FORGED" http://web:8580/mcp 2>&1 || true)"
+  --header 'MCP-Protocol-Version: 2026-07-28' --header 'Mcp-Method: tools/call' --post-data "$FORGED" http://web:8580/mcp 2>&1 || true)"
 [[ "$DIRECT" == *403* && "$DIRECT" != *address:* ]] && web_log web | grep -q 'caller assertion refused' \
   || { echo "FAIL: PATH M forged caller: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
 echo "PASS: PATH M — bob -> Workspace -> HOST run $MRUN (web-assistant) -> gateway -> idp-web (fixture search, the article read with the search result's ref) -> '41,872' and [1] in bob's inbox; $MGW; $MAUD; $MORG; an unsigned call that names bob is refused (403)"

@@ -805,16 +805,17 @@ kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q '"tool":"sa
 kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q 'callers must be signed by the gateway' || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox does not verify the gateway's signature" >&2; exit 1; }
 pf idp-sandbox idp-sandbox 17570:8570
 SBX=http://127.0.0.1:17570/mcp
-sbx_post() { curl -s --noproxy '*' -m 20 -w '\n%{http_code}' -X POST "$SBX" -H 'Content-Type: application/json' -H 'MCP-Protocol-Version: 2026-07-28' --data "$1"; }
+# sbx_post METHOD BODY: Mcp-Method is required on every request (idp-sandbox ADR-0001 D10), so the forged call is refused for its caller (403), not for a missing header (400)
+sbx_post() { curl -s --noproxy '*' -m 20 -w '\n%{http_code}' -X POST "$SBX" -H 'Content-Type: application/json' -H 'MCP-Protocol-Version: 2026-07-28' -H "Mcp-Method: $1" --data "$2"; }
 META='"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}'
 LISTED=""
 for _ in $(seq 1 60); do
-  LISTED="$(sbx_post '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{'"$META"'}}}' || true)"
+  LISTED="$(sbx_post tools/list '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{'"$META"'}}}' || true)"
   [[ "$LISTED" == *sandbox_create* && "$LISTED" == *$'\n'200 ]] && break; sleep 1
 done
 [[ "$LISTED" == *sandbox_create* && "$LISTED" == *$'\n'200 ]] || { echo "FAIL: the unsigned tools/list (discovery) does not answer on the sandbox: $LISTED" >&2; exit 1; }
 FORGED='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sandbox_create","arguments":{},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},'"$META"'}}}'
-DIRECT="$(sbx_post "$FORGED" || true)"
+DIRECT="$(sbx_post tools/call "$FORGED" || true)"
 [[ "$DIRECT" == *$'\n'403 && "$DIRECT" != *workspaceId* ]] && kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q 'caller assertion refused' \
   || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
 echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (kubernetes backend, caller signed by the gateway and verified; an unsigned tools/call refused with 403, tools/list still answers) -> code ran in an isolated pod -> 'answer 42' in bob's inbox"
@@ -1037,15 +1038,16 @@ MORG="$(web_log web-origin origin | python3 -I deploy/compose/web_check.py m-ori
 # kubectl port-forward does not pass through it, so a forward is how a test stands "on idp-web's port" without a policy (as for the sandbox, PATH D).
 pf idp-web idp-web 17580:8580
 WEBX=http://127.0.0.1:17580/mcp
-web_post() { curl -s --noproxy '*' -m 20 -w '\n%{http_code}' -X POST "$WEBX" -H 'Content-Type: application/json' -H 'MCP-Protocol-Version: 2026-07-28' --data "$1"; }
+# web_post METHOD BODY: as sbx_post (idp-web ADR-0001 D1)
+web_post() { curl -s --noproxy '*' -m 20 -w '\n%{http_code}' -X POST "$WEBX" -H 'Content-Type: application/json' -H 'MCP-Protocol-Version: 2026-07-28' -H "Mcp-Method: $1" --data "$2"; }
 WLISTED=""
 for _ in $(seq 1 60); do
-  WLISTED="$(web_post '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{'"$META"'}}}' || true)"
+  WLISTED="$(web_post tools/list '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{'"$META"'}}}' || true)"
   [[ "$WLISTED" == *web_search* && "$WLISTED" == *$'\n'200 ]] && break; sleep 1
 done
 [[ "$WLISTED" == *web_search* && "$WLISTED" == *$'\n'200 ]] || { echo "FAIL: PATH M: the unsigned tools/list (discovery) does not answer on idp-web: $WLISTED" >&2; exit 1; }
 FORGED='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"'"$MQ"'"},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},'"$META"'}}}'
-WDIRECT="$(web_post "$FORGED" || true)"
+WDIRECT="$(web_post tools/call "$FORGED" || true)"
 [[ "$WDIRECT" == *$'\n'403 && "$WDIRECT" != *address:* ]] && web_log idp-web idp-web | grep -q 'caller assertion refused' \
   || { web_log idp-web idp-web | tail -10 >&2; echo "FAIL: PATH M forged caller: a call that names bob without the gateway's signature was not refused: $WDIRECT" >&2; exit 1; }
 echo "PASS: PATH M — bob -> Workspace -> HOST run $MRUN (web-assistant) -> gateway -> idp-web (fixture search, the article read with the search result's ref) -> '41,872' and [1] in bob's inbox; $MGW; $MAUD; $MORG; an unsigned call that names bob is refused (403), tools/list still answers"
