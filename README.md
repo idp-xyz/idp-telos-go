@@ -10,7 +10,7 @@ IDP TELOS 的 Go 实现。本仓库是平台仓库（仓库工程架构中的 id
 | `idp-cmi/` | Context, Memory & Knowledge Infrastructure：来源与信任级别、记忆记录（来历、有效期、撤销）、知识文档与全文索引、密封的上下文包、敏感级别与 ACL。M1–M6 完成并实测（混合检索、写入时注入隔离、实体引用、整合 Worker、连接器、评估套件、Kubernetes 清单、compose e2e 含与 idp-host 的联调；幂等与版本、受控擦除、候选 / 存疑、单元作用域与共享、外部 PDP、消费时复验、双时态、outbox 投影、标注评估集；未进包报告、外部模型敏感上限、审批核验、来源可追溯率）；设计见其 `docs/adr/ADR-0001-cmi-design.md` | [idp-xyz/idp-cmi](https://github.com/idp-xyz/idp-cmi) |
 | `idp-workspace/` | 企业工作入口：工作空间与成员、应用注册与安装（不可变发布、可撤销）、工作收件箱（生产者推入、只作视图）、工作上下文、动作契约（转给 idp-host 运行、idp-eer 审批决定或签名的应用 webhook）与应用桥 SDK（`packages/bridge`，idp.bridge/v1）、Web 壳（`apps/web`，React，收件箱实时推送，Agent 运行结果回到收件箱）。OIDC 登录、应用令牌、下游令牌交换。M1–M3 完成并实测（含与真实 idp-host、Keycloak 的联调与 Chromium 冒烟）；设计见其 `docs/adr/ADR-0001-workspace-design.md` | [idp-xyz/idp-workspace](https://github.com/idp-xyz/idp-workspace) |
 | `idp-sandbox/` | Agent 执行沙箱：MCP 服务器，放在 idp-mcp 网关后面作为上游，让 Agent 在无网络、只读根、无特权、资源受限的一次性容器里运行 Python / Shell，文件保存在有大小上限的内存工作区。工具 `sandbox_create` / `_run` / `_write_file` / `_read_file` / `_list_files` / `_delete`。M1 完成并实测（14 个真实容器的逃逸 / 滥用用例，经真实网关的端到端）；容器共享内核、需要引擎套接字、网关不转发调用者身份等限制见其 ADR §5；设计见其 `docs/adr/ADR-0001-sandbox-design.md` | [idp-xyz/idp-sandbox](https://github.com/idp-xyz/idp-sandbox) |
-| `idp-web/` | Agent 联网：MCP 服务器，放在 idp-mcp 网关后面作为上游，让 Agent 搜索网页、读取网页正文。工具 `web_search` / `web_fetch` / `web_open_url`；`web_fetch` 只读搜索结果里出现过的地址（签名的 `ref`），`web_open_url` 读成员给的地址（租户文件里默认关，确认由 HOST 强制）；地址检查与 SSRF 防护、正文提取、租户名单、限流、审计（查询词明文）。设计见平台的 `docs/adr/ADR-0003-web-search-and-fetch.md` 与其 `docs/adr/ADR-0001-web-design.md`；compose 上已接入（PATH M、N），Kubernetes 清单留待任务 P2 | [idp-xyz/idp-web](https://github.com/idp-xyz/idp-web) |
+| `idp-web/` | Agent 联网：MCP 服务器，放在 idp-mcp 网关后面作为上游，让 Agent 搜索网页、读取网页正文。工具 `web_search` / `web_fetch` / `web_open_url`；`web_fetch` 只读搜索结果里出现过的地址（签名的 `ref`），`web_open_url` 读成员给的地址（租户文件里默认关，确认由 HOST 强制）；地址检查与 SSRF 防护、正文提取、租户名单、限流、审计（查询词明文）。设计见平台的 `docs/adr/ADR-0003-web-search-and-fetch.md` 与其 `docs/adr/ADR-0001-web-design.md`；compose 与 Kubernetes（kind）上都已接入（PATH M、N；清单在 `idp-web/deploy/kubernetes`） | [idp-xyz/idp-web](https://github.com/idp-xyz/idp-web) |
 | `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.1.0、`idp.telos.host` 1.7.0、`idp.telos.cmi` 1.4.0、`idp.telos.workspace` 1.1.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
 | `catalog/` | 组件目录、允许的跨系统调用及其证据、状态权威归属 | 本仓库 |
 | `releases/` | 平台发布清单 `platform-bom.yaml`（组件提交、镜像、契约版本）与兼容性矩阵 `compatibility-matrix.yaml`，由 `tools/platform.py` 生成与校验 | 本仓库 |
@@ -44,9 +44,9 @@ git clone https://github.com/idp-xyz/idp-web.git
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py check    # 目录、发布清单、兼容性矩阵
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py bom      # 组件移动后重新生成发布清单（matrix 同理）
 bash deploy/compose/e2e.sh                                                     # 构建各组件镜像，跑 PATH A 到 N 验收（KEEP=1 保留运行；MODEL=live 用本机真实模型）
-uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py          # 渲染五个组件的 Kubernetes 清单，核对每条集成两端的 NetworkPolicy
+uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py          # 渲染各组件（七个）的 Kubernetes 清单，核对每条集成两端的 NetworkPolicy
 bash tests/kind/smoke.sh                                                       # 在 kind 集群上按组件清单部署并跑 PATH A（CI: kind.yml）
-bash tests/kind/full.sh                                                        # 整平台上 kind：六个组件的清单 + Keycloak（https 发行者）、PostgreSQL、Temporal，全部命名空间默认拒绝（需要 Calico 等强制执行 NetworkPolicy 的集群），经 port-forward 跑 PATH A、B、C、D，再装好"助手"应用，浏览器里可从登录、提问、跑代码到审批完整体验（SKIP_BUILD=1 用已有镜像；MODEL=live 用本机真实模型；TEARDOWN=1 结束时删除）
+bash tests/kind/full.sh                                                        # 整平台上 kind：七个组件的清单 + Keycloak（https 发行者）、PostgreSQL、Temporal，全部命名空间默认拒绝（需要 Calico 等强制执行 NetworkPolicy 的集群），经 port-forward 跑 PATH A、B、D、E、I、L、F、G、H、M、N、C（M、N 是联网检索与页面注入，用 idp-web 的清单加测试源站），再装好"助手"应用，浏览器里可从登录、提问、跑代码到审批完整体验（SKIP_BUILD=1 用已有镜像；MODEL=live 用本机真实模型；TEARDOWN=1 结束时删除）
 uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py --full    # 完整覆盖层：每个命名空间 restricted + 默认拒绝，集成与 Keycloak / PostgreSQL / Temporal 的流量两端放行
 ```
 

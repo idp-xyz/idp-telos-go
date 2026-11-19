@@ -1,0 +1,139 @@
+# TEST ONLY, added by tests/kind/full.sh to the overlay it renders (PATH M and N): the two web servers idp-web reads from, so that
+# the paths do not depend on the internet. Both are the script of the compose acceptance, deploy/compose/web_origin.py (full.sh puts
+# it in a ConfigMap, web-origin-script, in each namespace), and both record every request on their standard output:
+#   origin    (namespace web-origin)    the article PATH M asks about, and the bulletin whose text tells the reader to fetch an address
+#   attacker  (namespace web-attacker)  that address; it must never be asked for anything (PATH N)
+# They are at private (pod and Service) addresses, and the shipped egress rule of idp-web rightly excludes those: the last policy
+# below, in idp-web's own namespace, is the only thing that lets idp-web reach them, and it is a test file (tests/kind, the
+# reverse check of the P2 task removes it and PATH M fails). idp-web is also told to exempt exactly these two host:port pairs
+# (IDP_WEB_TEST_ORIGINS, which full.sh puts in its rendered overlay and which no shipped manifest has). Each namespace is as
+# closed as the platform's: restricted, default-deny, and in from idp-web's pod only; nothing goes out.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web-origin
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web-attacker
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: web-origin}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: web-attacker}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: origin, namespace: web-origin}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: origin}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-web}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: web}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: attacker, namespace: web-attacker}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: attacker}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-web}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: web}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: origin, namespace: web-origin}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: origin}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: origin}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: origin
+          image: python:3.12-slim          # on the nodes already: it is what the sandbox runs
+          imagePullPolicy: IfNotPresent
+          # the name the bulletin gives the reader for the attacker: the Service's, which resolves from idp-web's namespace
+          env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}, {name: WEB_ATTACKER_HOST, value: attacker.web-attacker.svc.cluster.local}]
+          command: [python, -I, /srv/web_origin.py, origin, "8080"]
+          ports: [{containerPort: 8080}]
+          volumeMounts: [{name: script, mountPath: /srv, readOnly: true}]
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 2}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      volumes: [{name: script, configMap: {name: web-origin-script}}]   # created by full.sh from deploy/compose/web_origin.py
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: attacker, namespace: web-attacker}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: attacker}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: attacker}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: attacker
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
+          command: [python, -I, /srv/web_origin.py, attacker, "8080"]
+          ports: [{containerPort: 8080}]
+          volumeMounts: [{name: script, mountPath: /srv, readOnly: true}]
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 2}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      volumes: [{name: script, configMap: {name: web-origin-script}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: origin, namespace: web-origin}
+spec:
+  selector: {app.kubernetes.io/name: origin}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: attacker, namespace: web-attacker}
+spec:
+  selector: {app.kubernetes.io/name: attacker}
+  ports: [{port: 80, targetPort: 8080}]
+---
+# the one thing that lets idp-web reach a private address: the two pods above, on the port they listen on
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: idp-web-test-origins, namespace: idp-web}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: web}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: web-origin}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: origin}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: web-attacker}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: attacker}}
+      ports: [{protocol: TCP, port: 8080}]

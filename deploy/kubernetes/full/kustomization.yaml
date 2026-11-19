@@ -1,10 +1,15 @@
-# The WHOLE platform (paths A, B, C, D) on a kind cluster from the components' own manifests: idp-cmi, idp-host,
-# idp-workspace, idp-eer, idp-mcp and idp-sandbox, plus PostgreSQL, Keycloak (OIDC, https issuer) and Temporal in
+# The WHOLE platform (the paths of tests/kind/full.sh) on a kind cluster from the components' own manifests: idp-cmi, idp-host,
+# idp-workspace, idp-eer, idp-mcp, idp-sandbox and idp-web, plus PostgreSQL, Keycloak (OIDC, https issuer) and Temporal in
 # the cluster, the HOST's model double, setup Jobs and the NetworkPolicies the integrations need
 # (networkpolicy.yaml; every namespace stays default-deny). Everything cluster-specific is a patch here.
 # The sandbox comes with its egress proxy (idp-sandbox/deploy/kubernetes-egress, idp-sandbox ADR-0001 D22): a run may ask
 # for network=egress and then reaches the hosts on its tenant's allow-list through the proxy, and nothing else. The
 # list is the sandbox's as shipped, which allows nothing.
+# idp-web (the agents' web search and page reading, platform ADR-0003) is included as shipped: no tenant enabled, no search provider,
+# an egress rule that excludes every private address. What its acceptance (PATH M and N) needs is NOT here but in the overlay that
+# tests/kind/full.sh renders per run: the fixture provider, the tenants file that enables the run's tenant, the two test origins
+# and the one test NetworkPolicy that lets idp-web reach them (tests/kind/web-origin.yaml). Here: the gateway's host name at the
+# registry, and the HOST's rules for the web tools.
 # Secrets (the key the sandbox and its proxy share among them) and the per-run configuration (idp-eer's identity
 # ConfigMap, the allow-list of the run's tenant) are NOT in this overlay: tests/kind/full.sh generates them.
 # tests/kind/full.sh drives it. DEV ONLY (a test realm and CA, plain http inside the cluster).
@@ -20,6 +25,7 @@ resources:
   - ../../../idp-eer/deploy/kubernetes
   - ../../../idp-mcp/deploy/kubernetes
   - ../../../idp-sandbox/deploy/kubernetes-egress   # deploy/kubernetes plus the egress proxy
+  - ../../../idp-web/deploy/kubernetes
   - fakemodel.yaml
   - assistant.yaml
   - setup-jobs.yaml
@@ -32,6 +38,7 @@ images:
   - {name: registry.example.com/idp/idp-mcp, newName: idp-mcp, newTag: dev}
   - {name: registry.example.com/idp/idp-sandbox, newName: idp-sandbox, newTag: dev}
   - {name: registry.example.com/idp/idp-sandbox-egress, newName: idp-sandbox-egress, newTag: dev}
+  - {name: registry.example.com/idp/idp-web, newName: idp-web, newTag: dev}
   - {name: idp-cmi, newTag: dev}         # the setup Jobs name the images directly
   - {name: idp-host, newTag: dev}
   - {name: idp-workspace, newTag: dev}
@@ -89,6 +96,10 @@ patches:
                 kind: openai
                 baseUrl: http://fakemodel.idp-host.svc.cluster.local:18080/v1
                 insecure: true
+                # the model double is this platform's own (as in compose, deploy/compose/e2e.sh): without `external: false` a provider counts as
+                # outside the enterprise (idp-host D43, D44) and every run, web tools or not, is withheld the context items above the ceiling,
+                # which is what PATH N (d) tells apart from the run that has web tools
+                external: false
             cmi:
               endpoint: http://idp-cmi.idp-cmi.svc.cluster.local:8550
               # reads AS THE MEMBER (RFC 8693 exchange for the CMI audience), so a member's own memories are the ones retrieved
@@ -120,6 +131,11 @@ patches:
                   clientSecretFile: /etc/idp/gateway-client/client-secret
                   audience: http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/mcp
                   actorToken: true
+                # the HOST's own rules for the web tools, whatever a release says (idp-host D44): they send content outside the
+                # enterprise, so a run that may use them is not given context items above the ceiling; and the member confirms a
+                # page address of their own
+                externalTools: ["web__*"]
+                confirmTools: ["web__web_open_url"]
   - target: {kind: Deployment, name: idp-host}
     patch: *http-probes
   # ================= idp-workspace: Keycloak tokens, token exchange to the HOST and idp-eer =================
@@ -201,8 +217,8 @@ patches:
         value:
           IDP_REGISTRY_LISTEN: "0.0.0.0:8250"
           IDP_DEV_MODE: "true"          # HS256 admin tokens (registry-service dev-token); the data plane verifies Keycloak tokens
-          IDP_ALLOWED_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local"
-          IDP_PRIVATE_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local"
+          IDP_ALLOWED_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local,idp-web.idp-web.svc.cluster.local"
+          IDP_PRIVATE_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local,idp-web.idp-web.svc.cluster.local"
           IDP_DEPLOY_TIMEOUT: "60s"
           IDP_LOG_LEVEL: "info"
   - target: {kind: Deployment, name: idp-mcp-registry}
@@ -221,7 +237,7 @@ patches:
           IDP_GATEWAY_LISTEN: "0.0.0.0:3220"
           IDP_REGISTRY_URL: "http://idp-mcp-registry.idp-mcp.svc.cluster.local:8250"
           IDP_GATEWAY_TOKEN_FILE: "/etc/idp/credential/token"
-          IDP_GATEWAY_CALLER_KEY_FILE: "/etc/idp/caller/caller.key"   # signs the caller it forwards (idp-mcp D44); the sandbox requires it
+          IDP_GATEWAY_CALLER_KEY_FILE: "/etc/idp/caller/caller.key"   # signs the caller it forwards (idp-mcp D44); the sandbox and idp-web require it
           IDP_GATEWAY_ALLOWED_HOSTS: "idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local,idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220"
           IDP_RELEASE_CACHE: "/var/cache/idp/release.json"
           IDP_CALL_TIMEOUT: "60s"

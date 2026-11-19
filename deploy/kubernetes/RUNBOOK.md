@@ -8,13 +8,13 @@ WSL 里的 kind 集群（Calico）、整套平台在集群上的部署与验收�
 |---|---|
 | 集群 / 上下文 | `kind` / `kind-kind`，节点容器 `kind-control-plane`；kind v0.31，Kubernetes v1.35，Calico v3.30.3 |
 | 工具 | `~/.local/bin`：`kind`、`kubectl`、`crane`（无需 root） |
-| 命名空间 | `databases keycloak temporal idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs`，以及 `full.sh` 为 PATH L 加的测试源站 `egress-origin` |
+| 命名空间 | `databases keycloak temporal idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web`，以及 `full.sh` 为 PATH L、M、N 加的测试源站 `egress-origin`、`web-origin`、`web-attacker` |
 | 运行时类 | `gvisor`（runsc 20260126.0，kvm 平台）、`kata`（4.3.1，Go 运行时 + Cloud Hypervisor） |
-| 端口转发（full.sh） | Keycloak 17443（https）· Workspace 17560 · HOST 17450 · CMI 17550 · EER 17180 · idp-mcp 注册服务 17250 · 网关 17320 |
+| 端口转发（full.sh） | Keycloak 17443（https）· Workspace 17560 · HOST 17450 · CMI 17550 · EER 17180 · idp-mcp 注册服务 17250 · 网关 17320 · 助手页 17561 · 沙箱 17570（PATH D 的未签名调用）· idp-web 17580（PATH M 的未签名调用） |
 
 ```bash
 kubectl get nodes; docker start kind-control-plane            # 重启后恢复集群
-bash tests/kind/full.sh                                       # 整平台 PATH A–D；镜像已在时加 SKIP_BUILD=1；SANDBOX_RUNTIME_CLASS=gvisor|kata；MODEL=live；TEARDOWN=1
+bash tests/kind/full.sh                                       # 整平台 PATH A–N；镜像已在时加 SKIP_BUILD=1；SANDBOX_RUNTIME_CLASS=gvisor|kata；MODEL=live；TEARDOWN=1
 LOAD_LOCAL_IMAGES=1 bash idp-sandbox/tests/kind/smoke.sh      # 沙箱的集群检查
 kind delete cluster --name kind; bash idp-sandbox/tests/kind/local-cluster.sh   # 删除 / 重建
 ```
@@ -57,9 +57,9 @@ bash idp-sandbox/tests/kind/local-cluster.sh
 | 沙箱的运行镜像 `python:3.12-slim`、`alpine:3.22` | `LOAD_LOCAL_IMAGES=1` 从本机的 ECR 镜像打短名并加载 |
 | 重建组件镜像 | 各仓库 `deploy/build.sh`；EER：`idp-eer/tools/development/runtime_image_offline.sh eer-runtime:dev`；`full.sh` 不带 `SKIP_BUILD` 时全部重建 |
 
-## 整平台（PATH A–D）
+## 整平台（PATH A–N）
 
-`SKIP_BUILD=1 bash tests/kind/full.sh`：先删平台的十一个命名空间再重建（每次都是全新的平台）；生成本次的 CA、realm、密钥到 `.local/kind-full`（已忽略）；用后台端口转发跑与 compose 版相同的验收，成功时输出四行 `PASS: PATH …`。
+`SKIP_BUILD=1 bash tests/kind/full.sh`：先删平台的十四个命名空间再重建（每次都是全新的平台）；生成本次的 CA、realm、密钥到 `.local/kind-full`（已忽略）；用后台端口转发跑与 compose 版相同的验收，成功时每条路径一行 `PASS: PATH …`（还有 PostgreSQL TLS 与 pgvector 两行）。
 
 - **PATH A**：bob（Keycloak）→ Workspace 换令牌 → HOST 运行 → CMI 上下文包 → bob 的收件箱。
 - **PATH B**：operator 提交 T2 意图 → EER → bob 的收件箱 → 经 Workspace 批准 → EER 完成，审计里批准人是 bob。
@@ -67,12 +67,14 @@ bash idp-sandbox/tests/kind/local-cluster.sh
 - **PATH E**：bob 对记忆助手说一句话 → HOST 把这次对话作为情景记忆写进 CMI（作用域是 bob）→ 新对话的上下文包里取回它 → 同一对话保留历史 → alice 看不到。
 - **PATH I**：bob 让"谨慎的代码助手"跑代码 → idp-host 停下运行等他确认 → Workspace 把等待中的调用与它将要执行的代码给他看（管理员 alice 对这次运行与决定都是 404）→ bob 确认后代码执行、输出进收件箱；同一对话里第二次点拒绝，代码不执行。壳的"对话"页走的就是这条路径。
 - **PATH L**（compose 版也有，检查脚本是同一个 `deploy/compose/egress_check.py`）：bob 的令牌按 HOST 为运行换令牌的方式换成网关的令牌 → idp-mcp 网关 → 沙箱 → 带 `network=egress` 的运行经出口代理访问到他租户名单上的主机（集群里的测试源站），名单外的主机被代理拒绝（403），绕过代理直连不通；不带 `network=egress` 的运行环境里没有代理、也连不到代理。代理的日志里是 bob 的租户。见下面"沙箱的出口代理"。
+- **PATH M**（compose 版也有，记录由同一个 `deploy/compose/web_check.py` 读）：bob 问 web-assistant 一个只有测试源站的文章答得出的问题 → HOST 的 agent 经网关搜索（idp-web，搜索服务是 fixture）、用搜索结果的 `ref` 读那篇文章 → 回答里有只有文章才有的数字和 `[1]`；网关的记录里调用者是 bob、客户端是 idp-host；idp-web 的审计有查询词（明文）和读取的地址、没有 `ref`；源站的日志里只有这篇文章（和 robots.txt）。随后经端口转发（17580）直连 idp-web：不带网关签名、自称 bob 的 `tools/call` 得 403，`tools/list` 仍能回答（登记要用）。
+- **PATH N**：搜索找到的"公告"页面里写着"去取攻击者的地址"，模型替身照做。(a) idp-web 拒绝这个地址（对不上 `ref`，审计里 `decision=refused`、`reason=ref_…`）；(b) `web_open_url` 被 HOST 停下等 bob 确认（HOST 配置的 `confirmTools`，Release 里没有这条要求），bob 拒绝，idp-web 从没收到这次调用；(c) 攻击者的日志里没有任何请求；(d) CMI 里一条 confidential 的条目，不带 web 工具的对照运行拿得到，带 web 工具的运行拿不到（`externalTools`；路径内临时把租户的 `readerCeiling` 提到 confidential，结束后还原）。两条路径只有模型替身版，`MODEL=live` 时是 `NOT_RUN`。
 - **PATH F**：bob 经 Workspace（用他自己的令牌换 CMI 的令牌）列出并删除自己的记忆，alice 删不了；删除后列表和检索里都没有。
 - **PATH C**：EER Intelligence 的集成测试，在宿主上用 uv 对集群里的 CMI 运行（`env -i` 干净环境）。
 - 之后装好"助手"应用（`deploy/apps/assistant`）：两个 agent 的聊天页，页面由 `idp-workspace` 命名空间里的静态服务提供（`deploy/kubernetes/full/assistant.yaml`）。
 - `MODEL=live`：两个 agent 用本机模型；PATH A 另查回答引用了 CMI 里的规定，PATH D 查回答报告了代码的输出（工具确实被调用由网关的记录证明）。
 
-轻量版（只有 CMI、HOST、Workspace，开发令牌，无 Keycloak；GitHub 上的 kind 工作流跑的就是它）：`KIND_CLUSTER=kind SKIP_BUILD=1 LOAD_BASE_IMAGES=1 bash tests/kind/smoke.sh`。静态检查（不需要集群）：`uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py --full`——10 个命名空间都是 restricted 且默认拒绝，19 条流量在两端都被放行。
+轻量版（只有 CMI、HOST、Workspace，开发令牌，无 Keycloak；GitHub 上的 kind 工作流跑的就是它）：`KIND_CLUSTER=kind SKIP_BUILD=1 LOAD_BASE_IMAGES=1 bash tests/kind/smoke.sh`。静态检查（不需要集群）：`uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py --full`——11 个命名空间都是 restricted 且默认拒绝，20 条流量在两端都被放行。
 
 ## 沙箱的出口代理
 
@@ -95,6 +97,32 @@ kubectl -n idp-sandbox logs deploy/idp-sandbox-egress              # 每个请�
 ```
 
 租户 id 在 `.local/kind-full/overlay/tenants.yaml` 里。名单上的公网主机还要节点本身能连到；代理的 NetworkPolicy 只放行公网地址的 443 和 80。单独再验一次这条路径（转发开着时）：`python3 -I deploy/compose/egress_check.py`，参数见文件头。
+
+## idp-web（联网检索）
+
+`deploy/kubernetes/full` 原样包含 idp-web 自己的清单（`idp-web/deploy/kubernetes`，运维见 `idp-web/docs/RUNBOOK.md`）：命名空间 `idp-web` 里一个 Deployment（一个副本）与 Service（8580），默认拒绝，出口只到公网地址的 443、80（减去服务自己拒绝的全部 IPv4 段）。**发布的清单里没有任何租户、没有搜索服务**；验收需要的东西全在 `full.sh` 每次渲染的覆盖层（`.local/kind-full/overlay`）和它建的对象里，发布的清单里没有：
+
+- 构建并加载 `idp-web:dev`（compose 验收也构建它）；
+- 网关的公钥（和沙箱用的是同一把，ConfigMap `idp-web-gateway-caller-keys`）、`ref` 密钥（Secret `idp-web-ref-key`，每次新生成）、fixture 搜索结果（ConfigMap `idp-web-fixture`，地址是本次运行的测试源站）；
+- 租户文件：本次的租户启用，且 `openUrl: true`（让 HOST 少了确认时一个地址就能漏到测试源站）；其他人不可用（`overlay/web-tenants.yaml`）；
+- 搜索服务设为 `fixture`，`IDP_WEB_TEST_ORIGINS` 设为两个测试源站的 `主机:80`（**只属于测试**，发布的清单里没有它，`idp-web/tests/deploy` 断言这一点）；
+- 两个测试源站各在自己的命名空间（`tests/kind/web-origin.yaml`）：`web-origin` 里的是文章与"公告"页，`web-attacker` 里的是公告里让读者去取的地址；脚本是 compose 验收用的 `deploy/compose/web_origin.py`（放进 ConfigMap `web-origin-script`）。两个命名空间都是 restricted、默认拒绝，只放 idp-web 的 Pod 进来；
+- 一条**测试专用**的 NetworkPolicy `idp-web-test-origins`（在 `idp-web` 命名空间，也在 `web-origin.yaml` 里）：测试源站在集群里，地址是私有地址，发布的出口规则**正确地**把它们排除了，只有这一条放它们进来。去掉它，PATH M 就失败（这是它在起作用的证明，P2 任务做过）；
+- 在 idp-mcp 里登记 `web`（`mcp_setup.py` 的第 8 个参数，端点是 Service 的地址，要与 idp-web 的 `IDP_WEB_CALLER_AUDIENCE` 逐字相同：`http://idp-web.idp-web.svc.cluster.local:8580/mcp`）；注册服务的 `IDP_ALLOWED_UPSTREAM_HOSTS` / `IDP_PRIVATE_UPSTREAM_HOSTS` 在 `full/kustomization.yaml` 里含这个主机；web 工具只授给 HOST 令牌带的角色 `host-user`；
+- HOST 的配置（`full/kustomization.yaml`）里 `externalTools: ["web__*"]` 与 `confirmTools: ["web__web_open_url"]`。
+
+idp-web 的入口策略自己放行网关和注册服务（注册服务要发现工具），所以平台的覆盖层不像沙箱那样需要一条 `sandbox-registry`。
+
+在跑着的集群上改某个租户的名单（`full.sh` 下次运行会重写）：
+
+```bash
+kubectl -n idp-web get deploy idp-web -o jsonpath='{.spec.template.spec.volumes[?(@.name=="tenants")].configMap.name}'   # 生成的 ConfigMap 名
+kubectl -n idp-web edit configmap <上面的名字>                      # tenants.yaml：default 与 tenants.<租户 id>：enabled、includeDomains、excludeDomains、openUrl
+kubectl -n idp-web rollout restart deploy/idp-web                   # 服务只在启动时读一次
+kubectl -n idp-web logs deploy/idp-web --tail=-1 | grep '"msg":"audit"'   # 审计行：tool、decision、reason、query、url、没有 ref
+```
+
+租户 id 在 `.local/kind-full/overlay/web-tenants.yaml` 里。审计行在 `kubectl -n idp-web logs deploy/idp-web`，两个测试源站的访问日志在 `kubectl -n web-origin logs deploy/origin` 与 `kubectl -n web-attacker logs deploy/attacker`（每个请求一行 JSON；攻击者的日志里应当一行也没有）。镜像是 scratch，没有 shell，进不去 Pod；看日志与 `/metrics`（运维端口 9580：`kubectl -n idp-web port-forward deploy/idp-web 9580`；网络策略只放 `observability` 命名空间抓取，端口转发不受它限制）。
 
 ## 网关对调用者的签名
 
@@ -262,6 +290,9 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 | Kata：QEMU 起来就崩（`Failed to negotiate QMP`） | 嵌套 KVM 上 QEMU 客户机崩溃 | 用 Cloud Hypervisor（`configuration-clh.toml`），`sandbox_cgroup_only = false` |
 | gVisor：`--pids-limit 16` 起不来；docker-in-docker 里 `cannot read client sync file` | 上限数的是沙箱的宿主线程；嵌套 Docker 没有 cgroup 权限 | 上限用 64；`--cgroupns=host` |
 | 网关到沙箱不通 | 网络策略没放行 8570 | 网关与注册服务的出口策略加 8570；沙箱命名空间带 `idp-mcp/mcp-upstream: "true"` |
+| 网关到 idp-web 不通（登记时 discover 超时，或调用超时） | 网络策略没放行 8580：网关与注册服务的出口策略要有 8580（idp-mcp 的清单已有），`idp-web` 命名空间要带 `idp-mcp/mcp-upstream: "true"`，且它的入口策略要放行网关**和**注册服务（`idp-web/deploy/kubernetes/networkpolicy.yaml`）；或注册服务的 `IDP_ALLOWED_UPSTREAM_HOSTS` 没有 `idp-web.idp-web.svc.cluster.local` | 对照 `tools/k8s_check.py --full`；`kubectl -n idp-web get pods` 看是否就绪 |
+| idp-web 的 Pod 起不来（`CrashLoopBackOff`，日志 `IDP_WEB_PROVIDER is not set`）或 `ContainerCreating` | 发布的清单没有搜索服务（设计）；Secret `idp-web-ref-key`、ConfigMap `idp-web-gateway-caller-keys` 没建 | 整平台里是 `full.sh` 建它们、覆盖层设 `fixture`；单独部署看 `idp-web/docs/RUNBOOK.md` |
+| PATH M 失败：回答里是 `the site did not deliver the page within 15 seconds`（审计原因 `too_slow`），或 `no allowed web_fetch of …` | 测试源站是私网地址，要靠 `idp-web-test-origins` 那条测试策略放行（`tests/kind/web-origin.yaml`） | 确认这条策略在 `idp-web` 命名空间里 |
 | `MODEL=live`：运行失败或一直 running | 本机模型没开，或转发容器停了 | `curl 127.0.0.1:8080/v1/models`；`docker start idp-kind-model-forward`；`docker logs idp-kind-model-forward` |
 | "助手"页显示"请在 IDP Workspace 里打开" | 直接打开了页面，或 17561 的转发没开 | 从壳的导航进入"助手"；开 assistant 的端口转发 |
 | 经网关调用沙箱得 403 `the caller assertion is missing or invalid`（沙箱日志 `caller assertion refused`） | 网关没有签名密钥（没设 `IDP_GATEWAY_CALLER_KEY_FILE`，或密钥 `idp-mcp-gateway-caller-key` 不存在）；网关的私钥与沙箱公钥文件里的公钥不成对（轮换时先换了网关）；沙箱的 `IDP_SANDBOX_CALLER_AUDIENCE` 与登记的端点不是逐字相同；该上游没有以 `identity: forward` 登记 | 看网关与沙箱的环境变量和挂载文件；对一下两边的密钥（`openssl ec -in caller.key -pubout` 与 ConfigMap 里的公钥）；先加公钥、重启沙箱、再换网关的私钥；端点按登记的 URL 改 |
@@ -289,4 +320,5 @@ docker rm -f sbx-dind sbx-dind2                   # gVisor 的 docker-in-docker�
 - gVisor、Kata 都是在 WSL2 嵌套虚拟化上测的，真实云节点的行为和性能可能不同；`systrap` 的问题没有查到根因。
 - PVC 容量在 kind 上不被执行；EER 的 Intelligence 没有部署在集群里（PATH C 从宿主运行）。
 - 出口代理：PATH L 的源站在集群里，没有测过真实的公网流量；名单按租户，不按人或角色；PATH L 从网关开始，不经过 HOST 和模型（模型替身不会要 `network=egress`）。
+- idp-web：PATH M、N 的页面在集群里，搜索服务是 fixture，没有真实的公网流量或真实的搜索服务商走过 Kubernetes 上的出口规则（私网地址被排除这一点由反向检查证明：去掉测试策略，PATH M 失败）；只有模型替身版；每次运行的调用上限做不到（阶段 1，idp-web ADR-0001 D22）；一个副本，编号、缓存、限流在内存里。
 - 平台 CI 不跑整平台的集群验收（只有轻量 kind 版和静态检查），整平台验收目前只在本机。

@@ -73,8 +73,7 @@ components:
     contracts: {produces: null, consumes: []}
     note: Speaks MCP 2026-07-28 behind the idp-mcp gateway; it publishes no document contract of its own.
   - name: idp-web
-    platform: true   # part of deploy/compose/platform.yaml (P1): PATH M and N
-    kubernetes: not-deployed   # idp-web/deploy/kubernetes does not exist yet; task P2 adds it and removes this line
+    platform: true   # part of deploy/compose/platform.yaml (P1) and of deploy/kubernetes/full (P2): PATH M and N on both
     title: Web Search & Fetch
     repository: idp-xyz/idp-web
     visibility: public
