@@ -63,7 +63,7 @@ bash idp-sandbox/tests/kind/local-cluster.sh
 
 - **PATH A**：bob（Keycloak）→ Workspace 换令牌 → HOST 运行 → CMI 上下文包 → bob 的收件箱。
 - **PATH B**：operator 提交 T2 意图 → EER → bob 的收件箱 → 经 Workspace 批准 → EER 完成，审计里批准人是 bob。
-- **PATH D**：bob 运行 Python → HOST → idp-mcp 网关（HOST 为 bob 换来的令牌）→ 沙箱（Kubernetes 后端，转发调用者）→ `answer 42` 回到收件箱；网关记录里 subject 是 bob、client 是 idp-host。
+- **PATH D**：bob 运行 Python → HOST → idp-mcp 网关（HOST 为 bob 换来的令牌）→ 沙箱（Kubernetes 后端，转发调用者）→ `answer 42` 回到收件箱；网关记录里 subject 是 bob、client 是 idp-host。沙箱的启动日志写着 `callers must be signed by the gateway`；再经端口转发（不经沙箱的网络策略）直连沙箱：不带网关签名的 `tools/list` 仍能回答，冒用 bob 的 `tools/call` 被拒绝（403，沙箱日志 `caller assertion refused`）。见下面"网关对调用者的签名"。
 - **PATH E**：bob 对记忆助手说一句话 → HOST 把这次对话作为情景记忆写进 CMI（作用域是 bob）→ 新对话的上下文包里取回它 → 同一对话保留历史 → alice 看不到。
 - **PATH I**：bob 让"谨慎的代码助手"跑代码 → idp-host 停下运行等他确认 → Workspace 把等待中的调用与它将要执行的代码给他看（管理员 alice 对这次运行与决定都是 404）→ bob 确认后代码执行、输出进收件箱；同一对话里第二次点拒绝，代码不执行。壳的"对话"页走的就是这条路径。
 - **PATH L**（compose 版也有，检查脚本是同一个 `deploy/compose/egress_check.py`）：bob 的令牌按 HOST 为运行换令牌的方式换成网关的令牌 → idp-mcp 网关 → 沙箱 → 带 `network=egress` 的运行经出口代理访问到他租户名单上的主机（集群里的测试源站），名单外的主机被代理拒绝（403），绕过代理直连不通；不带 `network=egress` 的运行环境里没有代理、也连不到代理。代理的日志里是 bob 的租户。见下面"沙箱的出口代理"。
@@ -95,6 +95,30 @@ kubectl -n idp-sandbox logs deploy/idp-sandbox-egress              # 每个请�
 ```
 
 租户 id 在 `.local/kind-full/overlay/tenants.yaml` 里。名单上的公网主机还要节点本身能连到；代理的 NetworkPolicy 只放行公网地址的 443 和 80。单独再验一次这条路径（转发开着时）：`python3 -I deploy/compose/egress_check.py`，参数见文件头。
+
+## 网关对调用者的签名
+
+网关转发调用者时可以签名，沙箱可以要求这个签名（idp-mcp ADR-0001 D44、idp-sandbox ADR-0001 D18）。没有它，凡是能连上沙箱 8570 端口的都能自称任何调用者（租户由调用者决定），网络策略就成了唯一的边界。`deploy/kubernetes/full` 的叠加层（`kustomization.yaml`）与 `full.sh` 把它配上了，两个组件自己的清单没改：
+
+- `full.sh` 每次运行生成一对 P-256 密钥（`.local/kind-full/caller.key`、`caller.pub`，已忽略）：私钥进密钥 `idp-mcp/idp-mcp-gateway-caller-key`，作为文件挂到网关的 `/etc/idp/caller/caller.key`（`IDP_GATEWAY_CALLER_KEY_FILE`）；公钥进 ConfigMap `idp-sandbox/idp-sandbox-gateway-caller-keys`（公钥不是秘密），挂到沙箱的 `/etc/idp/gateway/caller.pub`（`IDP_SANDBOX_CALLER_KEYS_FILE`）；
+- 沙箱的 `IDP_SANDBOX_CALLER_AUDIENCE` 与 `full.sh` 在 idp-mcp 里登记的端点逐字相同：`http://idp-sandbox.idp-sandbox.svc.cluster.local:8570/mcp`（改了其中一个，另一个要一起改）；
+- 验收里的直连用 `kubectl port-forward`：沙箱的网络策略只放行网关与注册服务，策略保持原样；端口转发由 kubelet 在 Pod 自己的网络命名空间内连接，不经这条策略，所以不必为测试开口子。
+
+真实部署里自己生成这对密钥（`openssl ecparam -name prime256v1 -genkey -noout -out caller.key && openssl ec -in caller.key -pubout -out caller.pub`），私钥放密钥、公钥放 ConfigMap，不要入库。**轮换**（沙箱的文件里可以放几把公钥）：
+
+```bash
+# 1. 新密钥对；把新公钥追加到沙箱的公钥文件（旧的保留），重启沙箱
+openssl ecparam -name prime256v1 -genkey -noout -out new.key && openssl ec -in new.key -pubout -out new.pub
+kubectl -n idp-sandbox get cm idp-sandbox-gateway-caller-keys -o jsonpath='{.data.caller\.pub}' > both.pub; cat new.pub >> both.pub
+kubectl -n idp-sandbox create cm idp-sandbox-gateway-caller-keys --from-file=caller.pub=both.pub --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n idp-sandbox rollout restart deploy/idp-sandbox && kubectl -n idp-sandbox rollout status deploy/idp-sandbox
+# 2. 换网关的私钥并重启网关（调用在重启间隙不会被拒：新旧公钥此时都被沙箱接受）
+kubectl -n idp-mcp create secret generic idp-mcp-gateway-caller-key --from-file=caller.key=new.key --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n idp-mcp rollout restart deploy/idp-mcp-gateway-edge-1 && kubectl -n idp-mcp rollout status deploy/idp-mcp-gateway-edge-1
+# 3. 确认经网关的调用正常后，把旧公钥从文件里删掉（只留 new.pub），再重启沙箱
+```
+
+沙箱只在启动时读公钥文件，所以改了 ConfigMap 要重启沙箱；沙箱的工作区在内存里，重启会丢掉进行中的工作区。
 
 ## 沙箱的检查与加固运行时
 
@@ -240,6 +264,7 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 | 网关到沙箱不通 | 网络策略没放行 8570 | 网关与注册服务的出口策略加 8570；沙箱命名空间带 `idp-mcp/mcp-upstream: "true"` |
 | `MODEL=live`：运行失败或一直 running | 本机模型没开，或转发容器停了 | `curl 127.0.0.1:8080/v1/models`；`docker start idp-kind-model-forward`；`docker logs idp-kind-model-forward` |
 | "助手"页显示"请在 IDP Workspace 里打开" | 直接打开了页面，或 17561 的转发没开 | 从壳的导航进入"助手"；开 assistant 的端口转发 |
+| 经网关调用沙箱得 403 `the caller assertion is missing or invalid`（沙箱日志 `caller assertion refused`） | 网关没有签名密钥（没设 `IDP_GATEWAY_CALLER_KEY_FILE`，或密钥 `idp-mcp-gateway-caller-key` 不存在）；网关的私钥与沙箱公钥文件里的公钥不成对（轮换时先换了网关）；沙箱的 `IDP_SANDBOX_CALLER_AUDIENCE` 与登记的端点不是逐字相同；该上游没有以 `identity: forward` 登记 | 看网关与沙箱的环境变量和挂载文件；对一下两边的密钥（`openssl ec -in caller.key -pubout` 与 ConfigMap 里的公钥）；先加公钥、重启沙箱、再换网关的私钥；端点按登记的 URL 改 |
 | 沙箱：`the request carries no caller identity` | 没有以 `identity: forward` 注册 | 重新注册（不可改，要新建） |
 | 迁移 / 建租户的 Job 显示 `Error` | 数据库还没起来时的重试 | 看最后一次是否 `Completed` |
 | `kustomize: go: … goproxy.cn … EOF` | 代理偶发中断 | 重试 |

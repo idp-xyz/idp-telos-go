@@ -6,7 +6,9 @@
 # with the same assertions, through kubectl port-forwards on high local ports:
 #   PATH A  bob via the Workspace -> HOST -> CMI package -> inbox
 #   PATH B  operator T2 intent -> EER -> bob's inbox -> approval in the Workspace -> EER Completed
-#   PATH D  bob asks for code: HOST -> idp-mcp gateway -> idp-sandbox (kubernetes backend) -> 'answer 42' in the inbox
+#   PATH D  bob asks for code: HOST -> idp-mcp gateway -> idp-sandbox (kubernetes backend) -> 'answer 42' in the inbox; the gateway
+#           signs the caller it forwards (a per-run key) and the sandbox requires that signature: a tools/call that reaches the
+#           sandbox without it (a port-forward, which the sandbox's NetworkPolicy does not see) is refused with 403
 #   PATH E  memory: bob's words are remembered by the HOST in the CMI, found again in a new conversation, kept in the same one
 #   PATH F  my memory: bob lists and erases what was remembered about him, through the Workspace; alice cannot
 #   PATH I  a tool call waits for bob's confirmation; he decides it in the Workspace, the code then runs (or does not)
@@ -15,7 +17,7 @@
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
 # and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
-# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway, 17561 the assistant's page.
+# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway, 17561 the assistant's page, 17570 the sandbox (PATH D's unsigned call).
 #
 #   bash tests/kind/full.sh             build the images (as deploy/compose/e2e.sh), load them, deploy, run the paths
 #   PG_HA=1 ...                         PostgreSQL as a CloudNativePG cluster (a primary and two synchronous standbys, deploy/kubernetes/ha-postgres)
@@ -378,6 +380,12 @@ dbsecret idp-host idp-host-db idp_host x idp_host_svc "$HOST_DB"
 dbsecret idp-workspace idp-workspace-db idp_workspace x idp_ws_svc "$WS_DB"
 dbsecret idp-mcp idp-mcp-registry-db idp_mcp x idp_mcp_svc "$MCP_DB"
 mksecret idp-mcp idp-mcp-admin --from-literal=secret="$MCP_ADMIN"
+# the key the gateway signs the caller it forwards with (idp-mcp D44, IDP_GATEWAY_CALLER_KEY_FILE) and its public half, which the
+# sandbox verifies against (idp-sandbox D18, IDP_SANDBOX_CALLER_KEYS_FILE; a ConfigMap: it is not a secret). Both new every run.
+openssl ecparam -name prime256v1 -genkey -noout -out "$L/caller.key" 2>/dev/null
+openssl ec -in "$L/caller.key" -pubout -out "$L/caller.pub" 2>/dev/null
+mksecret idp-mcp idp-mcp-gateway-caller-key --from-file=caller.key="$L/caller.key"
+kubectl -n idp-sandbox create configmap idp-sandbox-gateway-caller-keys --from-file=caller.pub="$L/caller.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 # idp-sandbox: the key its service signs a run's egress credential with and its proxy verifies it with (D21)
 mksecret idp-sandbox idp-sandbox-egress-key --from-literal=egress.key="$(openssl rand -hex 32)"
 # idp-host: its key, the model/CMI credentials, the delegation client secret (the HOST's own identity at the CMI is its Keycloak service account)
@@ -736,7 +744,26 @@ print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'
 " || { echo "FAIL: the gateway's invocation records: $INVS" >&2; exit 1; }
 # and the sandbox knew whose workspace it made: its audit log names the caller (a hash), not the code
 kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q '"tool":"sandbox_run".*caller=' || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox did not see the caller" >&2; exit 1; }
-echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (kubernetes backend, caller forwarded) -> code ran in an isolated pod -> 'answer 42' in bob's inbox"
+# that caller was the gateway's word, not the network's: the sandbox verifies the gateway's signature (idp-sandbox D18), and
+# something that reaches it without the signature and names bob is refused before any tool runs. The sandbox's NetworkPolicy
+# admits only the gateway and the registry and stays as shipped; kubectl port-forward does not pass through it (the kubelet
+# connects inside the Pod's own network namespace), so a forward is how a test stands "on the sandbox's port" without a policy.
+kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q 'callers must be signed by the gateway' || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox does not verify the gateway's signature" >&2; exit 1; }
+pf idp-sandbox idp-sandbox 17570:8570
+SBX=http://127.0.0.1:17570/mcp
+sbx_post() { curl -s --noproxy '*' -m 20 -w '\n%{http_code}' -X POST "$SBX" -H 'Content-Type: application/json' -H 'MCP-Protocol-Version: 2026-07-28' --data "$1"; }
+META='"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}'
+LISTED=""
+for _ in $(seq 1 60); do
+  LISTED="$(sbx_post '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{'"$META"'}}}' || true)"
+  [[ "$LISTED" == *sandbox_create* && "$LISTED" == *$'\n'200 ]] && break; sleep 1
+done
+[[ "$LISTED" == *sandbox_create* && "$LISTED" == *$'\n'200 ]] || { echo "FAIL: the unsigned tools/list (discovery) does not answer on the sandbox: $LISTED" >&2; exit 1; }
+FORGED='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sandbox_create","arguments":{},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},'"$META"'}}}'
+DIRECT="$(sbx_post "$FORGED" || true)"
+[[ "$DIRECT" == *$'\n'403 && "$DIRECT" != *workspaceId* ]] && kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q 'caller assertion refused' \
+  || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
+echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (kubernetes backend, caller signed by the gateway and verified; an unsigned tools/call refused with 403, tools/list still answers) -> code ran in an isolated pod -> 'answer 42' in bob's inbox"
 
 # ---- PATH I: a tool call waits for the member, who decides it in the Workspace (idp-host D7, Workspace D22) ----
 # The same two sandbox tools, but running code needs the run owner's confirmation. The shell's conversation page
