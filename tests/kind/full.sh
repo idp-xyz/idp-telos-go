@@ -1133,21 +1133,35 @@ echo "PASS: PATH M4 — PDF reading: bob's run read $WEB_TARIFF and the page mar
 M5USED="$(web_sql "$SEARCHES_TODAY")"
 (( M5USED + 2 <= MLIMIT )) || { echo "FAIL: PATH M5: the database counts $M5USED searches of $MLIMIT, and this path needs two (PATH M4 zeroes the count when it ends; if the check ran across 00:00 UTC, run it again)" >&2; exit 1; }
 M5INVENTED=987
-m5_record() { # m5_record RUN ANSWER: the run, its events and the answer, as one document for web_check.py
-  python3 -c "import json,sys; print(json.dumps({'run': json.loads(sys.argv[1]), 'events': json.loads(sys.argv[2]), 'answer': sys.argv[3]}))" \
-    "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$1" "$BOB")" "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$1/events?limit=500" "$BOB")" "$2"
+m5_item() { # m5_item RUN: bob's inbox item of the run (externalRef run:<id>), as the inbox endpoint returns it
+  call 200 GET "$WS/v1/workspaces/us-ops/inbox?kind=run&status=all" "$BOB" | python3 -c "
+import json,sys
+hit = [it for it in json.load(sys.stdin)['items'] if it['externalRef'] == 'run:$1' and it['title'].endswith('— finished')]
+if len(hit) != 1: sys.exit('want one finished inbox item run:$1, got %d' % len(hit))
+print(json.dumps(hit[0]))"
+}
+m5_record() { # m5_record RUN ANSWER: the run, its events, its inbox item and the answer, as one document for web_check.py
+  python3 -c "import json,sys; print(json.dumps({'run': json.loads(sys.argv[1]), 'events': json.loads(sys.argv[2]), 'item': json.loads(sys.argv[3]), 'answer': sys.argv[4]}))" \
+    "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$1" "$BOB")" "$(call 200 GET "$WS/v1/workspaces/us-ops/runs/$1/events?limit=500" "$BOB")" "$(m5_item "$1")" "$2"
+}
+# alice is a member of us-ops (she made it) and is not the assignee of bob's run item: the item and its sources are not hers to see (404, not 403)
+call 200 GET "$WS/v1/workspaces/us-ops" "$ALICE" >/dev/null
+m5_hidden() { # m5_hidden RUN: a member who is not the assignee gets 404 on the item, by id
+  call 404 GET "$WS/v1/workspaces/us-ops/inbox/$(m5_item "$1" | field "['itemId']")" "$ALICE" >/dev/null
 }
 M5RUN="$(ask_agent websearch ask "web: $MQ")"
 M5ANS="$(run_summary "$M5RUN")"
 M5SRC="$(m5_record "$M5RUN" "$M5ANS" | python3 -I deploy/compose/web_check.py m5-sources "$WEB_ARTICLE")" || { echo "run $M5RUN, answer: $M5ANS" >&2; exit 1; }
+m5_hidden "$M5RUN"
 M5CRUN="$(ask_agent websearch ask "web-cite: $MQ")"
 M5CANS="$(run_summary "$M5CRUN")"
 M5CITE="$(m5_record "$M5CRUN" "$M5CANS" | python3 -I deploy/compose/web_check.py m5-cite "$WEB_ARTICLE" "$M5INVENTED")" || { echo "run $M5CRUN, answer: $M5CANS" >&2; exit 1; }
+m5_hidden "$M5CRUN"
 M5PRUN="$(ask_agent orders order.review "How long does a parcel stay at the depot? [3]")"
 M5PANS="$(run_summary "$M5PRUN")"
 M5PLAIN="$(m5_record "$M5PRUN" "$M5PANS" | python3 -I deploy/compose/web_check.py m5-plain 3)" || { echo "run $M5PRUN, answer: $M5PANS" >&2; exit 1; }
 web_sql "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null
-echo "PASS: PATH M5 — sources and citations: run $M5RUN: $M5SRC; run $M5CRUN (web-cite): $M5CITE; run $M5PRUN (no web tools): $M5PLAIN; two searches used (the count was $M5USED, zeroed again for PATH N)"
+echo "PASS: PATH M5 — sources and citations: run $M5RUN: $M5SRC; run $M5CRUN (web-cite): $M5CITE; alice, a member who is not the assignee, gets 404 on both items; run $M5PRUN (no web tools): $M5PLAIN; two searches used (the count was $M5USED, zeroed again for PATH N)"
 
 # ---- PATH N: a page tells the model to send data away, and the model does as the page says ----
 # The search finds the bulletin, whose text names an address of the attacker's and tells the reader to fetch it with the context. The

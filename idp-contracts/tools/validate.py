@@ -383,6 +383,11 @@ if WS in schemas:
         # 1.1.0 (D15)
         ('ws_manifest_identity_token_only', WS, 'AppManifest', 0, S(capabilities=['identity.token'])),
         ('ws_bridge_identity_token_request', WS, 'BridgeMessage', 4, U()),
+        # 1.3.0 (D29): the sources of a finished run, and a run item with only the unverified numbers
+        ('ws_run_item_with_sources_and_an_unverified_number', WS, 'InboxItem', 2, U()),
+        ('ws_run_item_with_sources_only', WS, 'InboxItem', 2, U('unverifiedCitations')),
+        ('ws_run_item_with_unverified_only', WS, 'InboxItem', 2, U('sources')),
+        ('ws_run_item_without_either', WS, 'InboxItem', 2, U('sources', 'unverifiedCitations')),
     ]
     NEGATIVE += [
         ('ws_manifest_wrong_schema_version', WS, 'AppManifest', 0, S(schemaVersion='idp.workspace.app/v2')),
@@ -410,6 +415,17 @@ if WS in schemas:
         ('ws_bridge_event_with_id', WS, 'BridgeMessage', 6, S(id='1')),
         ('ws_bridge_other_protocol', WS, 'BridgeMessage', 6, S(protocol='idp.bridge/v2')),
         ('ws_bridge_identity_token_with_params_result', WS, 'BridgeMessage', 4, S(result={})),
+        # 1.3.0 (D29): what the Workspace would never store
+        ('ws_item_source_javascript_address', WS, 'InboxItem', 2, P('sources.0.url', 'javascript:alert(1)')),
+        ('ws_item_source_ftp_address', WS, 'InboxItem', 2, P('sources.0.url', 'ftp://example.org/x')),
+        ('ws_item_source_number_zero', WS, 'InboxItem', 2, P('sources.0.n', 0)),
+        ('ws_item_source_short_sha256', WS, 'InboxItem', 2, P('sources.0.sha256', 'ab')),
+        ('ws_item_source_without_cited', WS, 'InboxItem', 2, P('sources.0', {'n': 1, 'title': 't', 'url': 'https://example.org/x'})),
+        ('ws_item_source_excerpt_field', WS, 'InboxItem', 2, P('sources.0.excerpt', 'page text')),
+        ('ws_item_101_sources', WS, 'InboxItem', 2, S(sources=[{'n': i, 'title': 't', 'url': 'https://example.org/x', 'cited': False} for i in range(1, 102)])),
+        ('ws_item_unverified_year', WS, 'InboxItem', 2, S(unverifiedCitations=[2026])),
+        ('ws_item_unverified_repeated', WS, 'InboxItem', 2, S(unverifiedCitations=[7, 7])),
+        ('ws_item_sources_not_a_list', WS, 'InboxItem', 2, S(sources={})),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):

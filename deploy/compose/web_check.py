@@ -209,15 +209,16 @@ def n_input(marker):
 
 
 def m5_input():
-    """PATH M5 reads three things of one run as bob sees them through the Workspace: the run (GET /v1/workspaces/<w>/runs/<id>, the
-    HOST's AgentRun), its events (the JSON page) and the answer that reached his inbox."""
+    """PATH M5 reads four things of one run as bob sees them through the Workspace: the run (GET /v1/workspaces/<w>/runs/<id>, the
+    HOST's AgentRun), its events (the JSON page), its inbox item (GET /v1/workspaces/<w>/inbox, idp-workspace D29) and the answer
+    that reached his inbox."""
     global PATH
     PATH = 'M5'
     d = json.load(sys.stdin)
     events = [e for e in d['events'].get('events', []) if isinstance(e, dict)]
     if len(events) >= 500:
         fail('events', 'the page of events is full (500): the end of the run may be cut off')
-    return d['run'], [e.get('event') or {} for e in events], d['answer']
+    return d['run'], [e.get('event') or {} for e in events], d['answer'], d['item']
 
 
 def m5_sources_event(run, events):
@@ -256,10 +257,38 @@ def m5_article(run, address):
     return x
 
 
+def m5_item_sources(run, events, item, answer):
+    """The inbox item of the run (idp-workspace D29, contract idp.telos.workspace 1.3.0) holds the run's own sources in its own field:
+    the same numbers, addresses, cited flags and digests, in the same order; and its summary is the answer, not the answer plus a list."""
+    if item.get('kind') != 'run' or item.get('externalRef') != 'run:' + run.get('runId', ''):
+        fail('item', f'the inbox item is not this run\'s: {item.get("kind")} {item.get("externalRef")} (run {run.get("runId")})')
+    got = item.get('sources')
+    if not isinstance(got, list) or not got:
+        fail('item', f'the run has sources and its inbox item has none: {json.dumps(item)[:300]}')
+    keys = lambda xs: [(x.get('n'), x.get('url'), x.get('cited'), x.get('sha256')) for x in xs]
+    if keys(got) != keys(run['sources']):
+        fail('item', f'the item\'s sources are not the run\'s: item {keys(got)}, run {keys(run["sources"])}')
+    # the answer as the HOST's own event stream has it (the last text message, as the Workspace's follower reads it): the summary is that
+    # text and nothing before or after it, so the list of sources is not appended to it
+    text, current = '', ''
+    for e in events:
+        if e.get('type') == 'TEXT_MESSAGE_START':
+            current = ''
+        elif e.get('type') == 'TEXT_MESSAGE_CONTENT':
+            current += e.get('delta', '')
+        elif e.get('type') == 'TEXT_MESSAGE_END' and current.strip():
+            text = current.strip()
+    if not text:
+        fail('item', 'the run\'s events have no text message, so the summary cannot be compared with the answer')
+    if item.get('summary', '') != text or answer != text.replace('\n', ' '):
+        fail('item', f'the item\'s summary is not the run\'s answer (it must not carry the list of sources): summary {item.get("summary", "")[-200:]!r}, answer {text[-200:]!r}')
+    return got
+
+
 def m5_sources(address):
     """PATH M5 (1): a run that searched and read the article: it is among the sources with its time and digest, the number the
     answer cites is the article's and marked cited, and nothing is unverified."""
-    run, events, answer = m5_input()
+    run, events, answer, item = m5_input()
     x = m5_article(run, address)
     marks = {int(n) for n in re.findall(r'\[(\d+)\]', answer)}
     if x['n'] not in marks or x['cited'] is not True:
@@ -270,14 +299,17 @@ def m5_sources(address):
     if run.get('unverifiedCitations'):
         fail('unverified', f'the answer cites numbers that are sources, yet unverifiedCitations is {run["unverifiedCitations"]}')
     v = m5_sources_event(run, events)
-    print(f'sources: {len(run["sources"])} ({", ".join(str(y["n"]) for y in run["sources"])}); the article is [{x["n"]}] cited, read {x["fetchedAt"]}, sha256 {x["sha256"][:12]}...; '
+    got = m5_item_sources(run, events, item, answer)
+    if 'unverifiedCitations' in item:
+        fail('item', f'nothing is unverified, so the item has no unverifiedCitations (absent, not empty): {item["unverifiedCitations"]}')
+    print(f'inbox item: the same {len(got)} sources in its own field, no unverifiedCitations, the summary is the answer; sources: {len(run["sources"])} ({", ".join(str(y["n"]) for y in run["sources"])}); the article is [{x["n"]}] cited, read {x["fetchedAt"]}, sha256 {x["sha256"][:12]}...; '
           f'no unverified number; one idp.host/run.sources before RUN_FINISHED (dropped {v.get("droppedInvalid")}/{v.get("droppedOverLimit")}, conflicts {v.get("conflicts")})')
 
 
 def m5_cite(address, invented):
     """PATH M5 (2): the model double also cites a number no source can have: marked unverified, exactly that one, and the answer
     reached the inbox as the model wrote it (the HOST marks, it does not block or edit)."""
-    run, events, answer = m5_input()
+    run, events, answer, item = m5_input()
     x = m5_article(run, address)
     n = int(invented)
     if run.get('unverifiedCitations') != [n]:
@@ -289,12 +321,15 @@ def m5_cite(address, invented):
     v = m5_sources_event(run, events)
     if v.get('unverifiedCitations') != [n]:
         fail('event', f'the event does not carry the unverified number: {v.get("unverifiedCitations")}')
-    print(f'unverified: [{n}] and only it; the article [{x["n"]}] cited: {x["cited"]}; the answer reached the inbox with "Also [{n}]." (marked, not blocked); the event carries it')
+    got = m5_item_sources(run, events, item, answer)
+    if item.get('unverifiedCitations') != [n]:
+        fail('item', f'want the inbox item\'s unverifiedCitations exactly [{n}], got {item.get("unverifiedCitations")}')
+    print(f'inbox item: the same {len(got)} sources and unverifiedCitations [{n}]; unverified: [{n}] and only it; the article [{x["n"]}] cited: {x["cited"]}; the answer reached the inbox with "Also [{n}]." (marked, not blocked); the event carries it')
 
 
 def m5_plain(number):
     """PATH M5 (3): an agent without web tools whose answer has a bracketed number: it is not a citation, nothing is checked."""
-    run, events, answer = m5_input()
+    run, events, answer, item = m5_input()
     if f'[{number}]' not in answer:
         fail('premise', f'the answer has no [{number}], so this proves nothing: {answer[:200]}')
     if run.get('status') != 'COMPLETED':
@@ -303,6 +338,8 @@ def m5_plain(number):
         fail('plain', f'a run without web tools carries sources or unverifiedCitations: {json.dumps(run)[:300]}')
     if [e for e in events if e.get('name') == 'idp.host/run.sources']:
         fail('plain', 'a run without web tools has an idp.host/run.sources event')
+    if 'sources' in item or 'unverifiedCitations' in item:
+        fail('plain', f'the inbox item of a run without web tools carries sources or unverifiedCitations: {json.dumps(item)[:300]}')
     print(f'no check: the answer has [{number}], the run has neither sources nor unverifiedCitations and no idp.host/run.sources event')
 
 
