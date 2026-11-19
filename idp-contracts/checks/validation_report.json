@@ -1,6 +1,6 @@
 {
   "scope": "FILE_LEVEL_ONLY",
-  "checked_on": "2026-11-17",
+  "checked_on": "2026-11-19",
   "validator": "jsonschema 4.26.0",
   "referencing": "0.37.0",
   "draft": "2020-12",
@@ -12,8 +12,8 @@
       "definitions": 12
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.9.0",
-      "version": "1.9.0",
+      "id": "urn:idp:telos:host:1.10.0",
+      "version": "1.10.0",
       "definitions": 30
     },
     "idp.telos.cmi": {
@@ -31,8 +31,8 @@
   "negative_cases": 173,
   "passed": 282,
   "total": 282,
-  "invariants_passed": 36,
-  "invariants_total": 36,
+  "invariants_passed": 37,
+  "invariants_total": 37,
   "producer_sync": "PASSED",
   "invariants": {
     "every_definition_has_title_description_owner": {
@@ -68,31 +68,34 @@
     "idp_telos_mcp_1_1_0_is_additive_over_1_0_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_8_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_9_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_7_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_8_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_6_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_7_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_5_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_6_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_4_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_5_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_3_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_4_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_2_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_3_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_1_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_2_0": {
       "passed": true
     },
-    "idp_telos_host_1_9_0_is_additive_over_1_0_0": {
+    "idp_telos_host_1_10_0_is_additive_over_1_1_0": {
+      "passed": true
+    },
+    "idp_telos_host_1_10_0_is_additive_over_1_0_0": {
       "passed": true
     },
     "idp_telos_cmi_1_4_0_is_additive_over_1_3_0": {
