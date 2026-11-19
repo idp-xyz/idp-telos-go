@@ -156,7 +156,7 @@ class BusinessSet(unittest.TestCase):
     def test_every_item_is_anchored_sourced_and_independently_confirmed(self):
         from tools.web_eval import sets
         items = sets.e2()
-        self.assertGreaterEqual(len(items), 59)
+        self.assertGreaterEqual(len(items), 151)
         self.assertEqual(len({i["id"] for i in items}), len(items))
         for i in items:
             with self.subTest(id=i["id"]):
