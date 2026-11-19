@@ -210,7 +210,7 @@ services:
   web:
     <<: *hardened
     image: ${IDP_WEB_IMAGE:-idp-web:dev}
-    networks: [upstream, edge]
+    networks: [upstream, edge, data]   # data: the database of the daily quota and the source numbers (idp-web D28, D29)
     volumes: ['../../.local/platform/caller.pub:/etc/idp/gateway.pub:ro', '../../.local/platform/web-ref.key:/etc/idp/ref.key:ro',
               '../../.local/platform/web-tenants.yaml:/etc/idp/tenants.yaml:ro', '../../.local/platform/web-fixture.yaml:/etc/idp/fixture.yaml:ro']
     environment:
@@ -222,9 +222,20 @@ services:
       IDP_WEB_FIXTURE_FILE: /etc/idp/fixture.yaml
       IDP_WEB_REF_KEY_FILE: /etc/idp/ref.key
       IDP_WEB_TENANTS_FILE: /etc/idp/tenants.yaml
+      IDP_WEB_DATABASE_URL: postgres://idp_web_svc:${IDP_WEB_DB_PASSWORD:?run deploy/compose/e2e.sh}@postgres:5432/idp_web?sslmode=disable
       # TESTS ONLY (deploy/compose/e2e.sh sets it): the two test origins below are containers of this project, at private
       # addresses on port 80 (idp-web D14); nothing else is exempt
       IDP_WEB_TEST_ORIGINS: ${IDP_WEB_TEST_ORIGINS:-}
+  # idp-web's database tasks (idp-web ADR-0001 D29), as mcp-admin is idp-mcp's: `migrate` as the owner, `ensure-login idp_web_svc`.
+  web-admin:
+    <<: *hardened
+    image: ${IDP_WEB_IMAGE:-idp-web:dev}
+    profiles: [tools]
+    entrypoint: [/idp-web]
+    networks: [data]
+    environment:
+      IDP_WEB_MIGRATION_DATABASE_URL: postgres://postgres:${IDP_PG_OWNER_PASSWORD}@postgres:5432/idp_web?sslmode=disable
+      IDP_WEB_APP_DB_PASSWORD: ${IDP_WEB_DB_PASSWORD:?run deploy/compose/e2e.sh}
   # TEST ONLY (profile web-test, which deploy/compose/e2e.sh turns on): the two origins of PATH M and N, which record every
   # request (deploy/compose/web_origin.py). `web-origin` is what the fixture search results point at; `web-attacker` is the
   # address a page tells the reader to send data to. They are two containers, not two names of one, so that "the attacker

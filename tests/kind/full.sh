@@ -202,7 +202,7 @@ token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_t
 KC=(curl -sf --noproxy '*' --cacert "$L/tls/ca.crt")
 user_token() { "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d "username=$1" -d "password=$(secret_of "$1")" | token_json; }
 rnd() { openssl rand -hex 16; }
-PG=$(rnd) CMI_DB=$(rnd) HOST_DB=$(rnd) WS_DB=$(rnd) MCP_DB=$(rnd) EER_OWNER=$(rnd) EER_APP=$(rnd) EER_RO=$(rnd) EER_IOWN=$(rnd) EER_IAPP=$(rnd) MCP_ADMIN="$(openssl rand -hex 32)"
+PG=$(rnd) CMI_DB=$(rnd) HOST_DB=$(rnd) WS_DB=$(rnd) MCP_DB=$(rnd) WEB_DB=$(rnd) EER_OWNER=$(rnd) EER_APP=$(rnd) EER_RO=$(rnd) EER_IOWN=$(rnd) EER_IAPP=$(rnd) MCP_ADMIN="$(openssl rand -hex 32)"
 PGH=postgresql.databases.svc.cluster.local:5432
 
 # ---------------------------------------------------------------- render
@@ -221,7 +221,9 @@ cp tests/kind/egress-origin.yaml "$L/overlay/egress-origin.yaml"
 # per run, idp-web-fixture); the two test origins, exempt from the address rules by exactly host:port (idp-web D14); and the test origins
 # and the one NetworkPolicy that lets idp-web reach their private addresses (tests/kind/web-origin.yaml).
 cp tests/kind/web-origin.yaml "$L/overlay/web-origin.yaml"
-printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true}\n' "$TENANT" > "$L/overlay/web-tenants.yaml"
+# dailySearches: 3 is the daily quota PATH M3 uses up (PATH M searches once, M3 the other two and is refused the next; M3 then zeroes the
+# count so that PATH N has its own searches)
+printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true, dailySearches: 3}\n' "$TENANT" > "$L/overlay/web-tenants.yaml"
 cat > "$L/overlay/tenants.yaml" <<EOF
 default:
   hosts: []
@@ -308,7 +310,7 @@ def pod_spec(d):
     if d["kind"] in ("Deployment", "StatefulSet", "Job"): return d["spec"]["template"]["spec"]
     if d["kind"] == "CronJob": return d["spec"]["jobTemplate"]["spec"]["template"]["spec"]
 for d in docs:
-    spec = pod_spec(d) if ns(d) in ("idp-cmi", "idp-host", "idp-workspace", "idp-mcp", "idp-eer") else None
+    spec = pod_spec(d) if ns(d) in ("idp-cmi", "idp-host", "idp-workspace", "idp-mcp", "idp-eer", "idp-web") else None
     if not spec: continue
     spec.setdefault("volumes", []).append({"name": "pg-ca", "configMap": {"name": "pg-ca"}})
     for c in spec.get("containers", []) + spec.get("initContainers", []):
@@ -353,7 +355,7 @@ fi
 # the pod to run psql in: the single PostgreSQL's Deployment, or the cluster's current primary
 pgtarget() { if [[ "$PG_HA" == 1 ]]; then echo "pod/$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}')"; else echo deploy/postgresql; fi; }
 [[ "$PG_HA" == 1 ]] || kubectl -n databases create secret generic postgres-tls --from-file=tls.crt="$L/tls/pg.crt" --from-file=tls.key="$L/tls/pg.key" >/dev/null   # HA: created above, as the kubernetes.io/tls type the cluster wants
-for ns_ in databases idp-cmi idp-host idp-workspace idp-mcp idp-eer; do kubectl -n "$ns_" create configmap pg-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null; done
+for ns_ in databases idp-cmi idp-host idp-workspace idp-mcp idp-eer idp-web; do kubectl -n "$ns_" create configmap pg-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null; done
 # the backup target: an S3-compatible store on the HOST (outside the cluster), reached through the kind network's gateway (RustFS:
 # tests/kind/s3-target.sh), and the age key pair whose private half stays in $L and never enters the cluster
 BK_AK="backup$(openssl rand -hex 4)"; BK_SK="$(openssl rand -hex 16)"
@@ -392,7 +394,7 @@ PY
 else
   kubectl -n databases rollout status deploy/postgresql --timeout=300s
 fi
-for db in idp_cmi idp_host idp_workspace idp_mcp eer; do kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
+for db in idp_cmi idp_host idp_workspace idp_mcp idp_web eer; do kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
 # idp-eer: its roles (deploy/postgres/bootstrap-runtime-roles.sql)
 kubectl -n databases exec -i -c postgres $(pgtarget) -- psql -U postgres --no-psqlrc -q --set ON_ERROR_STOP=1 \
   --set "runtime_owner_password=$EER_OWNER" --set "runtime_app_password=$EER_APP" --set "runtime_readonly_password=$EER_RO" \
@@ -416,6 +418,10 @@ dbsecret idp-cmi idp-cmi-db idp_cmi x idp_cmi_svc "$CMI_DB"
 dbsecret idp-host idp-host-db idp_host x idp_host_svc "$HOST_DB"
 dbsecret idp-workspace idp-workspace-db idp_workspace x idp_ws_svc "$WS_DB"
 dbsecret idp-mcp idp-mcp-registry-db idp_mcp x idp_mcp_svc "$MCP_DB"
+# idp-web's database (idp-web ADR-0001 D29): the service's URL is the Deployment's Secret (a file in the pod), the owner's URL and the
+# service role's password are the Secret of the migration and login Jobs, which the service never mounts
+mksecret idp-web idp-web-database --from-literal=service-url="postgres://idp_web_svc:$WEB_DB@$PGH/idp_web?sslmode=verify-full"
+mksecret idp-web idp-web-database-owner --from-literal=owner-url="postgres://postgres:$PG@$PGH/idp_web?sslmode=verify-full" --from-literal=app-password="$WEB_DB"
 mksecret idp-mcp idp-mcp-admin --from-literal=secret="$MCP_ADMIN"
 # the key the gateway signs the caller it forwards with (idp-mcp D44, IDP_GATEWAY_CALLER_KEY_FILE) and its public half, which the
 # sandbox verifies against (idp-sandbox D18, IDP_SANDBOX_CALLER_KEYS_FILE; a ConfigMap: it is not a secret). Both new every run.
@@ -464,7 +470,7 @@ log "components"
 kubectl apply -f "$L/phase-2-components.yaml" >/dev/null
 waitjobs() { # waitjobs SELECTOR: every Job with the selector in the platform's namespaces completes
   local ns
-  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp; do
+  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-web; do
     kubectl -n "$ns" wait --for=condition=complete job -l "$1" --timeout=600s >/dev/null || { kubectl -n "$ns" get pods; kubectl -n "$ns" logs -l "job-name" --all-containers --tail=20 || true; echo "BLOCKED: jobs ($1) in $ns" >&2; exit 2; }
   done
 }
@@ -477,10 +483,12 @@ for ns in idp-cmi idp-host idp-workspace idp-mcp; do
   got="$(kubectl -n "$ns" logs job/kind-tenant | sed -n 's/^TENANT_ID=//p')"
   [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: $ns tenant '$got' != $TENANT" >&2; exit 2; }
 done
+kubectl -n idp-web wait --for=condition=complete job -l idp-telos/phase=setup --timeout=600s >/dev/null || { kubectl -n idp-web logs -l job-name --all-containers --tail=20; echo "BLOCKED: setup jobs in idp-web" >&2; exit 2; }
 kubectl -n idp-eer wait --for=condition=complete job/eer-configure --timeout=600s >/dev/null || { kubectl -n idp-eer logs job/eer-configure --tail=30; echo "BLOCKED: eer-configure" >&2; exit 2; }
 log "rollouts"
 for ns in idp-cmi idp-host idp-workspace idp-eer; do kubectl -n "$ns" rollout restart deploy >/dev/null; done   # pick up the logins and schemas created after the first start
 kubectl -n idp-mcp rollout restart deploy/idp-mcp-registry >/dev/null
+kubectl -n idp-web rollout restart deploy/idp-web >/dev/null   # it did not start before its login existed
 for ns in idp-cmi idp-host idp-workspace idp-eer; do
   for d in $(kubectl -n "$ns" get deploy -o name); do kubectl -n "$ns" rollout status "$d" --timeout=300s >/dev/null || { echo "BLOCKED: $ns/$d" >&2; exit 2; }; done
 done
@@ -1058,6 +1066,29 @@ echo "PASS: PATH M — bob -> Workspace -> HOST run $MRUN (web-assistant) -> gat
 MCHECK="$(python3 -I deploy/compose/client_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" "$GATEWAY_URL" http://127.0.0.1:17320/mcp)" \
   || { kubectl -n idp-mcp logs deploy/idp-mcp-gateway-edge-1 --tail=20; exit 1; }
 echo "PASS: PATH M2 — the web tools are only the HOST's: $MCHECK"
+
+# ---- PATH M3: the daily quota (idp-web ADR-0001 D28): this tenant may search 3 times a day; bob's runs use what is left, the next is refused ----
+# As in deploy/compose/e2e.sh: the searches are the HOST's, through the gateway, one run each. The limit is 3 and PATH M used one; the check
+# reads what the database counts, runs as many as are left, and the next run is told the limit is used up. The fixture logs nothing, so
+# that the refused search did not reach it is shown by the count staying at the limit (a refused take adds nothing) and the audit line
+# having no result. The count is zeroed afterwards so that PATH N, which searches too, has its own.
+web_sql() { kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d idp_web -Atc "$1"; }
+SEARCHES_TODAY="SELECT coalesce(sum(used), 0) FROM daily_usage WHERE tenant = '$TENANT' AND kind = 'searches' AND day = (now() AT TIME ZONE 'utc')::date"
+MLIMIT=3; MUSED="$(web_sql "$SEARCHES_TODAY")"
+(( MUSED >= 1 && MUSED < MLIMIT )) || { echo "FAIL: PATH M3: the database counts $MUSED searches of $MLIMIT after PATH M (it made one, so 1 or 2 is right; if the check ran across 00:00 UTC, run it again)" >&2; exit 1; }
+M3Q="$MQ again"; M3LEFT=$(( MLIMIT - MUSED ))
+for _ in $(seq 1 "$M3LEFT"); do
+  M3ANS="$(run_summary "$(ask_agent websearch ask "web: $M3Q")")"
+  [[ "$M3ANS" == *"41,872"* ]] || { echo "FAIL: PATH M3: a search within the limit was not answered: $M3ANS" >&2; exit 1; }
+done
+M3REFUSED="$(run_summary "$(ask_agent websearch ask "web: $M3Q")")"
+[[ "$M3REFUSED" == *"daily limit of searches for your organisation is used up"* && "$M3REFUSED" == *"00:00 UTC"* && "$M3REFUSED" != *"41,872"* ]] \
+  || { echo "FAIL: PATH M3: the search over the limit was not refused with the quota sentence: $M3REFUSED" >&2; exit 1; }
+M3USED="$(web_sql "$SEARCHES_TODAY")"
+[[ "$M3USED" == "$MLIMIT" ]] || { echo "FAIL: PATH M3: the database counts $M3USED searches after the refusal, want exactly $MLIMIT: the refused search was counted, so it went out" >&2; exit 1; }
+M3AUD="$(web_log idp-web idp-web | python3 -I deploy/compose/web_check.py m3-audit "$M3Q" "$M3LEFT")" || { web_log idp-web idp-web | tail -12 >&2; exit 1; }
+web_sql "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null
+echo "PASS: PATH M3 — the daily quota: $M3LEFT more searches of bob's runs went through (the limit is $MLIMIT, PATH M used $MUSED), the next was refused: '${M3REFUSED:0:120}'; $M3AUD; the database counts $M3USED, not one more"
 
 # ---- PATH N: a page tells the model to send data away, and the model does as the page says ----
 # The search finds the bulletin, whose text names an address of the attacker's and tells the reader to fetch it with the context. The

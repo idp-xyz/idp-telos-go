@@ -43,6 +43,7 @@ images:
   - {name: idp-host, newTag: dev}
   - {name: idp-workspace, newTag: dev}
   - {name: idp-mcp, newTag: dev}
+  - {name: idp-web, newTag: dev}
 patches:
   # ================= idp-cmi: Keycloak tokens (keys over http inside the cluster), plain http, no model endpoints =================
   - target: {kind: ConfigMap, name: idp-cmi-env}

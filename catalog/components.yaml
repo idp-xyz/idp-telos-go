@@ -83,4 +83,4 @@ components:
     ports: {mcp: 8580}
     adr: docs/adr/ADR-0001-web-design.md
     contracts: {produces: null, consumes: []}
-    note: Speaks MCP 2026-07-28 behind the idp-mcp gateway; it publishes no document contract of its own. Platform ADR-0003 is the design of the capability.
+    note: Speaks MCP 2026-07-28 behind the idp-mcp gateway; it publishes no document contract of its own. Platform ADR-0003 is the design of the capability. Its daily quotas and source numbers are in PostgreSQL (its own database idp_web, ADR-0001 D28 to D30), so it may run as several replicas.

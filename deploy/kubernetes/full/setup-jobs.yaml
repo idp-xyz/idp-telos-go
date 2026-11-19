@@ -217,3 +217,32 @@ spec:
               valueFrom: {configMapKeyRef: {name: platform-tenant, key: tenant-id}}
           resources: {limits: {cpu: 200m, memory: 128Mi}}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+# idp-web's service login (idp-web ADR-0001 D29): the role the Deployment's URL names, a member of idp_web_app. The migration Job
+# (idp-web-migrate, from idp-web's own manifests) made the schema; there is no tenant to seed, idp-web names tenants in its file.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kind-login
+  namespace: idp-web
+  labels: {app.kubernetes.io/component: kind-setup, idp-telos/phase: setup}
+spec:
+  backoffLimit: 12
+  template:
+    metadata:
+      labels: {app.kubernetes.io/component: migrate}   # idp-web's web-database NetworkPolicy lets it reach PostgreSQL
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10580, runAsGroup: 10580, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: login
+          image: idp-web
+          args: ["ensure-login", "idp_web_svc"]
+          env:
+            - name: IDP_WEB_MIGRATION_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: idp-web-database-owner, key: owner-url}}
+            - name: IDP_WEB_APP_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: idp-web-database-owner, key: app-password}}
+          resources: {limits: {cpu: 200m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}

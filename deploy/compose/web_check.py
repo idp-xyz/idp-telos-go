@@ -8,6 +8,7 @@ input), so the same checks serve the compose acceptance and the kind one (tests/
     <registry /api/v1/invocations>   | python3 -I web_check.py m-gateway BOB_ID
     <idp-web's log>                  | python3 -I web_check.py m-audit QUERY ADDRESS
     <the test origin's log>          | python3 -I web_check.py m-origin PATH [PATH...]
+    <idp-web's log>                  | python3 -I web_check.py m3-audit QUERY ALLOWED
     <idp-web's log>                  | python3 -I web_check.py n-audit ADDRESS
     <the attacker's log>             | python3 -I web_check.py n-attacker
     <the run's events (Workspace)>   | python3 -I web_check.py n-events TOOL
@@ -81,6 +82,24 @@ def m_audit(query, address):
         fail('idp-web audit', f'idp-web read an address that no search listed: {others}')
     no_ref('idp-web audit', raw, lines)
     print(f'idp-web audit: web_search {query!r} (allowed, {s[0]["results"]} result), web_fetch {address} (allowed, {f[0]["bytes"]} bytes), no ref in the log')
+
+
+def m3_audit(query, allowed):
+    """PATH M3, idp-web's audit: the searches with the query that were let through (as many as the quota had left, each with a
+    result) and then one refused for the daily quota (reason quota_exceeded, no result, and nothing after it let through)."""
+    global PATH
+    PATH = 'M3'
+    raw = sys.stdin.read()
+    lines = audit_lines(raw)
+    s = [l for l in lines if l.get('tool') == 'web_search' and l.get('query') == query]
+    ok = [l for l in s if l.get('decision') == 'allowed']
+    refused = [l for l in s if l.get('decision') == 'refused']
+    if len(ok) != int(allowed) or not all(l.get('reason') == 'ok' and l.get('results', 0) >= 1 for l in ok):
+        fail('idp-web audit', f'want {allowed} allowed searches with a result, got {ok}')
+    if len(refused) != 1 or refused[0].get('reason') != 'quota_exceeded' or refused[0].get('results', 0) != 0 or s[-1] is not refused[0]:
+        fail('idp-web audit', f'want one search, the last, refused with reason quota_exceeded and no result, got {refused}')
+    no_ref('idp-web audit', raw, lines)
+    print(f'idp-web audit: {allowed} web_search allowed, the next refused (decision refused, reason quota_exceeded, 0 results)')
 
 
 def m_origin(*paths):
@@ -158,5 +177,5 @@ def n_input(marker):
 
 if __name__ == '__main__':
     cmd, args = sys.argv[1], sys.argv[2:]
-    {'m-gateway': m_gateway, 'm-audit': m_audit, 'm-origin': m_origin, 'n-audit': n_audit, 'n-attacker': n_attacker,
+    {'m-gateway': m_gateway, 'm-audit': m_audit, 'm-origin': m_origin, 'm3-audit': m3_audit, 'n-audit': n_audit, 'n-attacker': n_attacker,
      'n-events': n_events, 'n-input': n_input}[cmd](*args)

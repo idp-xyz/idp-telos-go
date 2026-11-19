@@ -103,8 +103,9 @@ kubectl -n idp-sandbox logs deploy/idp-sandbox-egress              # 每个请�
 `deploy/kubernetes/full` 原样包含 idp-web 自己的清单（`idp-web/deploy/kubernetes`，运维见 `idp-web/docs/RUNBOOK.md`）：命名空间 `idp-web` 里一个 Deployment（一个副本）与 Service（8580），默认拒绝，出口只到公网地址的 443、80（减去服务自己拒绝的全部 IPv4 段）。**发布的清单里没有任何租户、没有搜索服务**；验收需要的东西全在 `full.sh` 每次渲染的覆盖层（`.local/kind-full/overlay`）和它建的对象里，发布的清单里没有：
 
 - 构建并加载 `idp-web:dev`（compose 验收也构建它）；
+- 数据库（idp-web ADR-0001 D28 到 D30）：PostgreSQL 里的库 `idp_web`；Secret `idp-web-database`（`service-url`，Deployment 以文件挂载）与 `idp-web-database-owner`（`owner-url`、`app-password`，只有 Job 用），每次新生成密码；迁移由 idp-web 自己的 Job `idp-web-migrate` 做，服务角色由 `full/setup-jobs.yaml` 的 `kind-login`（`idp-web ensure-login idp_web_svc`）建，之后 `full.sh` 重启 idp-web；TLS 与其余组件相同（`pg-ca` 与 `PGSSLROOTCERT`，`sslmode=verify-full`）；`databases` 的 NetworkPolicy 放 `idp-web` 命名空间进来；
 - 网关的公钥（和沙箱用的是同一把，ConfigMap `idp-web-gateway-caller-keys`）、`ref` 密钥（Secret `idp-web-ref-key`，每次新生成）、fixture 搜索结果（ConfigMap `idp-web-fixture`，地址是本次运行的测试源站）；
-- 租户文件：本次的租户启用，且 `openUrl: true`（让 HOST 少了确认时一个地址就能漏到测试源站）；其他人不可用（`overlay/web-tenants.yaml`）；
+- 租户文件：本次的租户启用，且 `openUrl: true`（让 HOST 少了确认时一个地址就能漏到测试源站）；其他人不可用（`overlay/web-tenants.yaml`），并设 `dailySearches: 3`：PATH M3 用它验证每日配额（M 搜一次，M3 搜剩下的两次后第三次被拒绝，并把计数清零，让 PATH N 有自己的搜索）；
 - 搜索服务设为 `fixture`，`IDP_WEB_TEST_ORIGINS` 设为两个测试源站的 `主机:80`（**只属于测试**，发布的清单里没有它，`idp-web/tests/deploy` 断言这一点）；
 - 两个测试源站各在自己的命名空间（`tests/kind/web-origin.yaml`）：`web-origin` 里的是文章与"公告"页，`web-attacker` 里的是公告里让读者去取的地址；脚本是 compose 验收用的 `deploy/compose/web_origin.py`（放进 ConfigMap `web-origin-script`）。两个命名空间都是 restricted、默认拒绝，只放 idp-web 的 Pod 进来；
 - 一条**测试专用**的 NetworkPolicy `idp-web-test-origins`（在 `idp-web` 命名空间，也在 `web-origin.yaml` 里）：测试源站在集群里，地址是私有地址，发布的出口规则**正确地**把它们排除了，只有这一条放它们进来。去掉它，PATH M 就失败（这是它在起作用的证明，P2 任务做过）；
@@ -298,6 +299,8 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 | idp-mcp（D48） | `hostOnlyTools` 里的工具只有标了 `host: true` 的客户端能看到和调用。平台的配置里是 `web__*` | 其他客户端调用得到"Unknown tool"；审计原因 `host-only` | 不需要处理。确实要让别的客户端用，在 `hostOnlyExcept` 里按工具写例外和理由，每次使用都会记审计 |
 | idp-mcp（D49） | 外部客户端有限流（每客户端每分钟 600 次、每成员 120 次，可按客户端改）；平台客户端不限 | HTTP 429 与 `Retry-After`；审计 `RATE_LIMITED` | 按需在名单里给客户端写 `rateLimit`、`subjectRateLimit` |
 | idp-mcp（契约 1.2.0） | 审计记录多了 `reason`、`bytes` 和三种结果；数据库迁移 0008 | — | **先升级注册服务（含迁移），再升级网关。** 旧的注册服务会整批拒收带新字段的记录，网关会一直重试并积压 |
+| idp-web（D28 到 D30） | 可以给租户设每日的搜索与读取上限（`dailySearches`、`dailyReads`），计数放在 PostgreSQL；来源编号也放进去，多个副本因此一致。发布的清单带数据库：迁移任务、连接用的 Secret、到数据库的出口策略 | 超出上限的调用被拒绝，审计原因 `quota_exceeded`；数据库不通时，有上限的租户得到 `quota_unavailable`，编号得到 `numbering_unavailable`，`/readyz` 返回 503 | 给 idp-web 建库和账号（`idp-web migrate`、`ensure-login`，做法与其他组件相同）。**配了数据库之后它就是硬依赖**：数据库不通，联网工具整体不可用。不想要配额和多副本的部署可以不配数据库，行为与之前相同 |
+| idp-web（D27） | 正文由脚本生成的页面不再当作页面交给模型，返回专门的错误 | 审计原因 `needs_script`；指标 `idp_web_failed_total{reason="needs_script"}` | 不需要处理。这个计数是下限，用来决定要不要做渲染器 |
 
 ## 故障排查
 
