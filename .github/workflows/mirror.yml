@@ -1,0 +1,152 @@
+name: mirror
+
+# Copies the third-party images listed in releases/mirror-images.yaml to ONE package, ghcr.io/idp-xyz/mirror, one tag per image
+# (<host>__<path>__<tag>, see the list), so that CI
+# and the acceptance stop pulling them anonymously from Amazon ECR Public and Docker Hub (limited per source address; the
+# runners share theirs). The copy is made by digest with crane: no rebuild, every platform, the same digest. An entry whose target
+# already holds that digest is skipped; nothing is ever deleted (a tag moved to a new digest leaves the old image untagged).
+# Before an entry is copied for the first time, the tag on the SOURCE must resolve to the listed digest (a digest looked up through
+# registry mirrors, `resolvedVia: mirrors`, is proved here against the real source; a tag that has moved fails the entry with both
+# digests and needs a deliberate edit of the list). Then every target is verified: the digest is the listed one, and an ANONYMOUS
+# request for its manifest succeeds. GHCR creates the package private: if the check says "not public", make ghcr.io/idp-xyz/mirror
+# public once (Package settings, Change visibility); every later image is another tag of it. Visibility is never changed from here.
+# No label or annotation is added: it would change the manifest and so its digest, and the mirror must stay byte-identical to its
+# source.
+#   how to add or bump an image: releases/mirror-images.yaml, then README.md ("第三方镜像的镜像库")
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - releases/mirror-images.yaml
+      - .github/workflows/mirror.yml
+      - tools/mirror_images.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+env:
+  # crane, pinned by version and by the sha256 of the release archive (checksums.txt of the release)
+  CRANE_VERSION: v0.22.1
+  CRANE_SHA256: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
+
+jobs:
+  mirror:
+    name: mirror the third-party images
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: The list is valid (every entry has a digest, names follow the rule, no duplicates)
+        run: python3 -I tools/mirror_images.py check
+      - name: crane
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL --retry 5 --retry-delay 5 -o "$RUNNER_TEMP/crane.tgz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/crane.tgz" -C "$RUNNER_TEMP/bin" crane
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy source@digest to the target tag (skipped when the target has the digest)
+        run: |
+          set -uo pipefail
+          crane version
+          : > "$RUNNER_TEMP/copied.tsv"
+          failed=0
+          # the source is the rate-limited side: 5 attempts, 15, 30, 60 and 120 seconds apart (the waits of tools/pull_image.sh)
+          waits=(15 30 60 120)
+          while IFS=$'\t' read -r source target tag via; do
+            digest="${source#*@}"
+            have="$(crane digest "$target" 2>/dev/null </dev/null || true)"
+            if [[ "$have" == "$digest" ]]; then
+              echo "SKIP: $target already has $digest"
+              printf '%s\t%s\tpresent\n' "$target" "$digest" >> "$RUNNER_TEMP/copied.tsv"
+              continue
+            fi
+            # first copy of this digest: the tag on the source must resolve to it now
+            now="$(crane digest "${source%@*}:$tag" 2>/dev/null </dev/null || true)"
+            if [[ "$now" != "$digest" ]]; then
+              echo "::error::${source%@*}:$tag is ${now:-unreadable} on the source now, the list has $digest${via:+ (resolvedVia: $via)}; a moved tag needs a deliberate edit of the list"
+              printf '%s\t%s\tFAILED (tag)\n' "$target" "$digest" >> "$RUNNER_TEMP/copied.tsv"
+              failed=1
+              continue
+            fi
+            ok=0
+            for ((try = 1; try <= 5; try++)); do
+              if msg="$(crane copy "$source" "$target" 2>&1 </dev/null)"; then ok=1; break; fi
+              echo "copy $source: attempt $try of 5 failed: $(tail -n 1 <<<"$msg" | cut -c1-300)" >&2
+              ((try < 5)) && sleep "${waits[try - 1]}"
+            done
+            if ((ok)); then
+              echo "COPIED: $source -> $target"
+              printf '%s\t%s\tcopied\n' "$target" "$digest" >> "$RUNNER_TEMP/copied.tsv"
+            else
+              echo "::error::could not copy $source to $target after 5 attempts"
+              printf '%s\t%s\tFAILED\n' "$target" "$digest" >> "$RUNNER_TEMP/copied.tsv"
+              failed=1
+            fi
+          done < <(python3 -I tools/mirror_images.py list)
+          exit "$failed"
+      - name: Verify every target (same digest; readable without logging in)
+        # also after a failed copy: the table and the anonymous check are wanted for the entries that did succeed
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          command -v crane >/dev/null && [[ -s "$RUNNER_TEMP/copied.tsv" ]] || { echo "::error::the copy step did not run, nothing to verify"; exit 1; }
+          anon="$(mktemp -d)"   # an empty Docker config: no credentials; GITHUB_TOKEN is removed from the environment too
+          failed=0 hidden=0
+          {
+            echo '### Mirrored third-party images'
+            echo
+            echo '| tag of ghcr.io/idp-xyz/mirror | digest | copy | same digest | anonymous pull |'
+            echo '|---|---|---|---|---|'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS=$'\t' read -r source target tag via; do
+            digest="${source#*@}"
+            copy="$(awk -F'\t' -v t="$target" '$1 == t {print $3}' "$RUNNER_TEMP/copied.tsv")"
+            if [[ "$copy" == FAILED* ]]; then
+              failed=1
+              printf '| `%s` | `%s…` | %s | not checked | not checked |\n' "${target#ghcr.io/idp-xyz/mirror:}" "${digest:0:19}" "$copy" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            got="$(crane digest "$target" 2>/dev/null </dev/null || true)"
+            if [[ "$got" == "$digest" ]]; then same=yes; else same="NO (${got:-none})"; failed=1; echo "::error::$target has digest '${got:-none}', the list says $digest"; fi
+            if anon_got="$(env -u GITHUB_TOKEN DOCKER_CONFIG="$anon" crane digest "$target" 2>&1 </dev/null)" && [[ "$anon_got" == "$digest" ]]; then
+              pub=yes
+            else
+              pub=NO; hidden=1
+              echo "::error::$target cannot be pulled anonymously: $(tail -n 1 <<<"$anon_got" | cut -c1-300)"
+            fi
+            printf '| `%s` | `%s…` | %s | %s | %s |\n' "${target#ghcr.io/idp-xyz/mirror:}" "${digest:0:19}" "${copy:-?}" "$same" "$pub" >> "$GITHUB_STEP_SUMMARY"
+          done < <(python3 -I tools/mirror_images.py list)
+          if ((hidden)); then
+            msg="The package ghcr.io/idp-xyz/mirror is not public, so CI cannot pull the mirrored images without a login. Make it public, once: github.com/orgs/idp-xyz/packages, open mirror, Package settings, Danger Zone, Change visibility, Public (every image added later is another tag of it); then run this workflow again. Visibility is not changed from this workflow."
+            echo "::error::$msg"
+            printf '\n**NOT PUBLIC.** %s\n' "$msg" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $((failed || hidden))
+      - name: The aliases agree with their other registry (a warning, not a failure)
+        if: ${{ !cancelled() }}
+        run: |
+          command -v crane >/dev/null || { echo "::warning::crane is not installed, aliases not compared"; exit 0; }
+          # docker.io/library/x is listed as an alias of the ECR Public copy: say so when Docker Hub serves another digest for the tag
+          python3 -I tools/mirror_images.py aliases | while IFS=$'\t' read -r alias digest; do
+            got="$(crane digest "$alias" 2>/dev/null </dev/null || true)"
+            if [[ -z "$got" ]]; then echo "::warning::could not read $alias"
+            elif [[ "$got" != "$digest" ]]; then echo "::warning::$alias is $got on its registry now, the list has $digest"
+            else echo "OK: $alias is $digest"; fi
+          done

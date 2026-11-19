@@ -1,0 +1,174 @@
+# The third-party images this platform depends on, copied to ghcr.io/idp-xyz/mirror (one package, one tag each) by .github/workflows/mirror.yml.
+# Why: anonymous pulls from Amazon ECR Public and Docker Hub are limited per source address and the GitHub runners share
+# addresses ("Data limit exceeded" on postgres:17-alpine, 2026-11-19). Our own registry has no such limit for the repository's workflows.
+#
+# One entry = one image: `source` is host/path@digest (the multi-platform index digest; never a tag), `tag` the tag it is known by,
+# `target` where the copy goes (tags are quoted: 3.22 would be a number for a YAML reader). The copy keeps every platform and the digest: a mirrored image IS the source image.
+#
+# Naming rule, no exceptions: every mirrored image is a TAG of ONE package, ghcr.io/idp-xyz/mirror (one package: its visibility is
+# switched once, whatever is added later). The tag encodes the source:
+#   <host>__<path components joined by __>__<source tag>      ([A-Za-z0-9_.-], at most 128 characters; `check` refuses two entries
+#   that encode to the same tag)
+#     public.ecr.aws/docker/library/postgres:17-alpine -> ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine
+#     docker.io/rustfs/rustfs:1.0.4-glibc              -> ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc
+#     quay.io/keycloak/keycloak:26.8.2                 -> ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2
+#   Nobody decodes a tag: `source` below is the full reference. A reference to the mirror is  ghcr.io/idp-xyz/mirror:<tag>@<digest>.
+#   Docker Hub is always written docker.io/..., official images docker.io/library/... or, as here, their ECR Public copy.
+#
+# Scope: every registry that CI or the acceptance pulls from anonymously, so that one rule covers everything and `check` can
+# demand an entry for every reference. Rate-limited by the owner's concern: public.ecr.aws, docker.io. Included for the same
+# reason and at the same small cost: quay.io (Keycloak, cert-manager, Calico) and ghcr.io (CloudNativePG, Trivy). registry.k8s.io:
+# nothing in the eight repositories references it (kind's nodes carry what they need), so it has no entry; the first reference
+# needs one. NOT mirrored: our own images (ghcr.io/idp-xyz/<image>, built by platform.yml); ghcr.io/huggingface/text-embeddings-inference
+# (idp-cmi's local embedding evaluation, tag built from a variable, never pulled by CI); the personal fallback mirrors in
+# idp-eer's demo scripts (docker.m.daocloud.io, docker.1ms.run); Helm charts and manifests downloaded at run time (see README.md).
+#
+# `aliases`: other names of the same image that the repositories use today (docker.io/library/x is the ECR Public copy of x).
+#
+# resolvedVia: mirrors  -- the digest was looked up through two registry mirrors that agree (Docker Hub was not reachable), not on the
+# source registry. The workflow proves it before it copies an entry for the first time: the source serves that digest, and the tag
+# resolves to that digest on the source at that moment (a mismatch fails the entry with both digests). Once a run on GitHub has
+# verified an entry, delete its resolvedVia line.
+# A digest written as sha256:TODO is not resolved yet: `check` and the workflow fail on it. Fill it with
+#   python3 tools/mirror_images.py resolve                                  (crane, a network that reaches the source registry)
+#   python3 tools/mirror_images.py resolve --via docker.m.daocloud.io docker.1ms.run   (through mirrors, at least two must agree)
+# Bumping an image: change tag and digest here (or put the new tag and sha256:TODO, then run resolve),
+# merge, let the workflow copy, then change the references (python3 tools/mirror_images.py plan --repos ...).
+images:
+
+  # ---- Amazon ECR Public: Docker official images. docker.io/library/<name> is the same image (ECR Public syncs it), so the bare names that
+  # idp-eer uses are aliases of these entries; the workflow warns when Docker Hub serves another digest for an alias.
+  # the restore drills' client tools, every component's integration database
+  - source: public.ecr.aws/docker/library/postgres@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32
+    tag: "17-alpine"
+    target: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine
+  # idp-eer's CI service container and compose
+  - source: public.ecr.aws/docker/library/postgres@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+    tag: "16.9-alpine"
+    target: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__16.9-alpine
+    aliases: [docker.io/library/postgres:16.9-alpine]
+  # the sandbox's python runtime, the office image's base
+  - source: public.ecr.aws/docker/library/python@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+    tag: "3.12-slim"
+    target: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
+    aliases: [docker.io/library/python:3.12-slim]
+  # the sandbox's shell runtime, the egress test client, idp-eer's runtime base
+  - source: public.ecr.aws/docker/library/alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f
+    tag: "3.22"
+    target: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22
+    aliases: [docker.io/library/alpine:3.22]
+  # kind smoke test
+  - source: public.ecr.aws/docker/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    tag: "1.37"
+    target: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__busybox__1.37
+  # idp-eer's Go build image
+  - source: public.ecr.aws/docker/library/golang@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+    tag: "1.26.11-bookworm"
+    target: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__golang__1.26.11-bookworm
+    aliases: [docker.io/library/golang:1.26.11-bookworm]
+  # the gVisor drill of idp-sandbox (a moving tag: the digest below is the one mirrored today)
+  - source: public.ecr.aws/docker/library/docker@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c
+    tag: "dind"
+    target: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__docker__dind
+    aliases: [docker.io/library/docker:dind]
+
+  # ---- Docker Hub
+  # the platform's PostgreSQL (compose and Kubernetes)
+  - source: docker.io/pgvector/pgvector@sha256:b513c48566e4777cd3370451400000c78eda6a08131d68f4c31d4a76f27bd8fd
+    tag: "0.8.7-pg17"
+    target: ghcr.io/idp-xyz/mirror:docker.io__pgvector__pgvector__0.8.7-pg17
+    resolvedVia: mirrors
+  # S3 for the files service and the backup drills; the digest is the one tests/kind/s3-target.sh and deploy/compose/e2e.sh already pin
+  - source: docker.io/rustfs/rustfs@sha256:a9b705b9256be756802a60f3498abdc543918b5b5a4437a57a541e89e733c74d
+    tag: "1.0.4-glibc"
+    target: ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc
+  # kind node image
+  - source: docker.io/kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661
+    tag: "v1.35.0"
+    target: ghcr.io/idp-xyz/mirror:docker.io__kindest__node__v1.35.0
+    resolvedVia: mirrors
+  # platform acceptance (EER_TEMPORAL_IMAGE)
+  - source: docker.io/temporalio/temporal@sha256:003508da05989e7cf0d583cfce521c4bb2732e733574e3040db8f1284783baa2
+    tag: "1.10.0"
+    target: ghcr.io/idp-xyz/mirror:docker.io__temporalio__temporal__1.10.0
+    resolvedVia: mirrors
+  # idp-eer's own compose and CI
+  - source: docker.io/temporalio/temporal@sha256:906f9765cde508333ef191aab908bc724657b5f736cb5ead13921d9a45b33622
+    tag: "1.7.3"
+    target: ghcr.io/idp-xyz/mirror:docker.io__temporalio__temporal__1.7.3
+    resolvedVia: mirrors
+  # promtool in ci.yml, referenced there by this digest alone
+  - source: docker.io/prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    tag: "v3.14.0"
+    target: ghcr.io/idp-xyz/mirror:docker.io__prom__prometheus__v3.14.0
+  # idp-eer's observability compose
+  - source: docker.io/prom/prometheus@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
+    tag: "v3.13.1"
+    target: ghcr.io/idp-xyz/mirror:docker.io__prom__prometheus__v3.13.1
+    resolvedVia: mirrors
+  # idp-eer's observability compose
+  - source: docker.io/prom/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
+    tag: "v0.33.1"
+    target: ghcr.io/idp-xyz/mirror:docker.io__prom__alertmanager__v0.33.1
+    resolvedVia: mirrors
+  # idp-eer's observability compose
+  - source: docker.io/grafana/grafana@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b
+    tag: "13.1.1"
+    target: ghcr.io/idp-xyz/mirror:docker.io__grafana__grafana__13.1.1
+    resolvedVia: mirrors
+
+  # ---- quay.io
+  # the platform's Keycloak
+  - source: quay.io/keycloak/keycloak@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
+    tag: "26.8.2"
+    target: ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2
+  # idp-host, idp-mcp, idp-workspace compose files (step 2 may move them to 26.8.2 and drop this entry)
+  - source: quay.io/keycloak/keycloak@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332
+    tag: "26.8.1"
+    target: ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.1
+  # HA drills
+  - source: quay.io/jetstack/cert-manager-controller@sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc
+    tag: "v1.21.3"
+    target: ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-controller__v1.21.3
+  # HA drills
+  - source: quay.io/jetstack/cert-manager-webhook@sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458
+    tag: "v1.21.3"
+    target: ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-webhook__v1.21.3
+  # HA drills
+  - source: quay.io/jetstack/cert-manager-cainjector@sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f
+    tag: "v1.21.3"
+    target: ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-cainjector__v1.21.3
+  # kind multi-node cluster
+  - source: quay.io/calico/cni@sha256:b32ac832411b188a8adc9e31b3e23cbbecd6d63c182a3802e947303f97c2f700
+    tag: "v3.30.3"
+    target: ghcr.io/idp-xyz/mirror:quay.io__calico__cni__v3.30.3
+  # kind multi-node cluster
+  - source: quay.io/calico/node@sha256:92d8bcca3280cd27b9c98cb6e70c3af10ad6ff8accd288919b04ae0cd6021c2e
+    tag: "v3.30.3"
+    target: ghcr.io/idp-xyz/mirror:quay.io__calico__node__v3.30.3
+  # kind multi-node cluster
+  - source: quay.io/calico/kube-controllers@sha256:b9df43a10ec4cc40ab95779f646d1f9c1675259b3baacf883f5247333bb6385d
+    tag: "v3.30.3"
+    target: ghcr.io/idp-xyz/mirror:quay.io__calico__kube-controllers__v3.30.3
+
+  # ---- ghcr.io: pulls from ghcr.io are counted per source address too (tests/kind/crane-pull.sh was written for a TOOMANYREQUESTS from it)
+  # HA PostgreSQL operand
+  - source: ghcr.io/cloudnative-pg/postgresql@sha256:b310491521ece4ec0f5a44008ac607352e96bff20883833d0acd833d80d26c5b
+    tag: "17.11-standard-trixie"
+    target: ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__postgresql__17.11-standard-trixie
+  # HA operator
+  - source: ghcr.io/cloudnative-pg/cloudnative-pg@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4d32b5bc07
+    tag: "1.30.1"
+    target: ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__cloudnative-pg__1.30.1
+  # HA backup plugin
+  - source: ghcr.io/cloudnative-pg/plugin-barman-cloud@sha256:6404a416718bd7aad943c67a25a7bb20d0558b43edfeab0bf167f013ca435882
+    tag: "v0.16.0"
+    target: ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud__v0.16.0
+  # HA backup plugin
+  - source: ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar@sha256:c669259e20ed1e11fad821f735c396c19d929985aa05b9544b13ecc8b5a386d0
+    tag: "v0.16.0"
+    target: ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud-sidecar__v0.16.0
+  # the image scans of every repository's CI
+  - source: ghcr.io/aquasecurity/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+    tag: "0.76.2"
+    target: ghcr.io/idp-xyz/mirror:ghcr.io__aquasecurity__trivy__0.76.2
