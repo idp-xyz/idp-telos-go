@@ -31,9 +31,14 @@
   "negative_cases": 173,
   "passed": 282,
   "total": 282,
-  "invariants_passed": 37,
-  "invariants_total": 37,
+  "invariants_passed": 41,
+  "invariants_total": 41,
   "producer_sync": "PASSED",
+  "caller_assertion_vectors_sync": {
+    "idp-mcp": "IDENTICAL",
+    "idp-sandbox": "IDENTICAL",
+    "idp-web": "IDENTICAL"
+  },
   "invariants": {
     "every_definition_has_title_description_owner": {
       "passed": true
@@ -144,6 +149,18 @@
       "passed": true
     },
     "idp_telos_workspace_published_matches_producer": {
+      "passed": true
+    },
+    "caller_assertion_vectors_are_well_formed_and_hold_no_private_key": {
+      "passed": true
+    },
+    "caller_assertion_vectors_idp_mcp_copy_matches_published": {
+      "passed": true
+    },
+    "caller_assertion_vectors_idp_sandbox_copy_matches_published": {
+      "passed": true
+    },
+    "caller_assertion_vectors_idp_web_copy_matches_published": {
       "passed": true
     }
   },

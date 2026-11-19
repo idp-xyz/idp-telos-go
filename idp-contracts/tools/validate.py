@@ -529,6 +529,35 @@ for ns, n in NAMESPACES.items():
             diverged.append(f'{rel} != {source}')
     invariant(f'{ns.replace(".", "_")}_published_matches_producer', not diverged, diverged)
 
+# 5b. Caller-assertion vectors: one published file, and the copies the three components test against.
+# idp-mcp generates the file (go test ./internal/gateway -run TestCallerVectors -update); idp-sandbox and idp-web run it
+# against their verifiers. A component whose checkout is not present is reported as not checked, not as a failure.
+VECTORS = 'vectors/caller-assertion/v1.json'
+VECTOR_COPIES = {
+    'idp-mcp': 'internal/gateway/testdata/caller-assertion-v1.json',
+    'idp-sandbox': 'internal/mcp/testdata/caller-assertion-v1.json',
+    'idp-web': 'internal/mcp/testdata/caller-assertion-v1.json',
+}
+vectors_bytes = (ROOT / VECTORS).read_bytes()
+try:
+    vf = json.loads(vectors_bytes)
+    names = [c['name'] for c in vf['cases']]
+    vectors_ok = (vf['format'] == 'idp.telos.caller-assertion-vectors/v1' and vf['keys'] and names and len(names) == len(set(names))
+                  and all(s['expect']['outcome'] in ('accept', 'refuse') for c in vf['cases'] for s in c['steps'])
+                  and b'PRIVATE' not in vectors_bytes)
+except (ValueError, KeyError, TypeError):
+    vectors_ok = False
+invariant('caller_assertion_vectors_are_well_formed_and_hold_no_private_key', bool(vectors_ok))
+vectors_sync = {}
+for repo, rel in VECTOR_COPIES.items():
+    if not (PRODUCER_ROOT / repo).is_dir():
+        vectors_sync[repo] = 'NOT_CHECKED_CHECKOUT_MISSING'
+        continue
+    copy_path = PRODUCER_ROOT / repo / rel
+    same = copy_path.is_file() and hashlib.sha256(copy_path.read_bytes()).digest() == hashlib.sha256(vectors_bytes).digest()
+    vectors_sync[repo] = 'IDENTICAL' if same else 'DIFFERENT'
+    invariant(f'caller_assertion_vectors_{repo.replace("-", "_")}_copy_matches_published', same, None if same else f'{repo}/{rel} != {VECTORS}')
+
 # 6. Report
 cases_ok = all(r['passed'] for r in results)
 invariants_ok = all(v['passed'] for v in invariants.values())
@@ -547,6 +576,7 @@ report = {
     'invariants_passed': sum(v['passed'] for v in invariants.values()),
     'invariants_total': len(invariants),
     'producer_sync': producer_sync,
+    'caller_assertion_vectors_sync': vectors_sync,
     'invariants': invariants,
     'cases': results,
 }

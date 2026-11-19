@@ -42,4 +42,6 @@ uv run --no-project --with 'jsonschema[format]==4.26.0' python -I idp-contracts/
 
 结果写入 `checks/validation_report.json`。退出码：0 全部通过；1 有检查失败；2 找不到生产者仓库（该检查未运行，不会降级）。
 
+**调用者断言的一致性向量**（`vectors/caller-assertion/`，格式与重新生成的办法见其中的 README）不是契约文档，没有 schema，但同样由 idp-mcp 生成、在这里发布：`tools/validate.py` 检查它格式正确、不含私钥，并检查 idp-mcp、idp-sandbox、idp-web 三个仓库里的副本与它逐字节相同（仓库不在本机时报告“未检查”，不算失败）。
+
 这里只做文件级校验，不运行任何生产者；运行时行为由各生产者的测试负责。
