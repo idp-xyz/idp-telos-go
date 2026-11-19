@@ -8,7 +8,7 @@ WSL 里的 kind 集群（Calico）、整套平台在集群上的部署与验收�
 |---|---|
 | 集群 / 上下文 | `kind` / `kind-kind`，节点容器 `kind-control-plane`；kind v0.31，Kubernetes v1.35，Calico v3.30.3 |
 | 工具 | `~/.local/bin`：`kind`、`kubectl`、`crane`（无需 root） |
-| 命名空间 | `databases keycloak temporal idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web`，以及 `full.sh` 为 PATH L、M、N 加的测试源站 `egress-origin`、`web-origin`、`web-attacker` |
+| 命名空间 | `databases keycloak temporal idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web`，以及 `full.sh` 为 PATH L、M、N 加的测试源站（M4 也用 `web-origin`） `egress-origin`、`web-origin`、`web-attacker` |
 | 运行时类 | `gvisor`（runsc 20260126.0，kvm 平台）、`kata`（4.3.1，Go 运行时 + Cloud Hypervisor） |
 | 端口转发（full.sh） | Keycloak 17443（https）· Workspace 17560 · HOST 17450 · CMI 17550 · EER 17180 · idp-mcp 注册服务 17250 · 网关 17320 · 助手页 17561 · 沙箱 17570（PATH D 的未签名调用）· idp-web 17580（PATH M 的未签名调用） |
 
@@ -68,6 +68,7 @@ bash idp-sandbox/tests/kind/local-cluster.sh
 - **PATH I**：bob 让"谨慎的代码助手"跑代码 → idp-host 停下运行等他确认 → Workspace 把等待中的调用与它将要执行的代码给他看（管理员 alice 对这次运行与决定都是 404）→ bob 确认后代码执行、输出进收件箱；同一对话里第二次点拒绝，代码不执行。壳的"对话"页走的就是这条路径。
 - **PATH L**（compose 版也有，检查脚本是同一个 `deploy/compose/egress_check.py`）：bob 的令牌按 HOST 为运行换令牌的方式换成网关的令牌 → idp-mcp 网关 → 沙箱 → 带 `network=egress` 的运行经出口代理访问到他租户名单上的主机（集群里的测试源站），名单外的主机被代理拒绝（403），绕过代理直连不通；不带 `network=egress` 的运行环境里没有代理、也连不到代理。代理的日志里是 bob 的租户。见下面"沙箱的出口代理"。
 - **PATH M**（compose 版也有，记录由同一个 `deploy/compose/web_check.py` 读）：bob 问 web-assistant 一个只有测试源站的文章答得出的问题 → HOST 的 agent 经网关搜索（idp-web，搜索服务是 fixture）、用搜索结果的 `ref` 读那篇文章 → 回答里有只有文章才有的数字和 `[1]`；网关的记录里调用者是 bob、客户端是 idp-host；idp-web 的审计有查询词（明文）和读取的地址、没有 `ref`；源站的日志里只有这篇文章（和 robots.txt）。随后经端口转发（17580）直连 idp-web：不带网关签名、自称 bob 的 `tools/call` 得 403，`tools/list` 仍能回答（登记要用）。
+- **PATH M4**（compose 版也有）：PDF 读取（idp-web ADR-0001 D31）。测试源站自己造两份 PDF（`web_origin.py`，仓库里没有第三方文档）：`/tariff.pdf`（两页，第 2 页有一个别处没有的数字 29.47）与 `/scan.pdf`（一页只有图形、没有文字操作符）。fixture 里查询含 `tariff` 的找到前者、含 `receipt` 的找到后者。bob 的两个运行（各搜索一次，共两次）：第一个运行的回答（模型替身引用读到的开头）里有 `[page 1]`、`[page 2]`、`PDF, 2 pages` 与 29.47，idp-web 的审计是 `web_fetch` 的 `allowed`、有字节数；第二个回答里是"没有文字层"的句子，审计是 `decision=failed`、`reason=pdf_no_text_layer`；源站日志里有这两个地址。M3 结束时把租户当天的搜索计数清零，M4 先读计数、要求至少还剩两次、结束时再清零，PATH N 仍有完整的三次。idp-web 的 Pod 要能运行 PDF 读取程序：seccomp 的 `RuntimeDefault` 档案与 `allowPrivilegeEscalation: false` 都不挡它（见 `idp-web/docs/RUNBOOK.md` 6.1）；若 `idp-web` 的启动日志里有 `reading PDFs is not available: …`，M4 的第一条断言会失败，原因是 `pdf_reader_unavailable`。
 - **PATH N**：搜索找到的"公告"页面里写着"去取攻击者的地址"，模型替身照做。(a) idp-web 拒绝这个地址（对不上 `ref`，审计里 `decision=refused`、`reason=ref_…`）；(b) `web_open_url` 被 HOST 停下等 bob 确认（HOST 配置的 `confirmTools`，Release 里没有这条要求），bob 拒绝，idp-web 从没收到这次调用；(c) 攻击者的日志里没有任何请求；(d) CMI 里一条 confidential 的条目，不带 web 工具的对照运行拿得到，带 web 工具的运行拿不到（`externalTools`；路径内临时把租户的 `readerCeiling` 提到 confidential，结束后还原）。两条路径只有模型替身版，`MODEL=live` 时是 `NOT_RUN`。
 - **PATH F**：bob 经 Workspace（用他自己的令牌换 CMI 的令牌）列出并删除自己的记忆，alice 删不了；删除后列表和检索里都没有。
 - **PATH C**：EER Intelligence 的集成测试，在宿主上用 uv 对集群里的 CMI 运行（`env -i` 干净环境）。

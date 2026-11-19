@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PATH M and N (platform ADR-0003 section 8; idp-web ADR-0001 D16, D20, D23; idp-host ADR-0001 D44): what the acceptance
+"""PATH M, M3, M4 and N (platform ADR-0003 section 8; idp-web ADR-0001 D16, D20, D23; idp-host ADR-0001 D44): what the acceptance
 reads of the places where the web tools leave a record. Each command reads one record on stdin, checks it, and prints one
 line of evidence and exits 0, or prints `FAIL: PATH M|N <step>: ...` to stderr and exits 1. The records are the product's
 own (idp-web's audit lines, the gateway's invocation list, a test origin's request lines, the run's events and stored
@@ -9,6 +9,8 @@ input), so the same checks serve the compose acceptance and the kind one (tests/
     <idp-web's log>                  | python3 -I web_check.py m-audit QUERY ADDRESS
     <the test origin's log>          | python3 -I web_check.py m-origin PATH [PATH...]
     <idp-web's log>                  | python3 -I web_check.py m3-audit QUERY ALLOWED
+    <idp-web's log>                  | python3 -I web_check.py m4-audit PDF_ADDRESS SCAN_ADDRESS
+    <the test origin's log>          | python3 -I web_check.py m4-origin PATH [PATH...]
     <idp-web's log>                  | python3 -I web_check.py n-audit ADDRESS
     <the attacker's log>             | python3 -I web_check.py n-attacker
     <the run's events (Workspace)>   | python3 -I web_check.py n-events TOOL
@@ -102,6 +104,34 @@ def m3_audit(query, allowed):
     print(f'idp-web audit: {allowed} web_search allowed, the next refused (decision refused, reason quota_exceeded, 0 results)')
 
 
+def m4_audit(pdf, scan):
+    """PATH M4, idp-web's audit: the PDF was read (web_fetch of its address, allowed, text returned) and the scan was not: its
+    web_fetch is a failure with reason pdf_no_text_layer, and no read of it was ever allowed."""
+    global PATH
+    PATH = 'M4'
+    raw = sys.stdin.read()
+    lines = audit_lines(raw)
+    f = [l for l in lines if l.get('tool') == 'web_fetch' and l.get('url') == pdf]
+    if not f or not all(l.get('decision') == 'allowed' and l.get('reason') == 'ok' and l.get('bytes', 0) > 0 for l in f):
+        fail('idp-web audit', f'no allowed web_fetch of the PDF {pdf} that returned text: {f}')
+    g = [l for l in lines if l.get('tool') == 'web_fetch' and l.get('url') == scan]
+    if not g or not all(l.get('decision') == 'failed' and l.get('reason') == 'pdf_no_text_layer' for l in g):
+        fail('idp-web audit', f'want web_fetch of the scan {scan} audited failed with reason pdf_no_text_layer, got {g}')
+    no_ref('idp-web audit', raw, lines)
+    print(f'idp-web audit: web_fetch {pdf} (allowed, {f[0]["bytes"]} bytes), web_fetch {scan} (decision failed, reason pdf_no_text_layer), no ref in the log')
+
+
+def m4_origin(*paths):
+    """The origin was asked for each of the PDFs (it served them; the reader's own robots.txt request is not counted)."""
+    global PATH
+    PATH = 'M4'
+    got = [r['target'] for r in json_lines(sys.stdin.read())]
+    for p in paths:
+        if p not in got:
+            fail('origin log', f'the origin was never asked for {p}: {got}')
+    print(f'origin log: GET {", ".join(paths)}')
+
+
 def m_origin(*paths):
     """The origin was asked for the article and for no page but those listed (robots.txt is the reader's own rule check)."""
     reqs = json_lines(sys.stdin.read())
@@ -177,5 +207,5 @@ def n_input(marker):
 
 if __name__ == '__main__':
     cmd, args = sys.argv[1], sys.argv[2:]
-    {'m-gateway': m_gateway, 'm-audit': m_audit, 'm-origin': m_origin, 'm3-audit': m3_audit, 'n-audit': n_audit, 'n-attacker': n_attacker,
+    {'m-gateway': m_gateway, 'm-audit': m_audit, 'm-origin': m_origin, 'm3-audit': m3_audit, 'm4-audit': m4_audit, 'm4-origin': m4_origin, 'n-audit': n_audit, 'n-attacker': n_attacker,
      'n-events': n_events, 'n-input': n_input}[cmd](*args)

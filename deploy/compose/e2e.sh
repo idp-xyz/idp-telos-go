@@ -20,6 +20,8 @@
 # PATH M: retrieval. bob asks web-assistant a question that only the test origin can answer; the HOST's agent searches and reads
 #         through the gateway and idp-web (platform ADR-0003); the answer cites [1]; the gateway names bob, idp-web's audit has the
 #         query and the address, and a call to idp-web that does not carry the gateway's signature is refused
+# PATH M4: PDF reading (idp-web D31): the origin serves a PDF it builds (two pages, a figure on page 2) and a scan; the first is read with its
+#   page markers and the figure, the scan is answered with the no-text-layer sentence and audited pdf_no_text_layer.
 # PATH N: injection and exfiltration. A page tells the reader to send data to an "attacker" container, and the model double obeys:
 #         idp-web refuses the address that no search result carried, the HOST stops web_open_url for bob's confirmation (its
 #         configuration asks, the release does not), the attacker's log stays empty, and the context items above the
@@ -264,6 +266,7 @@ head -c 48 /dev/urandom | base64 -w0 > "$L/web-ref.key"
 # zeroes the count so that PATH N has its own searches)
 printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true, dailySearches: 3}\n' "$TENANT" > "$L/web-tenants.yaml"
 WEB_ARTICLE="http://$WEB_ORIGIN/article.html" WEB_BULLETIN="http://$WEB_ORIGIN/bulletin.html" WEB_COLLECT="http://$WEB_ATTACKER/collect?d=CONTEXT"
+WEB_TARIFF="http://$WEB_ORIGIN/tariff.pdf" WEB_SCAN="http://$WEB_ORIGIN/scan.pdf"   # PATH M4: built by web_origin.py
 cat > "$L/web-fixture.yaml" <<YAML
 entries:
   - match: bulletin
@@ -272,6 +275,12 @@ entries:
   - match: october
     results:
       - {url: "$WEB_ARTICLE", title: "Harbour Depot October Report", published: "2026-11-01", snippet: "How many parcels the Harbour depot sorted in October"}
+  - match: tariff
+    results:
+      - {url: "$WEB_TARIFF", title: "Harbour Carrier Tariff 2026 (PDF)", published: "2026-11-01", snippet: "The carrier's rates and surcharges"}
+  - match: receipt
+    results:
+      - {url: "$WEB_SCAN", title: "Scanned receipt (PDF)", published: "2026-11-01", snippet: "A scan of a paper receipt"}
 YAML
 chmod 644 "$L/web-ref.key" "$L/web-tenants.yaml" "$L/web-fixture.yaml"
 chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/live-model.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
@@ -1031,6 +1040,28 @@ M3USED="$(web_sql "$SEARCHES_TODAY")"
 M3AUD="$(web_log web | python3 -I deploy/compose/web_check.py m3-audit "$M3Q" "$M3LEFT")" || { web_log web | tail -12 >&2; exit 1; }
 web_sql "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null
 echo "PASS: PATH M3 — the daily quota: $M3LEFT more searches of bob's runs went through (the limit is $MLIMIT, PATH M used $MUSED), the next was refused: '${M3REFUSED:0:120}'; $M3AUD; the database counts $M3USED, not one more"
+
+# ---- PATH M4: PDF reading (idp-web ADR-0001 D31): a PDF with a text layer is read, a scan is answered with the no-text-layer sentence ----
+# The test origin builds two PDFs (deploy/compose/web_origin.py; no third-party document): /tariff.pdf, two pages, with a figure on page
+# 2 that nothing else in the acceptance says, and /scan.pdf, a page without a single text operator. The fixture lists each (a query
+# with "tariff" finds the first, one with "receipt" the second), so that a ref exists for them. The model double quotes the start of
+# what it read, so the page marker and the figure reach bob's inbox as the model saw them; for the scan it repeats the tool's error.
+# Quota: PATH M3 ends by zeroing the tenant's count (above); this path makes TWO searches (one run each), so it reads the count first and
+# needs at most MLIMIT-2 used (it is 0 after M3; it is not assumed), and zeroes it again when it ends, so that PATH N has all three.
+M4USED="$(web_sql "$SEARCHES_TODAY")"
+(( M4USED + 2 <= MLIMIT )) || { echo "FAIL: PATH M4: the database counts $M4USED searches of $MLIMIT, and this path needs two (PATH M3 zeroes the count when it ends; if the check ran across 00:00 UTC, run it again)" >&2; exit 1; }
+M4Q="what does the carrier tariff pdf say about the fuel surcharge for zone 3"
+M4ANS="$(run_summary "$(ask_agent websearch ask "web: $M4Q")")"
+[[ "$M4ANS" == *"[page 1]"* && "$M4ANS" == *"[page 2]"* && "$M4ANS" == *"29.47"* && "$M4ANS" == *"PDF, 2 pages"* ]] \
+  || { echo "FAIL: PATH M4: the page markers, the figure of page 2 (29.47) or the PDF header are not in what the model received in bob's inbox: $M4ANS" >&2; exit 1; }
+M4SQ="what is on the scanned receipt pdf"
+M4SCAN="$(run_summary "$(ask_agent websearch ask "web: $M4SQ")")"
+[[ "$M4SCAN" == *"has no text layer"* && "$M4SCAN" == *"character recognition"* && "$M4SCAN" != *"[page"* ]] \
+  || { echo "FAIL: PATH M4: the scan was not answered with the no-text-layer sentence: $M4SCAN" >&2; exit 1; }
+M4AUD="$(web_log web | python3 -I deploy/compose/web_check.py m4-audit "$WEB_TARIFF" "$WEB_SCAN")" || { web_log web | tail -12 >&2; exit 1; }
+M4ORG="$(web_log web-origin | python3 -I deploy/compose/web_check.py m4-origin /tariff.pdf /scan.pdf)" || { web_log web-origin >&2; exit 1; }
+web_sql "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null
+echo "PASS: PATH M4 — PDF reading: bob's run read $WEB_TARIFF and the page markers and 29.47 (page 2) reached the model; the scan $WEB_SCAN was answered '${M4SCAN:0:110}'; $M4AUD; $M4ORG; two searches used (the count was $M4USED, zeroed again for PATH N)"
 
 # ---- PATH N: a page tells the model to send data away, and the model does as the page says ----
 # The search finds the bulletin, whose text names an address of the attacker's and tells the reader to fetch it with the context. The
