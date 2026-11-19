@@ -20,6 +20,9 @@ ownership:
   - data: Sandbox workspace (the ephemeral files an agent's code leaves, in memory, deleted with the workspace)
     owner: idp-sandbox
     not: anything that must outlive a run (results go to the caller, durable data to its owner)
+  - data: Web tool audit line (the query and the address in clear, the caller as a short hash, the decision and its reason)
+    owner: idp-web
+    not: the gateway's invocation record (idp-mcp keeps arguments as a digest only), search results and page text (never stored; the read cache is in memory)
   - data: Contract registry, platform BOM, compatibility matrix
     owner: idp-telos-go
     not: any component's source or state

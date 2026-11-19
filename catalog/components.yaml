@@ -72,3 +72,16 @@ components:
     adr: docs/adr/ADR-0001-sandbox-design.md
     contracts: {produces: null, consumes: []}
     note: Speaks MCP 2026-07-28 behind the idp-mcp gateway; it publishes no document contract of its own.
+  - name: idp-web
+    platform: true   # part of deploy/compose/platform.yaml (P1): PATH M and N
+    kubernetes: not-deployed   # idp-web/deploy/kubernetes does not exist yet; task P2 adds it and removes this line
+    title: Web Search & Fetch
+    repository: idp-xyz/idp-web
+    visibility: public
+    language: go
+    executables: [idp-web]
+    image: idp-web
+    ports: {mcp: 8580}
+    adr: docs/adr/ADR-0001-web-design.md
+    contracts: {produces: null, consumes: []}
+    note: Speaks MCP 2026-07-28 behind the idp-mcp gateway; it publishes no document contract of its own. Platform ADR-0003 is the design of the capability.

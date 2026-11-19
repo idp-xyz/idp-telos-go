@@ -10,6 +10,8 @@
 # the host): development only, see idp-sandbox ADR-0001 section 5.
 # The sandbox comes with its egress proxy (idp-sandbox ADR-0001 D13, D21): a run may ask for network=egress and then
 # reaches the hosts on its tenant's allow-list (.local/platform/egress-tenants.yaml) through the proxy, and nothing else.
+# idp-web (platform ADR-0003) is a second upstream of the gateway, for web search and page reading; its search provider is the fixture and
+# its pages come from two test containers that record requests (profile web-test), so that PATH M and N need no internet.
 # DEV ONLY: a test realm and CA, plaintext http on private networks.
 name: idp-telos-platform
 
@@ -118,8 +120,8 @@ services:
       IDP_REGISTRY_LISTEN: 0.0.0.0:8250
       IDP_DEV_MODE: 'true'   # HS256 admin tokens (dev-token); the data plane below verifies Keycloak tokens
       IDP_DEV_ADMIN_SECRET: ${IDP_MCP_ADMIN_SECRET}
-      IDP_ALLOWED_UPSTREAM_HOSTS: sandbox
-      IDP_PRIVATE_UPSTREAM_HOSTS: sandbox
+      IDP_ALLOWED_UPSTREAM_HOSTS: sandbox,web
+      IDP_PRIVATE_UPSTREAM_HOSTS: sandbox,web
   mcp-gateway:
     <<: *hardened
     image: ${IDP_MCP_IMAGE:-idp-mcp:dev}
@@ -135,7 +137,7 @@ services:
       IDP_GATEWAY_ALLOWED_HOSTS: mcp-gateway,mcp-gateway:3320   # the HOST calls it by service name
       IDP_RELEASE_CACHE: /var/cache/idp/release.json
       IDP_METRICS_LISTEN: 0.0.0.0:9464
-      # the gateway signs the caller it forwards to the sandbox (idp-mcp D44); the sandbox holds the public half
+      # the gateway signs the caller it forwards to the sandbox and to web (idp-mcp D44); both hold the public half
       IDP_GATEWAY_CALLER_KEY_FILE: /etc/idp/caller.key
     volumes: ['../../.local/platform/caller.key:/etc/idp/caller.key:ro']
     depends_on: [mcp-registry]
@@ -196,6 +198,46 @@ services:
             def log_message(*a): pass
         socketserver.ThreadingTCPServer.allow_reuse_address = True
         socketserver.ThreadingTCPServer(('0.0.0.0', 80), H).serve_forever()
+
+  # idp-web (platform ADR-0003): the agents' search and page reading. The gateway reaches it on upstream (internal: nothing else
+  # does, which is what IDP_WEB_PRIVATE_NETWORK says) and it goes out to the web over edge, the same network the sandbox's egress
+  # proxy uses. A call counts as its caller's only with the gateway's signature, made for this endpoint (idp-web D2). Keys, the
+  # tenants file and the fixture search results are generated per run by deploy/compose/e2e.sh; the provider is the fixture, so
+  # that the acceptance does not depend on the internet or on a search service's key.
+  web:
+    <<: *hardened
+    image: ${IDP_WEB_IMAGE:-idp-web:dev}
+    networks: [upstream, edge]
+    volumes: ['../../.local/platform/caller.pub:/etc/idp/gateway.pub:ro', '../../.local/platform/web-ref.key:/etc/idp/ref.key:ro',
+              '../../.local/platform/web-tenants.yaml:/etc/idp/tenants.yaml:ro', '../../.local/platform/web-fixture.yaml:/etc/idp/fixture.yaml:ro']
+    environment:
+      IDP_WEB_LISTEN: 0.0.0.0:8580
+      IDP_WEB_PRIVATE_NETWORK: 'true'
+      IDP_WEB_CALLER_KEYS_FILE: /etc/idp/gateway.pub
+      IDP_WEB_CALLER_AUDIENCE: http://web:8580/mcp
+      IDP_WEB_PROVIDER: fixture
+      IDP_WEB_FIXTURE_FILE: /etc/idp/fixture.yaml
+      IDP_WEB_REF_KEY_FILE: /etc/idp/ref.key
+      IDP_WEB_TENANTS_FILE: /etc/idp/tenants.yaml
+      # TESTS ONLY (deploy/compose/e2e.sh sets it): the two test origins below are containers of this project, at private
+      # addresses on port 80 (idp-web D14); nothing else is exempt
+      IDP_WEB_TEST_ORIGINS: ${IDP_WEB_TEST_ORIGINS:-}
+  # TEST ONLY (profile web-test, which deploy/compose/e2e.sh turns on): the two origins of PATH M and N, which record every
+  # request (deploy/compose/web_origin.py). `web-origin` is what the fixture search results point at; `web-attacker` is the
+  # address a page tells the reader to send data to. They are two containers, not two names of one, so that "the attacker
+  # was never asked for anything" is "this container's log has no request", whatever the origin's own log says.
+  web-origin: &web-test-origin
+    <<: *hardened
+    profiles: [web-test]
+    image: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
+    networks: [edge]
+    user: '65532:65532'
+    environment: {PYTHONDONTWRITEBYTECODE: '1'}
+    volumes: ['./web_origin.py:/srv/web_origin.py:ro']
+    command: [python, -I, /srv/web_origin.py, origin]
+  web-attacker:
+    <<: *web-test-origin
+    command: [python, -I, /srv/web_origin.py, attacker]
 
   # ---- idp-host ----
   fakemodel:

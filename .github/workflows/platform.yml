@@ -2,7 +2,7 @@ name: platform
 
 # The platform acceptance in CI: every component, idp-eer included (read-only deploy key, secret
 # IDP_EER_DEPLOY_KEY), is checked out at the commits releases/platform-bom.yaml pins, the images are built
-# and deploy/compose/e2e.sh runs PATH A, B and C. On main, exactly the images that passed are then
+# and deploy/compose/e2e.sh runs PATH A to N. On main, exactly the images that passed are then
 # published to ghcr.io/idp-xyz/<image>:<component commit>, signed with cosign (keyless, this workflow's
 # GitHub OIDC identity) and with an SPDX SBOM attestation (tools/publish_images.sh).
 #   verify: cosign verify ghcr.io/idp-xyz/idp-cmi:<commit> \
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   acceptance:
-    name: platform acceptance (PATH A, B, C)
+    name: platform acceptance (PATH A to N)
     # pull requests from forks get no secrets, so idp-eer cannot be checked out there
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -63,7 +63,7 @@ jobs:
         run: |
           set -o pipefail
           bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
-          for p in A B C D E F G H I J0 J K L; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
+          for p in A B C D E F G H I J0 J K L M N; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
       - name: Image vulnerabilities in our own images (trivy, HIGH and CRITICAL with a fix fail the build)
         run: |
           bash deploy/images/pg-backup/build.sh idp-pg-backup:dev

@@ -1,10 +1,15 @@
 """Provision idp-mcp for the platform acceptance (DEV ONLY, driven by deploy/compose/e2e.sh): register the
-sandbox as an upstream that receives the verified caller (identity=forward), have it discovered and reviewed,
-grant its tools to the role the HOST's delegated tokens carry, compile, review and deploy a release, and wait
-until the gateway attests it.
+sandbox, and idp-web when its endpoint is given, as upstreams that receive the verified caller (identity=forward),
+have them discovered and reviewed, grant their tools to the role the HOST's delegated tokens carry, compile, review
+and deploy a release, and wait until the gateway attests it.
 
-Usage: python3 -I deploy/compose/mcp_setup.py REGISTRY_URL GATEWAY_ID ADMIN_TOKEN OPERATOR_TOKEN REVIEWER_TOKEN ROLE [SANDBOX_ENDPOINT]
-(SANDBOX_ENDPOINT defaults to the compose service; tests/kind/full.sh passes the sandbox's Service URL.)
+Usage: python3 -I deploy/compose/mcp_setup.py REGISTRY_URL GATEWAY_ID ADMIN_TOKEN OPERATOR_TOKEN REVIEWER_TOKEN ROLE [SANDBOX_ENDPOINT [WEB_ENDPOINT]]
+(SANDBOX_ENDPOINT defaults to the compose service; tests/kind/full.sh passes the sandbox's Service URL. Without
+WEB_ENDPOINT nothing is done for idp-web: it is not on kind yet.)
+
+The web tools are granted only to ROLE, the role of calls that come through the HOST, never to a role of members who
+call the gateway themselves: the confirmation of web_open_url, the sensitivity ceiling and the marking of what a page
+says as untrusted all live in the HOST (idp-mcp interop gaps, section 7; platform ADR-0003 D7, D8).
 """
 import json
 import sys
@@ -14,6 +19,7 @@ import urllib.request
 
 reg, gateway_id, admin, operator, reviewer, role = sys.argv[1:7]
 sandbox = sys.argv[7] if len(sys.argv) > 7 else 'http://sandbox:8570/mcp'
+web = sys.argv[8] if len(sys.argv) > 8 else ''
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -47,6 +53,16 @@ tools = ['sandbox_create', 'sandbox_run', 'sandbox_write_file', 'sandbox_read_fi
 tools += [t for t in ('sandbox_import_file', 'sandbox_export_file') if t in found]
 g = must(operator, 'POST', '/api/v1/grants', {'serverId': sid, 'roles': [role], 'tools': tools})
 must(reviewer, 'POST', f"/api/v1/grants/{g['grantId']}/approve")
+if web:
+    w = must(operator, 'POST', '/api/v1/servers', {'displayName': 'web', 'targetName': 'web', 'endpoint': web, 'identity': 'forward'})
+    wtools = ['web_search', 'web_fetch', 'web_open_url']
+    missing = set(wtools) - set(must(operator, 'POST', f"/api/v1/servers/{w['serverId']}/discover").get('toolNames') or [])
+    if missing:
+        print(f'idp-web did not offer {sorted(missing)}', file=sys.stderr)
+        sys.exit(2)
+    must(reviewer, 'POST', f"/api/v1/servers/{w['serverId']}/approve")
+    g = must(operator, 'POST', '/api/v1/grants', {'serverId': w['serverId'], 'roles': [role], 'tools': wtools})
+    must(reviewer, 'POST', f"/api/v1/grants/{g['grantId']}/approve")
 rel = must(operator, 'POST', '/api/v1/releases', {'gatewayId': gateway_id})
 must(reviewer, 'POST', f"/api/v1/releases/{rel['releaseId']}/approve")
 must(admin, 'POST', f"/api/v1/releases/{rel['releaseId']}/deploy")

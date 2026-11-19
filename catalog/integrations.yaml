@@ -70,6 +70,15 @@ integrations:
     contract: null  # the MCP protocol itself
     auth: [none on the hop: a private network that only the gateway reaches; the gateway authenticates and authorizes the caller and forwards it (identity=forward, idp-mcp ADR-0001 D40)]
     evidence: [idp-sandbox deploy/e2e.sh (the real gateway and registry: discovery, review, grants by role, argument validation, per-caller isolation, forgery stripped), this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH D; PATH L: a run's egress allow-list is that of the tenant the gateway forwards), idp-sandbox ADR-0001]
+  - id: mcp-web-tools
+    port: 8580   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
+    kubernetes: not-deployed   # idp-web has no Kubernetes manifests yet (task P2 removes this line)
+    from: idp-mcp
+    to: idp-web
+    interface: MCP (streamable HTTP) upstream of mcp-gateway; tools web_search / web_fetch / web_open_url
+    contract: null  # the MCP protocol itself
+    auth: [none on the hop: a private network that only the gateway reaches; the gateway authenticates and authorizes the caller and forwards it, signed, and idp-web accepts only that signature (identity=forward, idp-mcp ADR-0001 D40, D44)]
+    evidence: [idp-web ADR-0001 (D2, D16 to D24), this repository deploy/compose/e2e.sh (PATH M: bob's search and read through the HOST, an unsigned caller refused; PATH N: a page's instruction cannot make idp-web read an address no search listed, and web_open_url waits for the member), platform ADR-0003]
   - id: workspace-cmi-memory
     port: 8550   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
     from: idp-workspace
