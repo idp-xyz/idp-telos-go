@@ -41,6 +41,7 @@
 #                                       first model it lists) instead of the deterministic double; the pods reach it through
 #                                       a forwarder on the kind network's gateway (container idp-kind-model-forward, which
 #                                       outlives the run so that the platform keeps answering)
+#                                       IDP_LIVE_MODEL_CONTEXT_WINDOW / IDP_LIVE_MODEL_WATER_MARK: the live model's window and the water mark (idp-host D52)
 # A run starts by deleting the platform's namespaces (a fresh platform); nothing else in the cluster is touched.
 # Nodes that cannot pull images get every image from the Docker daemon (or, for the infrastructure images, crane).
 set -euo pipefail
@@ -281,7 +282,7 @@ fi
 if [[ "$MODEL" == live ]]; then
   # the HOST's provider is the host's model through the forwarder, and the HOST's namespace may reach that address
   python3 - "$L/platform.yaml" "$MODEL_BASE" "$KIND_GW" "$LIVE_MODEL" <<'PY'
-import sys, yaml
+import os, sys, yaml
 path, base, gw, live_model = sys.argv[1:5]
 docs = [d for d in yaml.safe_load_all(open(path)) if d]
 for d in docs:
@@ -291,6 +292,14 @@ for d in docs:
         for p in host["providers"]:
             p.pop("external", None)   # a model on this host is not asserted to be the enterprise's own: it stays external, as before PATH M and N
         host["cmi"]["remember"]["facts"]["model"] = live_model   # the fact extraction uses the same live model
+        win = os.environ.get("IDP_LIVE_MODEL_CONTEXT_WINDOW")   # idp-host D52; unset: the configuration is what it was
+        if win:
+            for p in host["providers"]:
+                if p["name"] == "local":
+                    entry = {"name": live_model, "contextWindow": int(win)}
+                    if os.environ.get("IDP_LIVE_MODEL_WATER_MARK"):
+                        entry["context"] = {"waterMarkShare": float(os.environ["IDP_LIVE_MODEL_WATER_MARK"])}
+                    p["models"] = [entry]
         d["data"]["host.yaml"] = yaml.safe_dump(host, sort_keys=False)
 docs.append({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "kind-live-model", "namespace": "idp-host"},
              "spec": {"podSelector": {}, "policyTypes": ["Egress"],

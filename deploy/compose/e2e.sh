@@ -38,6 +38,8 @@
 #                                       default the first model it lists; IDP_LIVE_MODEL_KEY_FILE, a file with its API key
 #                                       when it wants one) instead of the deterministic double;
 #                                       PATH A then also checks that the answer uses the CMI context
+#                                       IDP_LIVE_MODEL_CONTEXT_WINDOW (tokens, e.g. 131072) gives the HOST the live model's context window (idp-host D52);
+#                                       IDP_LIVE_MODEL_WATER_MARK (e.g. 0.6) overrides the share at which older content is shortened
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
@@ -150,6 +152,13 @@ printf 'providers:\n  - name: local\n    kind: openai\n    baseUrl: %s\n    inse
 if [[ "$MODEL" == live && -n "${IDP_LIVE_MODEL_KEY_FILE:-}" ]]; then
   cat "$IDP_LIVE_MODEL_KEY_FILE" > "$L/live-model.key"
   printf '    apiKeyFile: /etc/idp/live-model.key\n' >> "$L/host.yaml"
+fi
+# idp-host D52: with MODEL=live, IDP_LIVE_MODEL_CONTEXT_WINDOW (tokens) tells the HOST the live model's context window, so that it
+# counts what it sends, shortens older content before the window fills and tells the model; IDP_LIVE_MODEL_WATER_MARK (a share of
+# the window, default 0.6) is the one optional override. Unset, the generated host.yaml is what it was before.
+if [[ "$MODEL" == live && -n "${IDP_LIVE_MODEL_CONTEXT_WINDOW:-}" ]]; then
+  printf '    models:\n      - name: %s\n        contextWindow: %s\n' "$AGENT_MODEL" "$IDP_LIVE_MODEL_CONTEXT_WINDOW" >> "$L/host.yaml"
+  [[ -z "${IDP_LIVE_MODEL_WATER_MARK:-}" ]] || printf '        context: {waterMarkShare: %s}\n' "$IDP_LIVE_MODEL_WATER_MARK" >> "$L/host.yaml"
 fi
 # the CMI: the HOST reads AS THE MEMBER (RFC 8693 exchange for the CMI audience, so a member's own memories are the ones
 # retrieved) and writes conversation memory with its own identity (the client idp-host-svc: cmi-writer), for which it
