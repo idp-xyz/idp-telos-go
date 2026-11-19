@@ -14,7 +14,8 @@ Clients:
                     gateway (aud GATEWAY, azp = idp-host) or for the CMI (aud idp-cmi: the CMI then sees the member, so a
                     member's own memories are the ones retrieved)
 - GATEWAY, idp-cmi, eer-runtime audiences (bearer only; GATEWAY = the gateway's canonical MCP URI)
-- e2e-cli           the acceptance script (password grant), aud idp-workspace, idp-host, idp-cmi, eer-runtime
+- idp-probe         ACCEPTANCE ONLY: a platform client that is not the HOST, exchanging a member's token for the gateway (PATH M2)
+- e2e-cli           the acceptance script (password grant), aud idp-workspace, idp-host, idp-probe, idp-cmi, eer-runtime
 
   python3 deploy/keycloak/realm.py OUT_DIR TENANT_ID CLIENTS_FILE
 """
@@ -55,7 +56,7 @@ user_mappers = [tenant_attr, roles_map, username]
 users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "host-user", "cmi-reader"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
-secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "svc-eer", "eer-intelligence", "e2e-cli")}
+secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "idp-probe", "svc-eer", "eer-intelligence", "e2e-cli")}
 realm = {
     "realm": "idp", "enabled": True, "sslRequired": "none", "accessTokenLifespan": 600,
     "roles": {"realm": [{"name": r} for r in ("ws-admin", "ws-member", "ws-producer", "host-user", "host-admin", "host-approver", "cmi-admin", "cmi-writer", "cmi-reader")]},
@@ -84,12 +85,19 @@ realm = {
         {"clientId": "idp-host", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-host"], "standardFlowEnabled": False,
          "serviceAccountsEnabled": True, "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true", "standard.token.exchange.enableRefreshRequestedTokenType": "SAME_SESSION"},
          "protocolMappers": [audience_uri(GATEWAY), audience("idp-cmi")] + user_mappers},
+        # ACCEPTANCE ONLY: a platform client that is not the HOST and can obtain a gateway-audience token for a member (the same
+        # exchange idp-host does, without its actor token). The gateway lists it as a platform client that is not the host, and
+        # PATH M2 asserts that the host-only web tools are neither visible nor callable through it (idp-mcp ADR-0001 D48). No
+        # product component uses it.
+        {"clientId": "idp-probe", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-probe"], "standardFlowEnabled": False,
+         "serviceAccountsEnabled": True, "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true"},
+         "protocolMappers": [audience_uri(GATEWAY)] + user_mappers},
         {"clientId": GATEWAY, "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "idp-cmi", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "eer-runtime", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "e2e-cli", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["e2e-cli"], "standardFlowEnabled": False,
          "directAccessGrantsEnabled": True, "fullScopeAllowed": True,
-         "protocolMappers": [audience("idp-workspace"), audience("idp-host"), audience("idp-cmi"), audience("eer-runtime")] + user_mappers},
+         "protocolMappers": [audience("idp-workspace"), audience("idp-host"), audience("idp-probe"), audience("idp-cmi"), audience("eer-runtime")] + user_mappers},
     ],
 }
 os.makedirs(out, exist_ok=True)

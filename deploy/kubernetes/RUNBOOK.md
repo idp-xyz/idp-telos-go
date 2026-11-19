@@ -290,6 +290,15 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 | idp-sandbox（D22） | 出口代理的拒绝名单按同一张表补齐 | 沙箱里访问这些地址段被代理拒绝 | 不需要处理 |
 | idp-web（新组件） | 新增组件。三个工具默认不授给任何角色 | — | 开启前先读 `idp-web/docs/RUNBOOK.md`。**`web__*` 只授给经 HOST 调用的角色**：成员确认、敏感级别上限、不可信标记都在 HOST 里，直连网关的客户端绕过它们 |
 
+### 还没有进 BOM 的改动（下一次升级时生效）
+
+| 组件 | 变了什么 | 怎么看出来 | 怎么处理 |
+|---|---|---|---|
+| idp-mcp（D46） | **网关必须有一份客户端名单（`IDP_GATEWAY_CLIENTS_FILE`），没有就不启动。** 名单之外的客户端通过了认证也看不到任何工具 | 网关启动即退出，错误里写明这个设置；原来能用的客户端 `tools/list` 变成空的；审计里 `DENIED`，原因 `client not listed` | 在名单里列出每个调用网关的 OAuth 客户端。平台自己的 HOST 是 `idp-host: {kind: platform, host: true}`（compose 与 kind 的配置里都有）。`"*": platform` 会关掉这项控制，只用于开发或过渡 |
+| idp-mcp（D48） | `hostOnlyTools` 里的工具只有标了 `host: true` 的客户端能看到和调用。平台的配置里是 `web__*` | 其他客户端调用得到"Unknown tool"；审计原因 `host-only` | 不需要处理。确实要让别的客户端用，在 `hostOnlyExcept` 里按工具写例外和理由，每次使用都会记审计 |
+| idp-mcp（D49） | 外部客户端有限流（每客户端每分钟 600 次、每成员 120 次，可按客户端改）；平台客户端不限 | HTTP 429 与 `Retry-After`；审计 `RATE_LIMITED` | 按需在名单里给客户端写 `rateLimit`、`subjectRateLimit` |
+| idp-mcp（契约 1.2.0） | 审计记录多了 `reason`、`bytes` 和三种结果；数据库迁移 0008 | — | **先升级注册服务（含迁移），再升级网关。** 旧的注册服务会整批拒收带新字段的记录，网关会一直重试并积压 |
+
 ## 故障排查
 
 | 现象 | 原因 | 处理 |

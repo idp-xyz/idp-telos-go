@@ -1052,6 +1052,13 @@ WDIRECT="$(web_post tools/call "$FORGED" || true)"
   || { web_log idp-web idp-web | tail -10 >&2; echo "FAIL: PATH M forged caller: a call that names bob without the gateway's signature was not refused: $WDIRECT" >&2; exit 1; }
 echo "PASS: PATH M — bob -> Workspace -> HOST run $MRUN (web-assistant) -> gateway -> idp-web (fixture search, the article read with the search result's ref) -> '41,872' and [1] in bob's inbox; $MGW; $MAUD; $MORG; an unsigned call that names bob is refused (403), tools/list still answers"
 
+# ---- PATH M2: the web tools are the HOST's: another platform client, with bob's roles, sees none of them (idp-mcp ADR-0001 D48) ----
+# The gateway lists idp-host (the HOST) and idp-probe (a platform client that is not the HOST; deploy/keycloak/realm.py) and declares
+# web__* host-only (deploy/kubernetes/full/kustomization.yaml): the same token exchange, the same user and roles, two clients.
+MCHECK="$(python3 -I deploy/compose/client_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" "$GATEWAY_URL" http://127.0.0.1:17320/mcp)" \
+  || { kubectl -n idp-mcp logs deploy/idp-mcp-gateway-edge-1 --tail=20; exit 1; }
+echo "PASS: PATH M2 — the web tools are only the HOST's: $MCHECK"
+
 # ---- PATH N: a page tells the model to send data away, and the model does as the page says ----
 # The search finds the bulletin, whose text names an address of the attacker's and tells the reader to fetch it with the context. The
 # double obeys: web_fetch of that address with the search result's ref, then web_open_url of it. Neither may reach the attacker (c).

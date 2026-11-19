@@ -238,11 +238,26 @@ patches:
           IDP_REGISTRY_URL: "http://idp-mcp-registry.idp-mcp.svc.cluster.local:8250"
           IDP_GATEWAY_TOKEN_FILE: "/etc/idp/credential/token"
           IDP_GATEWAY_CALLER_KEY_FILE: "/etc/idp/caller/caller.key"   # signs the caller it forwards (idp-mcp D44); the sandbox and idp-web require it
+          IDP_GATEWAY_CLIENTS_FILE: "/etc/idp/clients/clients.yaml"   # the OAuth clients served; the gateway does not start without it (idp-mcp D46)
           IDP_GATEWAY_ALLOWED_HOSTS: "idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local,idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220"
           IDP_RELEASE_CACHE: "/var/cache/idp/release.json"
           IDP_CALL_TIMEOUT: "60s"
           IDP_DRIFT_INTERVAL: "60s"
           IDP_LOG_LEVEL: "info"
+  # the clients the gateway serves (idp-mcp ADR-0001 D46 to D49): idp-host is the HOST, the only client that may call the web tools
+  # (they carry the controls that live in the HOST); idp-probe is the acceptance's platform client that is not the HOST (PATH M2;
+  # deploy/keycloak/realm.py). Platform clients are not rate limited unless they say so. Needs idp-mcp's manifests with the
+  # idp-mcp-gateway-edge-1-clients ConfigMap (idp-mcp ADR-0001 section 14).
+  - target: {kind: ConfigMap, name: idp-mcp-gateway-edge-1-clients}
+    patch: |-
+      - op: replace
+        path: /data
+        value:
+          clients.yaml: |
+            clients:
+              idp-host: {kind: platform, host: true}
+              idp-probe: {kind: platform}
+            hostOnlyTools: ["web__*"]
   - target: {kind: Deployment, name: idp-mcp-gateway-edge-1}
     patch: |-
       - {op: replace, path: /spec/replicas, value: 1}
@@ -250,12 +265,13 @@ patches:
       - {op: replace, path: /spec/template/spec/containers/0/livenessProbe/httpGet/scheme, value: HTTP}
       - op: replace
         path: /spec/template/spec/containers/0/volumeMounts
-        value: [{name: credential, mountPath: /etc/idp/credential, readOnly: true}, {name: caller-key, mountPath: /etc/idp/caller, readOnly: true}, {name: cache, mountPath: /var/cache/idp}]
+        value: [{name: credential, mountPath: /etc/idp/credential, readOnly: true}, {name: caller-key, mountPath: /etc/idp/caller, readOnly: true}, {name: clients, mountPath: /etc/idp/clients, readOnly: true}, {name: cache, mountPath: /var/cache/idp}]
       - op: replace
         path: /spec/template/spec/volumes
         value:
           - {name: credential, secret: {secretName: idp-mcp-gateway-edge-1, items: [{key: token, path: token}]}}
           - {name: caller-key, secret: {secretName: idp-mcp-gateway-caller-key}}   # created per run by tests/kind/full.sh
+          - {name: clients, configMap: {name: idp-mcp-gateway-edge-1-clients}}
           - {name: cache, emptyDir: {sizeLimit: 64Mi}}
   # ================= idp-sandbox: callers must be signed by the gateway (idp-sandbox ADR-0001 D18) =================
   # The public key(s) are a ConfigMap full.sh creates per run (a rotation adds a second key to the same file); the audience is

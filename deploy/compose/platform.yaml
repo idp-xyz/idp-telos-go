@@ -139,7 +139,10 @@ services:
       IDP_METRICS_LISTEN: 0.0.0.0:9464
       # the gateway signs the caller it forwards to the sandbox and to web (idp-mcp D44); both hold the public half
       IDP_GATEWAY_CALLER_KEY_FILE: /etc/idp/caller.key
-    volumes: ['../../.local/platform/caller.key:/etc/idp/caller.key:ro']
+      # the OAuth clients the gateway serves, which is the HOST, and the tools only the HOST may call (idp-mcp ADR-0001 D46 to D48):
+      # the gateway does not start without it; written by deploy/compose/e2e.sh
+      IDP_GATEWAY_CLIENTS_FILE: /etc/idp/clients.yaml
+    volumes: ['../../.local/platform/caller.key:/etc/idp/caller.key:ro', '../../.local/platform/gateway-clients.yaml:/etc/idp/clients.yaml:ro']
     depends_on: [mcp-registry]
   sandbox:
     <<: *hardened

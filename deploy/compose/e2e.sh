@@ -239,6 +239,17 @@ PY
 openssl ecparam -name prime256v1 -genkey -noout -out "$L/caller.key" 2>/dev/null
 openssl ec -in "$L/caller.key" -pubout -out "$L/caller.pub" 2>/dev/null
 chmod 644 "$L/caller.key" "$L/caller.pub"
+# the OAuth clients the gateway serves (idp-mcp ADR-0001 D46 to D49); it does not start without the file. idp-host is the HOST: the
+# only client that may call the web tools, which carry the controls (confirmation, sensitivity ceiling, untrusted marking) that live
+# in the HOST. idp-probe is a platform client that is not the HOST, for PATH M2 (realm.py: acceptance only). Platform clients are
+# not rate limited unless they say so; no other client calls the gateway.
+cat > "$L/gateway-clients.yaml" <<'Y'
+clients:
+  idp-host: {kind: platform, host: true}
+  idp-probe: {kind: platform}
+hostOnlyTools: ["web__*"]
+Y
+chmod 644 "$L/gateway-clients.yaml"
 # the sandbox's egress proxy (idp-sandbox D13, D21): the key the sandbox signs a run's credential with and the proxy verifies it
 # with, and the allow-lists. This run's tenant may reach PATH L's origin; everyone else nothing.
 openssl rand -hex 32 > "$L/egress.key"
@@ -986,6 +997,11 @@ DIRECT="$(docker run --rm --network "$UPNET" public.ecr.aws/docker/library/alpin
 [[ "$DIRECT" == *403* && "$DIRECT" != *address:* ]] && web_log web | grep -q 'caller assertion refused' \
   || { echo "FAIL: PATH M forged caller: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
 echo "PASS: PATH M — bob -> Workspace -> HOST run $MRUN (web-assistant) -> gateway -> idp-web (fixture search, the article read with the search result's ref) -> '41,872' and [1] in bob's inbox; $MGW; $MAUD; $MORG; an unsigned call that names bob is refused (403)"
+
+# ---- PATH M2: the web tools are the HOST's: another platform client, with bob's roles, sees none of them (idp-mcp ADR-0001 D48) ----
+MCHECK="$(python3 -I deploy/compose/client_check.py "$ISSUER" "$L/tls/ca.crt" "$L/clients.json" http://mcp-gateway:3320/mcp http://127.0.0.1:3320/mcp)" \
+  || { "${C[@]}" logs --tail 20 mcp-gateway; exit 1; }
+echo "PASS: PATH M2 — the web tools are only the HOST's: $MCHECK"
 
 # ---- PATH N: a page tells the model to send data away, and the model does as the page says ----
 # The search finds the bulletin, whose text names an address of the attacker's and tells the reader to fetch it with the context. The
