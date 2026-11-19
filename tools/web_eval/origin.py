@@ -8,7 +8,8 @@ import urllib.parse
 
 class Origin:
     def __init__(self, pages: dict):
-        """pages: {path: (content type, body bytes)} or {path: ("redirect", location)} or {path: ("slow", seconds)}."""
+        """pages: {path: (content type, body bytes[, {header: value}])} or {path: ("redirect", location)} or
+        {path: ("slow", seconds)}."""
         self.pages, self.hits = pages, []
         origin = self
 
@@ -16,7 +17,7 @@ class Origin:
             def do_GET(self):
                 path = urllib.parse.urlsplit(self.path).path
                 origin.hits.append(self.path)
-                kind, body = origin.pages.get(path, (None, None))
+                kind, body, *extra = origin.pages.get(path, (None, None))
                 if kind == "redirect":
                     self.send_response(302)
                     self.send_header("Location", body)
@@ -41,6 +42,8 @@ class Origin:
                 self.send_response(200)
                 self.send_header("Content-Type", kind)
                 self.send_header("Content-Length", str(len(body)))
+                for k, v in (extra[0] if extra else {}).items():
+                    self.send_header(k, v)
                 self.end_headers()
                 self.wfile.write(body)
 

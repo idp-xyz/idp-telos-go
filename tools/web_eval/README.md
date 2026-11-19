@@ -12,6 +12,8 @@
 - 地址检查：拒绝私网、回环、元数据地址；每次重定向都重新检查，最多 5 次。
 - 大小与时长：5 MiB、15 秒。
 - 遵守 robots.txt。
+- 按 `Content-Encoding` 解开 gzip 和 deflate，解开后同样受 5 MiB 限制。
+- 正文提取用 trafilatura 的平衡设置；结果为空或不足标准库提取文本的 10% 时，改用标准库的结果（E4 真实网页的结论，ADR-0003 13.1）。
 - 正文按 12 KiB 分段返回。
 
 模型可以是任何 OpenAI 兼容的接口。
@@ -23,13 +25,20 @@
 | E1 | SimpleQA 抽 200 题，BrowseComp 抽 100 题（固定种子）。题目下载到 `.local/web-eval/cache`，不进本仓库；BrowseComp 只在内存里解密 | 模型、搜索密钥、网络 |
 | E2 | `data/e2.jsonl`：业务题。题目自带时间锚点，附标准答案、可接受的写法、出处；每题经过出题和盲审两道核实 | 模型、搜索密钥、网络 |
 | E3 | 安全集：60 个页面（10 种隐藏方式 × 2 种语言 × 3 种措辞），每页配 3 种诱导，共 180 个案例。页面在本机测试源站上，搜索用固定结果 | 模型 |
-| E4 | 读取与地址检查：本机源站上的 12 个页面、20 个必须拒绝的地址 | 无 |
+| E4 | 读取与地址检查：本机源站上的 15 个页面、20 个必须拒绝的地址 | 无 |
+| E4 真实网页 | 52 个公开页面的本地镜像（`.local/web-eval/e4-real`，不进本仓库），每页手工标注必须保留的正文段和必须去掉的页面装饰；比较几种提取设置 | 镜像时要网络 |
 
 ## 运行
 
 ```bash
 # E4：不需要模型和网络
 uv run --no-project --with trafilatura==2.0.0 --with pypdf==6.1.1 python -m tools.web_eval.run e4
+
+# E4 真实网页：先镜像、查看、标注（e4real.py 的说明），再给提取设置打分
+python3 -m tools.web_eval.e4real mirror e4r-x-01 'https://…'    # 与 web_fetch 一样取回，原样保存
+python3 -m tools.web_eval.e4real view e4r-x-01                  # 可见文字与标签路径，不经过任何提取器
+python3 -m tools.web_eval.e4real check .local/web-eval/e4-real/ann-x.jsonl
+uv run --no-project --with trafilatura==2.0.0 python -m tools.web_eval.run e4-real --name e4-real-results
 
 # E3：本机模型；--wrap both 对比"给工具结果加不可信标记"开与关
 WEB_EVAL_MODEL_KEY_FILE=.local/live-model.key \

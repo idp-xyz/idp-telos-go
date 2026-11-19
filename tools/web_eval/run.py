@@ -2,6 +2,7 @@
 per (question, provider, wrap, run); a run that stops can be started again and continues where it was.
 
   python -m tools.web_eval.run e4                                    reading and address checks, no model, no network
+  python -m tools.web_eval.run e4-real                               the extractor settings on mirrored real pages (e4real)
   python -m tools.web_eval.run e3 --runs 1 --wrap both               the security set (fixture search, local origin)
   python -m tools.web_eval.run e2 --providers exa,brave,perplexity,no-search --runs 3
   python -m tools.web_eval.run e1 --providers exa,brave,perplexity --runs 1
@@ -24,6 +25,7 @@ from pathlib import Path
 
 from . import e3 as e3mod
 from . import e4 as e4mod
+from . import e4real
 from . import fetch, grade, sets, stats
 from .agent import Agent, Model
 from .origin import Origin
@@ -170,6 +172,70 @@ def run_e4(args, out: Path):
     return all(r["pass"] for r in results)
 
 
+def run_e4_real(args, out: Path):
+    """E4 on mirrored real pages: each extractor setting against the hand annotations (e4real)."""
+    if out.resolve() == e4real.ROOT.resolve():
+        print(f"--name {out.name} is the directory of the annotated pages; choose another")
+        return False
+    pages = e4real.load_all()
+    if not pages:
+        print(f"no annotated pages in {e4real.ROOT}")
+        return False
+    modes = e4real.MODES if _extractor().startswith("trafilatura") else ("stdlib",)
+    rows = []
+    for p in pages:
+        meta, text = e4real.body(p["id"])
+        for m in modes:
+            _, got, how = fetch.extract(text, meta.get("final", p["url"]), m)
+            rows.append({"id": p["id"], "lang": p["lang"], "kind": p["kind"], "script_only": p["script_only"], "mode": m,
+                         "extractor": how, **e4real.score(got, p)})
+    refused = e4real.load_all(prefix="refused-")
+    (out / "e4-real.json").write_text(json.dumps({"extractor": _extractor(), "pages": len(pages), "refused": refused, "results": rows},
+                                                 ensure_ascii=False, indent=1))
+
+    def summary(rs):
+        rs = [r for r in rs if not r["script_only"]]
+        n, of, fur = len(rs), sum(r["of"] for r in rs), sum(r["furniture"] for r in rs)
+        if not n:
+            return None
+        chars = sorted(r["chars"] for r in rs)
+        return {"pages": n, "kept": 100 * sum(r["kept"] for r in rs) / of, "whole": 100 * sum(r["kept"] == r["of"] for r in rs) / n,
+                "leaked": 100 * sum(r["leaked"] for r in rs) / fur, "clean": 100 * sum(not r["leaked"] for r in rs) / n,
+                "fallback": sum(r["extractor"] == "stdlib" for r in rs) if rs[0]["mode"] != "stdlib" else 0, "chars": chars[n // 2]}
+
+    lines = [f"# E4 on real pages: {out.name}", "", f"extractor {_extractor()}; {len(pages)} pages annotated, "
+             f"{sum(p['script_only'] for p in pages)} with their text only in scripts (not scored; what the phase-2 renderer is for); "
+             f"{len(refused)} URLs refused while choosing them", "",
+             "| setting | pages | passages kept % | pages with every passage % | furniture leaked % | pages with no furniture % | fell back to stdlib | median chars |",
+             "|---|---|---|---|---|---|---|---|"]
+    for m in modes:
+        s = summary([r for r in rows if r["mode"] == m])
+        lines.append(f"| {m} | {s['pages']} | {s['kept']:.1f} | {s['whole']:.1f} | {s['leaked']:.1f} | {s['clean']:.1f} | {s['fallback']} | {s['chars']} |")
+    for key in ("lang", "kind"):
+        groups = sorted({r[key] for r in rows})
+        lines += ["", f"By {key} (passages kept % / furniture leaked %):", "", "| " + key + " | pages | " + " | ".join(modes) + " |",
+                  "|---" * (len(modes) + 2) + "|"]
+        for g in groups:
+            ss = [summary([r for r in rows if r["mode"] == m and r[key] == g]) for m in modes]
+            if ss[0]:
+                lines.append(f"| {g} | {ss[0]['pages']} | " + " | ".join(f"{s['kept']:.0f} / {s['leaked']:.0f}" for s in ss) + " |")
+    lines += ["", f"Pages where {modes[0]} lost a passage or kept furniture:", ""]
+    for r in rows:
+        if r["mode"] == modes[0] and not r["script_only"] and (r["kept"] < r["of"] or r["leaked"]):
+            lines.append(f"- {r['id']} ({r['kind']}, {r['lang']}): kept {r['kept']}/{r['of']}, furniture {r['leaked']}/{r['furniture']}"
+                         + (f"; missing: {' | '.join(s[:60] for s in r['missing'])}" if r["missing"] else "")
+                         + (f"; leaked: {' | '.join(s[:40] for s in r['leaked_text'])}" if r["leaked_text"] else ""))
+    if refused:
+        reasons = {}
+        for x in refused:
+            k = e4real.why(x.get("reason", ""))
+            reasons[k] = reasons.get(k, 0) + 1
+        lines += ["", "Refused while choosing pages: " + ", ".join(f"{k} {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1]))]
+    (out / "report.md").write_text("\n".join(lines) + "\n")
+    print("\n".join(lines))
+    return True
+
+
 # ---------------------------------------------------------------- report
 
 def _fmt_ci(m, lo, hi, pct=True):
@@ -289,7 +355,7 @@ def spot_sheet(out: Path, share: float = 0.1, seed: int = 20261118):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m tools.web_eval.run")
-    ap.add_argument("what", choices=["e1", "e2", "e3", "e4", "report"])
+    ap.add_argument("what", choices=["e1", "e2", "e3", "e4", "e4-real", "report"])
     ap.add_argument("--name", help="the results directory under .local/web-eval (default: the set and a time stamp)")
     ap.add_argument("--providers", default="exa-auto", help="comma-separated: exa-auto, exa-lite, brave, perplexity, no-search (E3 always uses its fixture)")
     ap.add_argument("--runs", type=int, default=1)
@@ -308,6 +374,8 @@ def main(argv=None):
         return 0
     if args.what == "e4":
         return 0 if run_e4(args, out) else 1
+    if args.what == "e4-real":
+        return 0 if run_e4_real(args, out) else 1
     items = {"e1": sets.e1, "e2": sets.e2, "e3": lambda: e3mod.cases()[0]}[args.what]()
     if args.category:
         items = [i for i in items if i.get("category") == args.category or i.get("inducement") == args.category]

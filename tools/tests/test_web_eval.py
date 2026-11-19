@@ -6,7 +6,7 @@ import re
 import unittest
 from unittest import mock
 
-from tools.web_eval import e3, e4, fetch, grade, refs, stats
+from tools.web_eval import e3, e4, e4real, fetch, grade, refs, stats
 from tools.web_eval.agent import Agent, Model
 from tools.web_eval.origin import Origin
 from tools.web_eval.providers import Fixture
@@ -178,6 +178,57 @@ class SecuritySet(unittest.TestCase):
         for c in cases:  # the answer is on the page, and the excerpt does not give it away
             self.assertIn(c["answer"].split()[-1] if c["lang"] == "en" else "1.85", pages[c["path"]][1].decode())
             self.assertNotIn("1.85", table[c["id"]][0]["snippet"])
+
+
+class Encodings(unittest.TestCase):
+    """Servers compress whether or not they are asked (cloud.tencent.com and chinapost.com.cn do, E4 on real pages)."""
+
+    def setUp(self):
+        import gzip
+        import zlib
+        raw = zlib.compressobj(9, zlib.DEFLATED, -15)
+        self.origin = Origin({
+            "/gz": ("text/html", gzip.compress("<html><body><p>Depot Utrecht reopens.</p></body></html>".encode()), {"Content-Encoding": "gzip"}),
+            "/raw-deflate": ("text/plain", raw.compress(b"plain words") + raw.flush(), {"Content-Encoding": "deflate"}),
+            "/bomb": ("text/html", gzip.compress(b"0" * (6 << 20)), {"Content-Encoding": "gzip"}),
+            "/br": ("text/html", b"\x1b\x03\x00", {"Content-Encoding": "br"}),
+        })
+        self.addCleanup(self.origin.close)
+
+    def read(self, path):
+        return fetch.read(self.origin.base + path, self.origin.allow, robots=False)
+
+    def test_gzip_and_deflate_bodies_are_decoded(self):
+        self.assertIn("Depot Utrecht reopens.", self.read("/gz")["text"])
+        self.assertEqual(self.read("/raw-deflate")["text"], "plain words")
+
+    def test_the_size_limit_holds_after_decoding_and_unknown_encodings_are_refused(self):
+        with self.assertRaisesRegex(fetch.Refused, "larger than"):
+            self.read("/bomb")
+        with self.assertRaisesRegex(fetch.Refused, "content encoding br"):
+            self.read("/br")
+
+
+class RealPages(unittest.TestCase):
+    """E4 on real pages: the scoring the hand annotations are checked with, and the view they are made from."""
+
+    def test_a_passage_counts_whatever_the_markup_and_spacing(self):
+        page = {"contain": ["示例物流于 2026 年 11 月 3 日启用新中心", "The hub handles 42,000 parcels an hour"],
+                "not_contain": ["Subscribe to our newsletter"]}
+        s = e4real.score("**示例物流**于2026年11月3日启用新中心。\n\nThe hub *handles* 42,000 parcels\nan hour.", page)
+        self.assertEqual((s["kept"], s["of"], s["leaked"]), (2, 2, 0))
+        s = e4real.score("Subscribe to our\nnewsletter", page)
+        self.assertEqual((s["kept"], s["leaked"], s["missing"]), (0, 1, page["contain"]))
+
+    def test_the_view_shows_visible_text_with_its_path_and_no_script(self):
+        p = e4real._Nodes()
+        p.feed("<html><body><nav><a href='/'>Products page</a></nav><script>var x = 'in a script'</script>"
+               "<main><p>Main <b>text</b><br>here</p></main><img src='a.png'></body></html>")
+        self.assertEqual(p.lines, ["body>nav>a | Products page", "body>main>p | Main", "body>main>p>b | text", "body>main>p | here"])
+
+    def test_the_stdlib_setting_is_the_fallback_alone(self):
+        _, text, how = fetch.extract("<html><body><nav>Menu</nav><p>Body text.</p></body></html>", "https://example.com/", "stdlib")
+        self.assertEqual((how, text), ("stdlib", "Body text."))
 
 
 if __name__ == "__main__":

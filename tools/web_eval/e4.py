@@ -2,12 +2,14 @@
 
 E4: pages of our own text served by the local origin, each with sentences the extracted text must contain and page
 furniture it must not. The pages cover what the reader meets: an article inside navigation and footers, a table, a
-long page read in parts, a page whose text only a script writes (a plain reader cannot see it: what the renderer of
-phase 2 is for), GBK-encoded Chinese, a redirect chain, plain text, and pages that must be refused (too large, too
-slow, an unsupported type, a redirect into a private address).
+long page read in parts, a compressed page, a page whose text only a script writes (a plain reader cannot see it: what
+the renderer of phase 2 is for), GBK-encoded Chinese, a redirect chain, plain text, and pages that must be refused (too
+large, also once decompressed; too slow; an unsupported type or encoding; a redirect into a private address).
+E4 on real pages is e4real.
 
 SSRF: addresses that must be refused before any connection (T3).
 """
+import gzip
 import html
 
 LONG_PARAS = 300
@@ -23,6 +25,9 @@ def _page(title, body, lang="en", charset="utf-8"):
 
 
 FURNITURE = ["Subscribe to our newsletter", "Advertisement: buy boxes in bulk", "Privacy · Cookies · Imprint"]
+# web_fetch's balanced setting keeps the header line of a page with only a sentence or two of text: the trade made for
+# real pages, where it kept more of the main text than precision with no more furniture (ADR-0003 13.1)
+FURNITURE_TINY = FURNITURE[1:]
 
 
 def pages() -> tuple[dict, list[dict]]:
@@ -38,7 +43,7 @@ def pages() -> tuple[dict, list[dict]]:
     rows = [("Zone 1", "4.20"), ("Zone 2", "5.10"), ("Zone 3", "6.75")]
     table = "<table><tr><th>Zone</th><th>Price (EUR)</th></tr>" + "".join(f"<tr><td>{z}</td><td>{v}</td></tr>" for z, v in rows) + "</table>"
     p["/table.html"] = ("text/html; charset=utf-8", _page("Parcel prices 2027", "<p>Prices from 1 January 2027.</p>" + table).encode())
-    checks.append({"id": "e4-table", "path": "/table.html", "expect": "ok", "contain": ["Zone 3", "6.75", "Prices from 1 January 2027."], "not_contain": FURNITURE})
+    checks.append({"id": "e4-table", "path": "/table.html", "expect": "ok", "contain": ["Zone 3", "6.75", "Prices from 1 January 2027."], "not_contain": FURNITURE_TINY})
 
     long_body = "".join(f"<p>Paragraph {i}: the archive lists consignment {1000 + i} as delivered on time.</p>" for i in range(LONG_PARAS))
     p["/long.html"] = ("text/html; charset=utf-8", _page("Delivery archive", long_body).encode())
@@ -63,6 +68,15 @@ def pages() -> tuple[dict, list[dict]]:
     txt = "Service bulletin 2026-47: depot Leipzig closes early on 24 December 2026."
     p["/bulletin.txt"] = ("text/plain; charset=utf-8", txt.encode())
     checks.append({"id": "e4-plain", "path": "/bulletin.txt", "expect": "ok", "contain": [txt], "not_contain": []})
+
+    # many servers compress whether asked or not (found on real pages); the limit holds for the decoded size
+    bulletin = "Depot Utrecht reopens on 2 March 2027 after the floor is replaced."
+    p["/gzip.html"] = ("text/html; charset=utf-8", gzip.compress(_page("Depot bulletin", f"<p>{bulletin}</p>").encode()), {"Content-Encoding": "gzip"})
+    checks.append({"id": "e4-gzip", "path": "/gzip.html", "expect": "ok", "contain": [bulletin], "not_contain": FURNITURE_TINY})
+    p["/bomb.html"] = ("text/html", gzip.compress(b"<p>" + b"0" * (6 << 20) + b"</p>"), {"Content-Encoding": "gzip"})
+    checks.append({"id": "e4-gzip-bomb", "path": "/bomb.html", "expect": "refused", "why": "larger than"})
+    p["/br.html"] = ("text/html", b"\x1b\x03\x00\xf8\xa5", {"Content-Encoding": "br"})
+    checks.append({"id": "e4-encoding", "path": "/br.html", "expect": "refused", "why": "content encoding"})
 
     p["/big.html"] = ("text/html", b"<p>" + b"x" * (6 << 20) + b"</p>")
     checks.append({"id": "e4-too-large", "path": "/big.html", "expect": "refused", "why": "larger than"})

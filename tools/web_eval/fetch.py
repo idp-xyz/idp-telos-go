@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import urllib.robotparser
+import zlib
 
 MAX_BYTES = 5 << 20
 TIMEOUT = 15.0
@@ -75,7 +76,8 @@ def _opener(url: str, allow: frozenset):
 def _get(url: str, allow: frozenset, max_bytes: int = MAX_BYTES):
     check_address(url, allow)
     deadline = time.monotonic() + TIMEOUT
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": ", ".join(TYPES) + ";q=0.9, */*;q=0.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": ", ".join(TYPES) + ";q=0.9, */*;q=0.1",
+                                               "Accept-Encoding": "gzip, deflate"})
     try:
         resp = _opener(url, allow).open(req, timeout=TIMEOUT)
     except urllib.error.HTTPError as e:
@@ -95,7 +97,29 @@ def _get(url: str, allow: frozenset, max_bytes: int = MAX_BYTES):
             body += chunk
         if len(body) > max_bytes:
             raise Refused(f"larger than {max_bytes >> 20} MiB")
-        return resp.geturl(), resp.headers.get("Content-Type", ""), bytes(body)
+        body = _decoded(bytes(body), resp.headers.get("Content-Encoding", ""), max_bytes)
+        return resp.geturl(), resp.headers.get("Content-Type", ""), body
+
+
+def _decoded(body: bytes, encoding: str, max_bytes: int) -> bytes:
+    """Undo the compression the server applied: many send gzip whether or not it was asked for (found on real pages,
+    E4). The size limit holds for the decoded body too, so a few compressed kilobytes cannot expand past it."""
+    enc = encoding.strip().lower()
+    if enc in ("", "identity"):
+        return body
+    if enc not in ("gzip", "x-gzip", "deflate"):
+        raise Refused(f"content encoding {enc} is not read")
+    # gzip has its own header (wbits 31); deflate is meant to be zlib-wrapped (15) but some servers send it raw (-15)
+    for wbits in ((31,) if enc != "deflate" else (15, -15)):
+        d = zlib.decompressobj(wbits)
+        try:
+            out = d.decompress(body, max_bytes + 1)
+        except zlib.error:
+            continue
+        if len(out) > max_bytes or d.unconsumed_tail:
+            raise Refused(f"larger than {max_bytes >> 20} MiB")
+        return out
+    raise Refused(f"content encoding {enc} could not be decoded")
 
 
 _robots: dict = {}
@@ -151,24 +175,34 @@ class _Text(html.parser.HTMLParser):
             self.out.append(data)
 
 
-def extract(body: str, url: str) -> tuple[str, str, str]:
-    """(title, main text as Markdown, extractor name)."""
-    try:
-        import trafilatura  # optional; the harness says which extractor ran
-        meta = trafilatura.extract_metadata(body)
-        # favor_precision: on E4 the recall and default modes took a short page's header and navigation for text and
-        # flattened tables; precision kept neither furniture nor lost a sentence, and kept tables as Markdown tables
-        text = trafilatura.extract(body, url=url, output_format="markdown", include_tables=True, include_links=False,
-                                   include_comments=False, favor_precision=True)
-        if text:
-            return (meta.title if meta and meta.title else ""), text, "trafilatura"
-    except ImportError:
-        pass
+FALLBACK_SHARE = 0.10
+
+
+def extract(body: str, url: str, mode: str = "balanced") -> tuple[str, str, str]:
+    """(title, main text as Markdown, extractor name). mode: balanced (what web_fetch uses), precision or recall
+    (trafilatura's other settings), or stdlib (the fallback alone).
+
+    On 51 annotated real pages (E4, ADR-0003 13.1) trafilatura's balanced setting kept more of the main text than
+    precision (which had looked better on the short pages of our own) with no more furniture, and kept tables alike.
+    All three settings fail on some pages (gov.cn's documents: nothing, or the title alone); so when trafilatura
+    finds nothing, or less than FALLBACK_SHARE of the text the plain reader finds, the plain reader's text is used.
+    """
     p = _Text()
     p.feed(body)
-    text = re.sub(r"[ \t]+", " ", "".join(p.out))
-    text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
-    return html.unescape(p.title.strip()), html.unescape(text), "stdlib"
+    plain = re.sub(r"[ \t]+", " ", "".join(p.out))
+    plain = html.unescape(re.sub(r"\n\s*\n+", "\n\n", plain).strip())
+    title = html.unescape(p.title.strip())
+    if mode != "stdlib":
+        try:
+            import trafilatura  # optional; the harness says which extractor ran
+            meta = trafilatura.extract_metadata(body)
+            text = trafilatura.extract(body, url=url, output_format="markdown", include_tables=True, include_links=False,
+                                       include_comments=False, favor_precision=mode == "precision", favor_recall=mode == "recall")
+            if text and len(text) >= FALLBACK_SHARE * len(plain):
+                return (meta.title if meta and meta.title else title), text, "trafilatura"
+        except ImportError:
+            pass
+    return title, plain, "stdlib"
 
 
 def _pdf_text(body: bytes) -> str:
