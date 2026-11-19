@@ -27,7 +27,10 @@ docker image inspect "$NODE_IMG" >/dev/null 2>&1 || { echo "BLOCKED: $NODE_IMG i
 # five kind nodes on one host share its inotify limits (128 instances by default): with them exhausted kube-proxy dies with "too many
 # open files" on every node of both clusters, as after a restart of the machine. Raised through a node container (privileged; no sudo)
 docker exec kind-control-plane sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=1048576 >/dev/null 2>&1 || true
-kind get clusters 2>/dev/null | grep -qx "$NAME" || kind create cluster --name "$NAME" --config tests/kind/multinode.yaml --image "$NODE_IMG" --wait 0s
+kind get clusters 2>/dev/null | grep -qx "$NAME" || {
+  bash tools/pull_image.sh "$NODE_IMG"   # with retries, so that kind does not pull
+  kind create cluster --name "$NAME" --config tests/kind/multinode.yaml --image "$NODE_IMG" --wait 0s
+}
 restore
 KIND_CLUSTER="$NAME" bash tests/kind/pin-node-ips.sh >/dev/null   # its nodes keep their addresses across restarts (full.sh renders them)
 docker exec "$NAME-control-plane" sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=1048576 >/dev/null

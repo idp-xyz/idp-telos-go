@@ -132,7 +132,7 @@ ensure_image() { # ensure_image IMAGE [NODE-NAME]
       local tar; tar="$(mktemp --suffix=.tar)"; bash tests/kind/crane-pull.sh "$img" "$tar" && kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
       return 0
     fi
-    docker pull -q "$img" >/dev/null
+    bash tools/pull_image.sh "$img"
   fi
   [[ "$img" == "$want" ]] || docker tag "$img" "$want"
   load_image "$want"
@@ -164,6 +164,7 @@ if [[ "$MODEL" == live ]]; then
   TARGET="$(python3 -c "import urllib.parse,sys; u=urllib.parse.urlparse(sys.argv[1]); print(f'{u.hostname}:{u.port or 80}')" "$LIVE_URL")"
   LIVE_PATH="$(python3 -c "import urllib.parse,sys; print(urllib.parse.urlparse(sys.argv[1]).path.rstrip('/'))" "$LIVE_URL")"
   PYIMG=python:3.12-slim; docker image inspect "$PYIMG" >/dev/null 2>&1 || PYIMG=public.ecr.aws/docker/library/python:3.12-slim
+  bash tools/pull_image.sh "$PYIMG"   # with retries, so that docker run does not pull
   docker rm -f idp-kind-model-forward >/dev/null 2>&1 || true
   docker run -d --name idp-kind-model-forward --restart unless-stopped --network host -v "$PWD/tools/model_forward.py:/model_forward.py:ro" \
     "$PYIMG" python /model_forward.py "$KIND_GW:18088" "$TARGET" >/dev/null

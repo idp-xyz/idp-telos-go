@@ -42,13 +42,17 @@ if [[ -n "${TRIVY_OFFLINE:-}" ]]; then
 elif [[ -n "${HTTPS_PROXY:-}" ]]; then
   NET=(-e "HTTPS_PROXY=$HTTPS_PROXY" -e "HTTP_PROXY=${HTTP_PROXY:-$HTTPS_PROXY}" -e NO_PROXY=localhost,127.0.0.1 --network host)
 fi
+bash tools/pull_image.sh "$TRIVY"   # with retries, so that docker run does not pull it
 status=0
 echo "## Image vulnerabilities (trivy ${TRIVY##*:}, HIGH and CRITICAL with a fix)"; echo
 printf '| image | findings | detail |\n|---|---|---|\n'
 for img in "${IMAGES[@]}"; do
   if ! docker image inspect "$img" >/dev/null 2>&1; then
     if [[ -n "${TRIVY_OFFLINE:-}" ]]; then printf '| `%s` | not scanned | not in Docker (offline: crane pull + docker load) |\n' "$img"; status=1; continue; fi
-    docker pull -q "$img" >/dev/null 2>&1 || { printf '| `%s` | not scanned | image not available |\n' "$img"; status=1; continue; }
+    # with retries; an image that cannot be had is a row of the report, not the end of the run
+    if ! pull_err="$(bash tools/pull_image.sh "$img" 2>&1 >/dev/null)"; then
+      printf '| `%s` | not scanned | image not available: %s |\n' "$img" "$(tail -n 1 <<<"$pull_err" | tr '|' '/' | cut -c1-160)"; status=1; continue
+    fi
   fi
   json="$(mktemp)"; err="$(mktemp)"   # files, not variables: an image with many findings is more than an environment can carry
   trivy_() { docker run --rm "${NET[@]}" -v /var/run/docker.sock:/var/run/docker.sock -v "$CACHE:/root/.cache/trivy" "$TRIVY" image --quiet "${OFFLINE[@]}" \

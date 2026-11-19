@@ -66,6 +66,8 @@ cosign verify ghcr.io/idp-xyz/idp-cmi:<commit> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+第三方镜像在使用前由 `tools/pull_image.sh` 显式拉取并重试（最多 5 次，间隔 15、30、60、120 秒；本机已有则跳过），因为公共 registry 对匿名拉取按来源地址限流，而 CI 的 runner 与许多项目共用地址。
+
 ## 许可证
 
 本仓库采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：允许非商业用途，禁止任何商业使用。

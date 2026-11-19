@@ -31,7 +31,7 @@ for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev; do
 # LOAD_BASE_IMAGES=1: nodes that cannot reach the registries (a machine behind a proxy) get the base images from the daemon
 if [[ "${LOAD_BASE_IMAGES:-0}" == 1 ]]; then
   for img in public.ecr.aws/docker/library/postgres:17-alpine public.ecr.aws/docker/library/busybox:1.37; do
-    docker image inspect "$img" >/dev/null 2>&1 || docker pull -q "$img" >/dev/null 2>&1 || { echo "skipped $img (not available)"; continue; }
+    bash tools/pull_image.sh "$img" || { echo "skipped $img (not available)"; continue; }   # with retries; the nodes then do not pull it
     load_image "$img"
   done
 fi

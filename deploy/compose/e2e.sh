@@ -91,19 +91,23 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-web/deploy/build.sh idp-web:dev
 fi
 # the sandbox's runtime images are pulled by the operator (here), never by the service
-for img in public.ecr.aws/docker/library/python:3.12-slim public.ecr.aws/docker/library/alpine:3.22; do
-  docker image inspect "$img" >/dev/null 2>&1 || docker pull -q "$img" >/dev/null
-done
+bash tools/pull_image.sh public.ecr.aws/docker/library/python:3.12-slim public.ecr.aws/docker/library/alpine:3.22
 # the members' file store (idp-workspace D24): RustFS pinned by digest, the build the kind backups use
 FILES_S3_IMG=docker.io/rustfs/rustfs:1.0.4-glibc FILES_S3_DIGEST=sha256:a9b705b9256be756802a60f3498abdc543918b5b5a4437a57a541e89e733c74d
 if ! docker image inspect "$FILES_S3_IMG" >/dev/null 2>&1; then
-  docker pull -q "${FILES_S3_IMG%%:*}@$FILES_S3_DIGEST" >/dev/null && docker tag "${FILES_S3_IMG%%:*}@$FILES_S3_DIGEST" "$FILES_S3_IMG"
+  bash tools/pull_image.sh "${FILES_S3_IMG%%:*}@$FILES_S3_DIGEST" && docker tag "${FILES_S3_IMG%%:*}@$FILES_S3_DIGEST" "$FILES_S3_IMG"
 fi
 # the sandbox's office run image (idp-sandbox ADR-0001 D14) is built offline on that python image; OfficeCLI is pinned in its script
 [[ "${SKIP_BUILD:-0}" == 1 ]] || BASE=public.ecr.aws/docker/library/python:3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev "$FILES_S3_IMG"; do
+OWN=(idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev)
+for img in "${OWN[@]}" "$FILES_S3_IMG"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
 done
+# the third-party images compose would pull at "up" (platform.yaml's defaults, or what IDP_*_IMAGE / EER_TEMPORAL_IMAGE name), pulled
+# here with retries instead; read from the compose file so that there is no second copy of the names. local/... is what an operator
+# tags by hand (EER's Temporal), not a registry name.
+mapfile -t THIRD < <("${C[@]}" config --images | sort -u | grep -vxF -f <(printf '%s\n' "${OWN[@]}") | grep -v '^local/' || true)
+bash tools/pull_image.sh "${THIRD[@]}"
 
 "${C[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 cleanup() {

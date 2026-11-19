@@ -10,6 +10,7 @@ N=idp-bk-test; AK=testaccess; SK=testsecret-0123456789
 cleanup() { docker rm -f $N-pg $N-s3 >/dev/null 2>&1 || true; docker network rm $N >/dev/null 2>&1 || true; docker volume rm -f $N-backup >/dev/null 2>&1 || true; rm -rf "${T:-}"; }
 trap cleanup EXIT; cleanup; T="$(mktemp -d)"; chmod 755 "$T"
 ok() { echo "PASS: $*"; }; fail() { echo "FAIL: $*" >&2; exit 1; }
+bash "$(dirname "$0")/../../../tools/pull_image.sh" "$PG_IMG"   # with retries, so that docker run does not pull (the RustFS image is loaded by digest, see above)
 docker network create $N >/dev/null
 docker run -d --name $N-pg --network $N -e POSTGRES_PASSWORD=pw "$PG_IMG" >/dev/null
 docker run -d --name $N-s3 --network $N -e RUSTFS_ACCESS_KEY=$AK -e RUSTFS_SECRET_KEY=$SK -e RUSTFS_REGION=us-east-1 -e RUSTFS_CONSOLE_ENABLE=false "$S3_IMG" >/dev/null

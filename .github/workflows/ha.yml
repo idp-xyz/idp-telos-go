@@ -38,8 +38,7 @@ jobs:
       - uses: imjasonh/setup-crane@v0.4
       - name: Images the scripts expect in the Docker daemon
         run: |
-          docker pull -q kindest/node:v1.35.0
-          docker pull -q ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie
+          bash tools/pull_image.sh kindest/node:v1.35.0 ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie
           bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
       - name: A cluster of one control plane and three workers in three zones
         run: bash tests/kind/multinode-cluster.sh
