@@ -4,6 +4,8 @@ per (question, provider, wrap, run); a run that stops can be started again and c
   python -m tools.web_eval.run e4                                    reading and address checks, no model, no network
   python -m tools.web_eval.run e4-real                               the extractor settings on mirrored real pages (e4real)
   python -m tools.web_eval.run e3 --runs 1 --wrap both               the security set (fixture search, local origin)
+  python -m tools.web_eval.run e4 --service                          the same checks against a running idp-web (conformance)
+  python -m tools.web_eval.run e3 --service [--scripted]             E3 with the tools answered by idp-web; --scripted: no model
   python -m tools.web_eval.run e2 --providers exa,brave,perplexity,no-search --runs 3
   python -m tools.web_eval.run e1 --providers exa,brave,perplexity --runs 1
   python -m tools.web_eval.run report --name <name>
@@ -26,7 +28,7 @@ from pathlib import Path
 from . import e3 as e3mod
 from . import e4 as e4mod
 from . import e4real
-from . import fetch, grade, sets, stats
+from . import conformance, fetch, grade, service, sets, stats
 from .agent import Agent, Model
 from .origin import Origin
 from .providers import Fixture, NoSearch, ProviderError, make
@@ -66,10 +68,13 @@ def run_questions(args, items, out: Path):
     wraps = {"on": [True], "off": [False], "both": [True, False]}[args.wrap]
     origin = table = None
     if items and items[0]["set"] == "e3":
-        cases, pages, table = e3mod.cases()
-        origin = Origin({})
-        origin.pages = {k: (t, b.replace(b"{origin}", origin.base.encode())) for k, (t, b) in pages.items()}
-    meta = {"model": model.name, "judge": judge.name, "extractor": _extractor(), "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+        if args.service:
+            origin, _, table = conformance.e3_origin()  # the search results already name the origin
+        else:
+            cases, pages, table = e3mod.cases()
+            origin = Origin({})
+            origin.pages = {k: (t, b.replace(b"{origin}", origin.base.encode())) for k, (t, b) in pages.items()}
+    meta = {"model": model.name, "judge": judge.name, "extractor": "idp-web service" if args.service else _extractor(), "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     (out / "meta.json").write_text(json.dumps(meta, indent=1))
     total = len(items) * len(providers) * len(wraps) * args.runs
     count = 0
@@ -78,22 +83,33 @@ def run_questions(args, items, out: Path):
             for pname in providers:
                 for wrap in wraps:
                     count += 1
-                    key = f"{item['id']}|{'fixture' if origin else pname}|{'wrap' if wrap else 'raw'}|{run}"
+                    key = f"{item['id']}|{('service' if args.service else 'fixture') if origin else pname}|{'wrap' if wrap else 'raw'}|{run}"
                     if key in done:
                         continue
-                    if origin:  # E3: whatever the query, the case's own notice comes back
+                    svc = None
+                    if origin and args.service:  # E3 against idp-web: its own process per case, whose search returns the case's notice
+                        svc = conformance.case_service(item, table, origin, args.binary).start()
+                        agent = conformance.ServiceAgent(model, svc, wrap=wrap, context=item.get("context", ""), today=args.today)
+                        provider = agent.provider
+                    elif origin:  # E3: whatever the query, the case's own notice comes back
                         provider = Fixture({"": table[item["id"]]}, origin.base)
                     else:
                         try:
                             provider = make(pname)
                         except ProviderError as e:
                             sys.exit(f"BLOCKED: {e}")
-                    agent = Agent(model, provider, wrap=wrap, allow=origin.allow if origin else frozenset(),
-                                  context=item.get("context", ""), today=args.today)
+                    if not svc:
+                        agent = Agent(model, provider, wrap=wrap, allow=origin.allow if origin else frozenset(),
+                                      context=item.get("context", ""), today=args.today)
                     hits_before = len(origin.hits) if origin else 0
-                    t = agent.run(item["question"], seed=run + 1).to_json()
+                    try:
+                        t = agent.run(item["question"], seed=run + 1).to_json()
+                    finally:
+                        if svc:
+                            svc.stop()
                     rec = {"key": key, "set": item["set"], "id": item["id"], "provider": provider.name if origin else pname,
                            "wrap": wrap, "run": run, "provider_requests": provider.requests, "trace": t,
+                           **({"service": {"audit": agent.audit}} if svc else {}),
                            "item": {k: item[k] for k in ("category", "lang", "difficulty", "post_cutoff", "hiding", "framing", "inducement") if k in item}}
                     rec["rule"] = grade.rule(t["final"] or t["answer"][-300:], item["answer"], item.get("aliases", []))
                     try:
@@ -385,6 +401,9 @@ def main(argv=None):
     ap.add_argument("--category", default="", help="only questions of this category")
     ap.add_argument("--today", default=time.strftime("%Y-%m-%d"))
     ap.add_argument("--quick", action="store_true", help="e4: skip the 15-second timeout check")
+    ap.add_argument("--service", action="store_true", help="e4, e3: run against a started idp-web instead of the Python reference (conformance)")
+    ap.add_argument("--scripted", action="store_true", help="e3 --service: no model; an obedient scripted model, every call on the attacker's address must be refused")
+    ap.add_argument("--binary", default="", help="--service: the idp-web binary (default $WEB_EVAL_IDP_WEB or idp-web/bin/idp-web)")
     args = ap.parse_args(argv)
     name = args.name or f"{args.what}-{time.strftime('%Y%m%d-%H%M%S')}"
     out = OUT / name
@@ -393,7 +412,18 @@ def main(argv=None):
         print(report(out))
         spot_sheet(out)
         return 0
+    if (args.service or args.scripted) and args.what not in ("e3", "e4"):
+        print("--service is for e3 and e4")
+        return 2
+    if args.scripted and not (args.service and args.what == "e3"):
+        print("--scripted goes with e3 --service")
+        return 2
+    if args.service and not service.available(args.binary or None) and not args.scripted:
+        print(f"BLOCKED: no idp-web binary at {service.binary_path(args.binary or None)} (make -C idp-web build)")
+        return 2
     if args.what == "e4":
+        if args.service:
+            return 0 if conformance.run_e4_service(args, out, args.binary or None) else 1
         return 0 if run_e4(args, out) else 1
     if args.what == "e4-real":
         return 0 if run_e4_real(args, out) else 1
@@ -403,6 +433,11 @@ def main(argv=None):
     if args.limit:
         rng = random.Random(sets.SAMPLE_SEED)
         items = sorted(rng.sample(items, min(args.limit, len(items))), key=lambda i: i["id"])
+    if args.scripted:
+        if not service.available(args.binary or None):  # CI without the binary: nothing to test, and not a failure
+            print(f"SKIP: no idp-web binary at {service.binary_path(args.binary or None)} (make -C idp-web build)")
+            return 0
+        return 0 if conformance.run_e3_scripted(items, args.binary or None) else 1
     print(f"{len(items)} questions -> {out}")
     run_questions(args, items, out)
     print(report(out))

@@ -52,6 +52,7 @@ class Origin:
 
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True
+        self.server.handle_error = lambda request, client_address: None  # a reader that stops at its size limit resets the connection
         self.port = self.server.server_address[1]
         self.base = f"http://127.0.0.1:{self.port}"
         self.allow = frozenset({f"127.0.0.1:{self.port}"})

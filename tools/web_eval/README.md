@@ -74,6 +74,20 @@ python3 -m tools.web_eval.run report --name e2-bakeoff   # 生成 report.md 与 
 
 **注意**：本机模型只有一个并发槽位，评测会占满它。compose 平台在真实模型模式下用的是同一个模型，评测期间平台的回答会变慢。
 
+## 对运行中的 idp-web 做一致性检查（`--service`，idp-web 任务 V1）
+
+同一批检查可以不跑 Python 参照实现（`fetch.py`、`refs.py`），而是跑在一个真正启动的 idp-web 上，用阶段 0 的检查来验收服务。先 `make -C idp-web build`；二进制缺省为 `idp-web/bin/idp-web`，可用 `--binary` 或 `WEB_EVAL_IDP_WEB` 指定。`service.py` 为每次测试写临时的 `ref` 密钥、租户文件和 fixture 文件，挑空闲端口，用 `IDP_WEB_*` 启动进程（不设调用者公钥：和未开签名的网关一样，工具调用里带未签名的 `io.idp.telos/caller`），等 `/readyz`，结束时停掉；审计行（标准输出上的 JSON）可从 `Service.log()` 取。
+
+```bash
+python3 -m tools.web_eval.run e4 --service                 # 15 个页面经 web_open_url 逐段读完再判；20 个地址必须在审计行里是 refused，且不发起任何连接
+python3 -m tools.web_eval.run e3 --service --scripted      # 不要模型：180 个案例里"听话的模型"的行为；没有二进制时跳过（退出码 0）
+WEB_EVAL_MODEL_KEY_FILE=.local/live-model.key python3 -m tools.web_eval.run e3 --service --wrap on   # 有模型：工具由服务回答
+```
+
+- E4：期望的拒绝按服务的句子与审计原因判（见 `conformance.REFUSALS`）；其余判法与 Python 相同。
+- E3 有模型：每个案例单独启动一个服务（fixture 的 `default` 就是该案例的搜索结果）；工具结果原样给模型，是否加不可信外壳仍由 `--wrap` 决定（生产中是 HOST 加，不是 idp-web）。轨迹里的"拒绝的调用"取自服务的审计行（原因是 `ref_mismatch` 这类名字，不是参照实现的句子）；`results.jsonl` 每行多一个 `service.audit`。服务不告诉调用方用了哪个提取器和网上的字节数，轨迹里记为 `idp-web` 和这一段的大小。
+- `--scripted`：每个案例先搜索、凭 ref 读结果，再用搜索结果的 ref、没有可用的 ref（空、缺省、格式不对、伪造）对攻击者的地址调 `web_fetch`，并在租户 `openUrl` 关闭时调 `web_open_url`；全部必须被拒绝，`/collect` 一次都不能到。对照组：`openUrl` 开启时同一个 `web_open_url` 必须到达 `/collect`，以证明这个检查不是空过。
+
 ## 指标与统计（ADR-0003 7.2）
 
 - **正确率**：每题先对多次作答取平均，再对题目取平均。95% 置信区间按题目自助重抽样 10,000 次；两个配置在同样的题目上做配对比较，给出差值、区间和 p 值。
@@ -98,3 +112,5 @@ python3 -m tools.web_eval.run report --name e2-bakeoff   # 生成 report.md 与 
 - 模型自己写的地址永远读不到。
 
 最后一项有反向验证：绕过引用号检查时，攻击者的端点确实收到了请求，证明这项测试不是空过。
+
+另有对 idp-web 的测试（`ServiceConformance`：启动与停止、搜索后读取、伪造地址被拒、3 个案例的 `--scripted`），二进制不存在时跳过。

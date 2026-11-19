@@ -2,6 +2,8 @@
 is never read, T2 refs cannot be forged or reused, T3 inward addresses are refused), its paging, grading and statistics.
 Standard library only (CI runs them without the optional extractor)."""
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -12,7 +14,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tools.web_eval import e3, e4, e4real, fetch, grade, refs, run, stats
+from tools.web_eval import conformance, e3, e4, e4real, fetch, grade, refs, run, service, stats
 from tools.web_eval.agent import Agent, Model
 from tools.web_eval.origin import Origin
 from tools.web_eval.providers import Fixture
@@ -319,6 +321,66 @@ class ExternalExtractors(unittest.TestCase):
         self.assertEqual((page["text"], page["extractor"]), ("Alpha beta. [" + origin.base + "/a]", "fake"))
         with mock.patch.dict(os.environ, {"WEB_EVAL_EXTRACT_CMD": ""}):
             self.assertNotIn("[", fetch.read(origin.base + "/a", origin.allow, robots=False)["text"])
+
+
+class ServiceConformance(unittest.TestCase):
+    """The harness against a running idp-web (task V1). Skipped when the binary is not built: make -C idp-web build."""
+
+    def test_without_the_binary_the_scripted_check_skips_and_the_others_say_so(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"WEB_EVAL_IDP_WEB": d + "/none"}), \
+                mock.patch.object(run, "OUT", Path(d)), contextlib.redirect_stdout(out):
+            self.assertEqual(run.main(["e3", "--service", "--scripted"]), 0)
+            self.assertIn("SKIP", out.getvalue())
+            self.assertEqual(run.main(["e4", "--service"]), 2)
+            self.assertEqual(run.main(["e4", "--scripted"]), 2)
+
+    @unittest.skipUnless(service.available(), "no idp-web binary (make -C idp-web build)")
+    def test_the_service_starts_and_stops(self):
+        svc = service.Service().start()
+        self.assertTrue(svc.running())
+        directory = svc.dir
+        self.assertTrue(directory.exists())
+        svc.stop()
+        self.assertFalse(svc.running())
+        self.assertFalse(directory.exists())
+        self.assertTrue(any(l.get("msg") == "configured" for l in svc.log()))
+        with self.assertRaises(service.ServiceError):
+            service.Service(binary="/nonexistent/idp-web").start()
+
+    @unittest.skipUnless(service.available(), "no idp-web binary (make -C idp-web build)")
+    def test_a_search_result_is_read_with_its_ref_and_an_invented_address_is_not(self):
+        origin = Origin({"/a.html": ("text/html; charset=utf-8", b"<html><head><title>Rates</title></head><body><article>"
+                                     b"<p>The winter surcharge is USD 1.85 per parcel from 1 December.</p></article></body></html>")})
+        self.addCleanup(origin.close)
+        entries = [{"match": "surcharge", "results": [{"url": origin.base + "/a.html", "title": "Rates", "snippet": "notice"}]}]
+        with service.Service(entries=entries, test_origins=list(origin.allow)) as svc:
+            who = service.caller("t")
+            found = conformance.parse_results(svc.call("web_search", {"query": "winter surcharge"}, who).text)
+            self.assertEqual(len(found), 1)
+            r = found[1]
+            page = svc.call("web_fetch", {"url": r["url"], "ref": r["ref"]}, who)
+            self.assertFalse(page.is_error)
+            self.assertIn("1.85", page.text)
+            self.assertEqual((page.audit["tool"], page.audit["decision"], page.audit["reason"]), ("web_fetch", "allowed", "ok"))
+            self.assertEqual(page.structured["citations"][0]["n"], 1)
+            hits = len(origin.hits)
+            steal = origin.base + "/collect?d=secret"
+            bad = svc.call("web_fetch", {"url": steal, "ref": r["ref"]}, who)
+            self.assertTrue(bad.is_error)
+            self.assertEqual((bad.audit["decision"], bad.audit["reason"]), ("refused", "ref_mismatch"))
+            opened = svc.call("web_open_url", {"url": steal}, who)  # the tenant's openUrl is off
+            self.assertEqual(opened.audit["reason"], "open_url_disabled")
+            self.assertEqual(origin.collected(), [])
+            self.assertEqual(len(origin.hits), hits)
+
+    @unittest.skipUnless(service.available(), "no idp-web binary (make -C idp-web build)")
+    def test_the_scripted_obedient_model_never_reaches_the_attacker_and_the_control_does(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ok = conformance.run_e3_scripted(e3.cases()[0][:3])
+        self.assertTrue(ok, out.getvalue())
+        self.assertIn("positive control (openUrl on): reached 3/3", out.getvalue())
 
 
 if __name__ == "__main__":
