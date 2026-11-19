@@ -128,9 +128,18 @@ def series_table(r: dict) -> list:
     ser = r["series"]
     pick = [s for s in ser if s["step"] == 1 or s["step"] % 5 == 0 or s is ser[-1]]
     win = r.get("window")
-    lines = ["| step | prompt tokens | share of window | completion tokens | latency s | stop |", "|---:|---:|---:|---:|---:|---|"]
+    # the estimate, level and hint exist only on a run that had the feature on (older result files have none of them)
+    ctx = any("estimate" in s for s in ser)
+    lines = ["| step | prompt tokens | share of window | completion tokens | latency s | stop |" + (" estimate | level | hint |" if ctx else ""),
+             "|---:|---:|---:|---:|---:|---|" + ("---:|---:|:---:|" if ctx else "")]
     for s in pick:
-        lines.append(f"| {s['step']} | {s['prompt']:,} | {pct(s['prompt'] / win) if win else 'n/a'} | {s['completion']:,} | {s['latency_ms'] / 1000:.1f} | {s['stop'] or s['error'] or ''} |")
+        row = f"| {s['step']} | {s['prompt']:,} | {pct(s['prompt'] / win) if win else 'n/a'} | {s['completion']:,} | {s['latency_ms'] / 1000:.1f} | {s['stop'] or s['error'] or ''} |"
+        if ctx:
+            row += f" {n0(s.get('estimate'))} | {s.get('level', '-')} | {'H' if s.get('hint') else ''} |"
+        lines.append(row)
+    if ctx:
+        lines.append("")
+        lines.append("estimate: the HOST's own count before the call (corrected by the previous step's report); level: the deepest shortening level the step had to reach, 0 when it needed no new cut (a cut stays cut); H: the step was told the window is nearly full.")
     return lines
 
 
@@ -154,6 +163,57 @@ def stop_line(reps: dict) -> str:
             for k, v in (r.get("error_codes") or {}).items():
                 stops["error " + k] = stops.get("error " + k, 0) + v
     return ", ".join(f"{k} {v}" for k, v in sorted(stops.items())) or "none"
+
+
+def _turns(reps: dict) -> list:
+    return [r for rs in reps.values() for r in rs if r.get("outcome") != "skipped"]
+
+
+def context_agg(reps: dict) -> dict:
+    """The context-view numbers of a case over its turns. Records from before the feature have no "context" and count as off."""
+    ts = _turns(reps)
+    on = [r["context"] for r in ts if (r.get("context") or {}).get("present")]
+    med = lambda k: metrics.med_range([c.get(k) for c in on])["median"]
+    errs = [c["estimate_error"] for c in on if c.get("estimate_error")]
+    unshown = lambda kind: metrics.med_range([(c.get("bytes_not_shown") or {}).get(kind) for c in on])["median"]
+    return {"turns": len(ts), "on": len(on), "cut_steps": med("steps_with_new_cut"), "max_level": max((c.get("max_level", 0) for c in on), default=None),
+            "shortened_last": med("shortened_last"), "unshown_result": unshown("result"), "unshown_arguments": unshown("arguments"),
+            "hint_steps": med("steps_with_hint"), "err_median": metrics.med_range([e["median"] for e in errs])["median"],
+            "err_largest": max((e["largest"] for e in errs), key=abs, default=None),
+            "windows": sorted({c["window_used"] for c in on if c.get("window_used")}), "warnings": [w for c in on for w in c.get("warnings", [])]}
+
+
+def spct(x):
+    return "n/a" if x is None else f"{100 * x:+.1f}%"
+
+
+def feature_text(c: dict) -> str:
+    return "no turns" if not c["turns"] else f"{'on' if c['on'] == c['turns'] else 'off' if not c['on'] else 'mixed'} ({c['on']} of {c['turns']} turns have context.view events)"
+
+
+CONTEXT_ROWS = [("steps with a new cut (median per turn)", "cut_steps", n0), ("deepest level reached", "max_level", n0),
+                ("items shown shortened at the last step (median)", "shortened_last", n0), ("bytes not shown, results (median)", "unshown_result", n0),
+                ("bytes not shown, arguments (median)", "unshown_arguments", n0), ("steps with the hint (median)", "hint_steps", n0),
+                ("estimate against reported prompt tokens, median error", "err_median", spct), ("estimate error, largest", "err_largest", spct)]
+
+
+def context_block(c: dict, o=None, name="", other="") -> list:
+    """The short context-view block of a case; with o, the two evaluations side by side."""
+    if o is None:
+        L = [f"Context view (idp-host D52): feature {feature_text(c)}."]
+        if c["on"]:
+            L += ["", "| numbers from the events | value |", "|---|---|"]
+            L += [f"| {label} | {fmt(c[k])} |" for label, k, fmt in CONTEXT_ROWS]
+            L.append(f"| window the HOST used | {', '.join(n0(w) for w in c['windows'])} |")
+        return L + [f"- WARNING: {w}" for w in sorted(set(c["warnings"]))]
+    L = [f"Context view (idp-host D52): feature {name}: {feature_text(c)}; {other}: {feature_text(o)}.", "",
+         f"| numbers from the events | {name} | {other} | difference |", "|---|---|---|---|",
+         f"| feature | {'on' if c['on'] else 'off'} | {'on' if o['on'] else 'off'} | |"]
+    for label, k, fmt in CONTEXT_ROWS:
+        x, y = c[k], o[k]
+        d = "n/a" if x is None or y is None else (f"{(x - y) * 100:+.1f} points" if fmt is spct else f"{x - y:+,.0f}")
+        L.append(f"| {label} | {fmt(x)} | {fmt(y)} | {d} |")
+    return L + [f"- WARNING ({n}): {w}" for n, cc in ((name, c), (other, o)) for w in sorted(set(cc["warnings"]))]
 
 
 def meta_lines(meta: dict) -> list:
@@ -208,6 +268,7 @@ def render(name: str, recs: list, meta: dict, other_name=None, other_recs=None, 
                 x, y = a[name_]["median"], b[name_]["median"]
                 d = "n/a" if x is None or y is None else (f"{(x - y) * 100:+.1f} points" if name_ in ("share", "repeated_share") else f"{x - y:+,.1f}" + (f" ({(x - y) / y * 100:+.0f}%)" if y else ""))
                 L.append(f"| {label} | {cell(a[name_], fmt)} | {cell(b[name_], fmt)} | {d} | {values(a[name_], fmt)} | {values(b[name_], fmt)} |")
+        L += [""] + context_block(context_agg(reps), context_agg(o) if o is not None else None, name, other_name)
         multi = [r for rs in reps.values() for r in rs if r.get("turns_total", 1) > 1]
         if multi:
             L += ["", "Per turn (median over repetitions):", "", "| turn | steps | minutes | input tokens | largest prompt share | outcomes |", "|---:|---:|---:|---:|---:|---|"]

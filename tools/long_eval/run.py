@@ -178,6 +178,10 @@ def evaluate(plat, cases, args, outdir: Path, window, model, sleep=time.sleep, c
                 append_result(path, rec); done[k] = rec; ran += 1
                 log(f"  {case.id} rep {rep} turn {t}: {rec['status']} ({rec['outcome']}), {rec['steps']} steps, {rec['wall_minutes']} min, "
                     f"{rec['input_tokens']:,} input tokens, files {[f['name'] for f in rec['files']]}, success {rec['success']}")
+                ctx = rec.get("context") or {}
+                log(f"    context view: " + (f"on, {ctx['steps_with_new_cut']} steps with a new cut, deepest level {ctx['max_level']}" if ctx.get("present") else "off (no context.view events)"))
+                for w in ctx.get("warnings", []):
+                    log(f"    WARNING: {w}")
                 if rec["outcome"] != "ended":
                     stop = f"turn {t} ended as {rec['outcome']}"
     return ran

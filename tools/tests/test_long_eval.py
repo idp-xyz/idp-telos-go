@@ -257,6 +257,115 @@ class Report(unittest.TestCase):
                 report.write(Path(d) / "none")
 
 
+def view(step, estimate, level=0, hint=False, items=None, raw=None, window=131072, **kw):
+    v = {"step": step, "windowTokens": window, "markTokens": 78643, "estimateTokens": estimate, "rawEstimateTokens": raw if raw is not None else estimate,
+         "factor": 1.0, "level": level, "shortened": len(items or []), "hint": hint}
+    if items is None:
+        v["itemsAsBefore"] = True
+    else:
+        v["items"] = items
+    v.update(kw)
+    return {"seq": step, "name": "idp.host/context.view", "value": v}
+
+
+def serie(*prompts):
+    return metrics.series([{"step": i + 1, "prompt_tokens": p, "completion_tokens": 1, "latency_ms": 1, "stop_reason": "tool_calls", "error_code": None} for i, p in enumerate(prompts)])
+
+
+class ContextView(unittest.TestCase):
+    events = [view(1, 110, items=[]),
+              view(2, 220, level=1, items=[["result", "t1", 5000, 1200, 1300], ["arguments", "c1", 3000, 600, 700]]),
+              view(3, 330, items=None),                                   # sticky: the same items, level 0
+              view(4, 380, level=2, hint=True, items=[["result", "t1", 5000, 600, 700], ["result", "t2", 2000, 600, 650], ["arguments", "c1", 3000, 600, 700]])]
+
+    def test_no_events_means_the_feature_is_off(self):
+        self.assertEqual(metrics.context_view([], serie(100)), {"present": False})
+        self.assertEqual(metrics.context_view([{"name": "idp.host/file.delivered"}], serie(100)), {"present": False})
+
+    def test_cuts_levels_hints_and_what_was_not_shown(self):
+        c = metrics.context_view(self.events, serie(100, 200, 300, 400), 131072)
+        self.assertEqual((c["present"], c["steps_with_view"], c["steps_with_new_cut"], c["max_level"], c["steps_with_hint"]), (True, 4, 2, 2, 1))
+        self.assertEqual((c["shortened_last"], c["items_last"]), (3, 3))
+        self.assertEqual(c["bytes_not_shown"], {"result": (5000 - 700) + (2000 - 650), "arguments": 3000 - 700})
+        self.assertEqual(c["warnings"], [])
+
+    def test_items_as_before_carry_the_last_list(self):
+        c = metrics.context_view(self.events[:3], serie(100, 200, 300), 131072)
+        self.assertEqual(c["bytes_not_shown"], {"result": 3700, "arguments": 2300})   # step 3 shows the items of step 2
+        self.assertEqual(c["steps_with_new_cut"], 1)                                  # level 0 at step 3: not a new cut
+
+    def test_the_estimator_error_is_signed_against_the_reported_prompt_tokens(self):
+        c = metrics.context_view(self.events, serie(100, 200, 300, 400), 131072)
+        e = c["estimate_error"]
+        self.assertEqual(e["n"], 4)
+        self.assertAlmostEqual(e["median"], (0.10 + 0.10) / 2)       # 110/100, 220/200, 330/300 are +10%; 380/400 is -5%
+        self.assertAlmostEqual(e["largest"], 0.10)
+        self.assertAlmostEqual(e["min"], -0.05)
+        c = metrics.context_view([view(1, 90)], serie(100))
+        self.assertAlmostEqual(c["estimate_error"]["largest"], -0.10)
+        c = metrics.context_view([view(1, 90)], serie(0))             # a report of 0 is no measurement
+        self.assertIsNone(c["estimate_error"])
+
+    def test_a_window_that_differs_from_the_one_told_is_warned_about(self):
+        c = metrics.context_view([view(1, 10, window=65536)], serie(10), 131072)
+        self.assertEqual(c["window_used"], 65536)
+        self.assertIn("65536", c["warnings"][0])
+        self.assertEqual(metrics.context_view([view(1, 10, window=65536)], serie(10), None)["warnings"], [])
+
+    def test_the_record_carries_the_context_and_the_per_step_columns(self):
+        rows = {"run": {"id": "ws_1", "thread_id": "t", "agent": "a", "status": "COMPLETED", "step_count": 2, "started_at": None, "finished_at": None},
+                "steps": [{"step": s, "prompt_tokens": 100 * s, "completion_tokens": 1, "latency_ms": 1, "stop_reason": "end", "error_code": None} for s in (1, 2)],
+                "tool_calls": [], "events": self.events[:2], "usage_events": 2}
+        r = metrics.build_record(rows, 131072)
+        self.assertTrue(r["context"]["present"])
+        self.assertNotIn("per_step", r["context"])
+        self.assertEqual([(s["estimate"], s["level"], s["hint"]) for s in r["series"]], [(110, 0, False), (220, 1, False)])
+        off = metrics.build_record({**rows, "events": []}, 131072)
+        self.assertEqual(off["context"], {"present": False})
+        self.assertNotIn("estimate", off["series"][0])
+
+
+def ctx_row(case, rep, on, **kw):
+    ev = ContextView.events if on else []
+    rows = {"run": {"id": f"ws_{case}{rep}", "thread_id": "t", "agent": "a", "status": "COMPLETED", "step_count": 4, "started_at": None, "finished_at": None},
+            "steps": [{"step": s, "prompt_tokens": 100 * s, "completion_tokens": 1, "latency_ms": 1000, "stop_reason": "tool_calls", "error_code": None} for s in (1, 2, 3, 4)],
+            "tool_calls": [], "events": ev, "usage_events": 4}
+    return metrics.build_record(rows, 131072, key=run.key(case, rep, 1), case=case, title="t", rep=rep, turn=1, turns_total=1, outcome="ended", success_spec={}, files=[], baseline="", **kw)
+
+
+class ContextReport(unittest.TestCase):
+    def test_the_block_and_the_per_step_columns(self):
+        text = report.render("new", [ctx_row("L1", 1, True), ctx_row("L1", 2, True)], {})
+        self.assertIn("feature on (2 of 2 turns have context.view events)", text)
+        self.assertIn("| steps with a new cut (median per turn) | 2 |", text)
+        self.assertIn("| deepest level reached | 2 |", text)
+        self.assertIn("| bytes not shown, results (median) | 5,650 |", text)
+        self.assertIn("| estimate against reported prompt tokens, median error | +10.0% |", text)
+        self.assertIn("| step | prompt tokens | share of window | completion tokens | latency s | stop | estimate | level | hint |", text)
+        self.assertIn("| 4 | 400 | 0% | 1 | 1.0 | tool_calls | 380 | 2 | H |", text)
+
+    def test_against_shows_on_and_off_side_by_side(self):
+        text = report.render("new", [ctx_row("L1", 1, True)], {}, "old", [ctx_row("L1", 1, False)])
+        self.assertIn("feature new: on (1 of 1 turns", text)
+        self.assertIn("old: off (0 of 1 turns", text)
+        self.assertIn("| feature | on | off | |", text)
+        self.assertIn("| deepest level reached | 2 | n/a | n/a |", text)
+
+    def test_an_old_result_line_without_the_new_fields_loads_and_reports(self):
+        old = row("L1", 1, 1, 3, [100, 200, 300])
+        for k in ("context",):
+            old.pop(k, None)
+        text = report.render("old", [old], {})
+        self.assertIn("feature off (0 of 1 turns have context.view events)", text)
+        self.assertNotIn("| estimate |", text)
+        self.assertIn("| 3 | 300 |", text)
+
+    def test_a_window_warning_reaches_the_report(self):
+        r = ctx_row("L1", 1, True)
+        r["context"]["warnings"] = ["the HOST used a window of 65536 tokens and the evaluation was told 131072"]
+        self.assertIn("WARNING: the HOST used a window of 65536", report.render("n", [r], {}))
+
+
 class Fake:
     """A double of live.Platform: runs end at once, with the rows a HOST would hold."""
 
@@ -445,6 +554,15 @@ class History(unittest.TestCase):
         text = report.render("h", recs, {})
         self.assertIn("## H01:", text)
         self.assertIn("Runs that delivered a file: 2 of 2", text)
+
+    def test_a_dump_with_context_view_events_gives_the_same_extraction(self):
+        def rows_of(rid):
+            return {"run": {"id": rid, "thread_id": "t", "agent": "a", "status": "COMPLETED", "step_count": 1, "started_at": None, "finished_at": None},
+                    "steps": [{"step": 1, "model": "m", "prompt_tokens": 100, "completion_tokens": 1, "latency_ms": 5, "stop_reason": "end", "error_code": None}],
+                    "tool_calls": [], "events": [view(1, 120, items=[])], "usage_events": 1}
+        recs = history.records(self.runs[:1], rows_of, 131072)
+        self.assertTrue(recs[0]["context"]["present"])
+        self.assertAlmostEqual(recs[0]["context"]["estimate_error"]["median"], 0.2)
 
 
 if __name__ == "__main__":

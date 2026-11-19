@@ -129,6 +129,66 @@ def delivered_events(events: list) -> list:
     return out
 
 
+def view_events(events: list) -> list:
+    """The payloads of the idp.host/context.view events (idp-host D52), in step order; none when the HOST's model has no window
+    configured, which is how a run without the feature looks."""
+    out = []
+    for e in events:
+        if e.get("name") == PREFIX + "context.view" and isinstance(e.get("value"), dict):
+            out.append(e["value"])
+    return sorted(out, key=lambda v: v.get("step", 0))
+
+
+def _signed_error(estimate, reported):
+    return (estimate - reported) / reported if reported and estimate is not None else None
+
+
+def context_view(events: list, ser: list, window=None) -> dict:
+    """What the HOST says it showed the model, from the context.view events, read next to the provider's reported prompt
+    tokens. {"present": False} when there are no such events (the feature is off for this model, or an older HOST).
+
+    level is the deepest level a step had to reach and is 0 on a step that needed no new cut, because shortening is sticky:
+    a cut stays cut at the steps after it. So "steps with a new cut" counts steps with level > 0 and is not the number of steps
+    that were shown shortened; the items shortened at the last step say how much was cut by the end. A step whose payload has
+    itemsAsBefore shows the items of the step before it. Bytes not shown = the item's bytes minus what was shown, by kind
+    (result or arguments). An estimate is the HOST's own count before the call, so the error against the provider's count is
+    the estimator's error on this run, signed: positive is an estimate above the provider's."""
+    views = view_events(events)
+    if not views:
+        return {"present": False}
+    reported = {s["step"]: s["prompt"] for s in ser}
+    items, per_step, errs, raw_errs, warnings = [], [], [], [], []
+    for v in views:
+        if isinstance(v.get("items"), list):
+            items = v["items"]
+        err = _signed_error(v.get("estimateTokens"), reported.get(v.get("step")))
+        rerr = _signed_error(v.get("rawEstimateTokens"), reported.get(v.get("step")))
+        if err is not None:
+            errs.append(err)
+        if rerr is not None:
+            raw_errs.append(rerr)
+        per_step.append({"step": v.get("step"), "estimate": v.get("estimateTokens"), "raw": v.get("rawEstimateTokens"), "factor": v.get("factor"),
+                         "level": v.get("level", 0), "hint": bool(v.get("hint")), "shortened": v.get("shortened", 0), "error": err})
+    unshown = {"result": 0, "arguments": 0}
+    for it in items:
+        if isinstance(it, list) and len(it) >= 5 and it[0] in unshown:
+            unshown[it[0]] += max(0, (it[2] or 0) - (it[4] or 0))
+    used = views[-1].get("windowTokens")
+    if window and used and used != window:
+        warnings.append(f"the HOST used a window of {used} tokens and the evaluation was told {window}; shares of the window are against the latter")
+
+    def stats(xs):
+        if not xs:
+            return None
+        v = sorted(xs)
+        return {"n": len(v), "median": median(v), "largest": max(v, key=abs), "min": v[0], "max": v[-1]}
+    return {"present": True, "steps_with_view": len(views), "window_used": used, "mark_tokens": views[-1].get("markTokens"),
+            "steps_with_new_cut": sum(1 for p in per_step if p["level"] > 0), "max_level": max((p["level"] for p in per_step), default=0),
+            "shortened_last": views[-1].get("shortened", 0), "items_last": len(items), "bytes_not_shown": unshown,
+            "steps_with_hint": sum(1 for p in per_step if p["hint"]), "estimate_error": stats(errs), "raw_estimate_error": stats(raw_errs),
+            "per_step": per_step, "warnings": warnings}
+
+
 def build_record(rows: dict, window=None, **extra) -> dict:
     """One result record from the rows of run_query. extra: case, rep, turn and the like, put in as they are."""
     run = rows.get("run") or {}
@@ -144,7 +204,14 @@ def build_record(rows: dict, window=None, **extra) -> dict:
            "tokens_used": run.get("tokens_used"),
            "series": ser, **totals(ser, window), "window": window,
            "tool_calls": tool_counts(calls), "repeated": repeated_work(calls),
-           "events": ev, "delivered_events": delivered_events(rows.get("events", []))}
+           "events": ev, "delivered_events": delivered_events(rows.get("events", [])),
+           "context": context_view(rows.get("events", []), ser, window)}
+    # the estimate, level and hint of a step sit beside its prompt tokens, where the per-step table reads them
+    by_step = {p["step"]: p for p in rec["context"].pop("per_step", [])}
+    for s in ser:
+        p = by_step.get(s["step"])
+        if p:
+            s.update({"estimate": p["estimate"], "level": p["level"], "hint": p["hint"]})
     return rec
 
 
