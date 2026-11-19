@@ -17,24 +17,24 @@ components:
     version: 1.1.0
   image:
     reference: idp-mcp:dev
-    id: sha256:7b3781686eb1773e051f35a7f379433591f52baba1af2b965371ad69e00549c8
+    id: sha256:c1dee77188c9ae0d20b88303eeffc3257c841f7793188de88dd6940267961f58
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: 2cfc09105b14f200b19b2197a5f08fb850646f15
+  commit: eeaafeb4ab347fde539a823574a639bdf2e4c5cf
   clean: true
   contract:
     namespace: idp.telos.host
     version: 1.10.0
   image:
     reference: idp-host:dev
-    id: sha256:2998e9cf65f8715ead2ca240bf4af12c84da687d90e7e72d8335f2d529319b38
+    id: sha256:bca99acac8f9dd6be72afbefb9b97cec24a5c41f3cfe588a3d0aad61ce06aa6e
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 762ba701f9b02f25467061171c983c33f25c96e6
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:3edd0d9285284ef7fec3da4f9d1f027ce5fa7b28a07f8f366dff9955b9f60672
+    id: sha256:b2e52d73277aafd56d37a6f3703332879d8ca05ff489d9eebc58ba44ac9f7501
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: 1a61594c36723a00568835931fcb920a24caf030
@@ -44,7 +44,7 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:5640142433c084fd020761c998c6beabbc5043f980935b5d68db2899d83e2d3a
+    id: sha256:824c9b5fdf04498322fac5ac9c2ea5c95862e077fda4a47a892ad4d8454269d0
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 071b4860c2c99d09f131b15c00a9c60db0e3729e
@@ -54,18 +54,18 @@ components:
     version: 1.2.0
   image:
     reference: idp-workspace:dev
-    id: sha256:7e5538496c92ae294c8ae363f5b81731e568099011b620e8b0a8e2071373b8fd
+    id: sha256:3ac2db25cfe71a587d2c3f5f7bf9c123ecb224fbed73ca46d5c9409ead32286b
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 01f961c713c2bca601c77663862dda92a3ae09b9
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:ad2e4be9c3f491ca0ddaca130260903660dc3f357dfe3ecddd8b7d921d410742
+    id: sha256:9dc23f40ebc38406518d9ddfa2cb4f90dd82ca62080efe7a15223c3e4b7a2dcd
 - name: idp-web
   repository: idp-xyz/idp-web
   commit: 1b76a3b7c41961a20d6fd5b48906a88100a02ba6
   clean: true
   image:
     reference: idp-web:dev
-    id: sha256:20231d8dd79e9d82ad3f258d237ae176341cadff13e3e96c5eea52cc16c383ae
+    id: sha256:7e4ac655d4693df09de6aec1a246ddde7fe1a7ec56d0b1630fe472b1cc964dde
