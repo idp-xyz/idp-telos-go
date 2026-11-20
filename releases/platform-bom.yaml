@@ -4,37 +4,37 @@ platform: idp-telos
 release: 0.1.0-dev
 contracts:
   idp.telos.cmi: 1.4.0
-  idp.telos.host: 1.10.0
-  idp.telos.mcp: 1.1.0
-  idp.telos.workspace: 1.2.0
+  idp.telos.host: 1.11.0
+  idp.telos.mcp: 1.3.0
+  idp.telos.workspace: 1.3.0
 components:
 - name: idp-mcp
   repository: idp-xyz/idp-mcp
-  commit: 1fdedfa1ecd545d83c062e31a2c38c24ef7d2dce
+  commit: 800fd4c724081a5c4194d3da4c607889a8f49f84
   clean: true
   contract:
     namespace: idp.telos.mcp
-    version: 1.1.0
+    version: 1.3.0
   image:
     reference: idp-mcp:dev
-    id: sha256:c1dee77188c9ae0d20b88303eeffc3257c841f7793188de88dd6940267961f58
+    id: sha256:95c813a7696ee1aa6db76736eecae3deeccae8032026db8221951f3baa05e1b5
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: eeaafeb4ab347fde539a823574a639bdf2e4c5cf
+  commit: b265fbc248a6ac720440f14e1446cf00259b69c9
   clean: true
   contract:
     namespace: idp.telos.host
-    version: 1.10.0
+    version: 1.11.0
   image:
     reference: idp-host:dev
-    id: sha256:bca99acac8f9dd6be72afbefb9b97cec24a5c41f3cfe588a3d0aad61ce06aa6e
+    id: sha256:a9194abc039c9be702f5c7be2d084667579113716d7bd0a39cc8974a0ef317d4
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 762ba701f9b02f25467061171c983c33f25c96e6
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:b2e52d73277aafd56d37a6f3703332879d8ca05ff489d9eebc58ba44ac9f7501
+    id: sha256:16340d14a21ad2b5e98f78b3d84cc19be14f016262834d3899dca651d0ff0545
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: 1a61594c36723a00568835931fcb920a24caf030
@@ -44,28 +44,28 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:824c9b5fdf04498322fac5ac9c2ea5c95862e077fda4a47a892ad4d8454269d0
+    id: sha256:d3e5c34060081c3f51258aa6a18a9a648f454e5827855233f53c7a6d5214cdb7
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: 071b4860c2c99d09f131b15c00a9c60db0e3729e
+  commit: ba606f9863f22f46eb6248ee15f2309cf37fc645
   clean: true
   contract:
     namespace: idp.telos.workspace
-    version: 1.2.0
+    version: 1.3.0
   image:
     reference: idp-workspace:dev
-    id: sha256:3ac2db25cfe71a587d2c3f5f7bf9c123ecb224fbed73ca46d5c9409ead32286b
+    id: sha256:d664ea0d2f5188620599a785ed40d5157f737ee05ec278ac9892d996ebe1f248
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: 01f961c713c2bca601c77663862dda92a3ae09b9
+  commit: 596698bf8456f7f80e96bdeca81848af084d5ee0
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:9dc23f40ebc38406518d9ddfa2cb4f90dd82ca62080efe7a15223c3e4b7a2dcd
+    id: sha256:f89b648460b1291ca92f9c86fdb4d8ba2b00b341e2037825210f0bac7fef77db
 - name: idp-web
   repository: idp-xyz/idp-web
-  commit: 1b76a3b7c41961a20d6fd5b48906a88100a02ba6
+  commit: 900b5db642e7885cdc6ee9d8d2d5198567acb14d
   clean: true
   image:
     reference: idp-web:dev
-    id: sha256:7e4ac655d4693df09de6aec1a246ddde7fe1a7ec56d0b1630fe472b1cc964dde
+    id: sha256:a383f11ab253e578da874658b796d194bee5d5ed4b0b7f5b33e516f82fc2a506
