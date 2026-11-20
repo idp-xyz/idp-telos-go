@@ -292,7 +292,16 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 | idp-sandbox（D22） | 出口代理的拒绝名单按同一张表补齐 | 沙箱里访问这些地址段被代理拒绝 | 不需要处理 |
 | idp-web（新组件） | 新增组件。三个工具默认不授给任何角色 | — | 开启前先读 `idp-web/docs/RUNBOOK.md`。**`web__*` 只授给经 HOST 调用的角色**：成员确认、敏感级别上限、不可信标记都在 HOST 里，直连网关的客户端绕过它们 |
 
-### 还没有进 BOM 的改动（下一次升级时生效）
+## 升级须知（2026-11-20 的 BOM）
+
+从 2026-11-19 的 BOM 升到 2026-11-20 的 BOM 时，下面几处行为会变。**升级顺序**：
+1. 先升级注册服务（含 idp-mcp 的迁移 0008、0009）；
+2. 再升级网关；
+3. 再升级 HOST（迁移 0010 到 0013）；
+4. 最后升级 Workspace（迁移 0006）。
+
+idp-web 若要用每日配额，要先给它建库（`idp-web migrate`、`ensure-login`）。
+
 
 | 组件 | 变了什么 | 怎么看出来 | 怎么处理 |
 |---|---|---|---|
@@ -300,12 +309,32 @@ Web 壳：浏览器打开 `http://127.0.0.1:17560`，用 alice（管理员，多
 | idp-host（D48） | **引用了能联网的子 agent（或远端 agent）的 Agent，自己也按上限筛数据。** 这样的 Agent 不再读到高于上限的附件和记忆 | 事件 `context.withheld`、`attachment.withheld` 里的 `via` 写明是因为哪个子 agent | 这是有意的。需要读机密数据的 Agent 不要引用联网的子 agent：拆成两个 Agent，或按租户调高上限，或不把那个工具列进 `externalTools` |
 | idp-host（D49，契约 1.11.0） | 运行记录它的工具返回的网页来源（`sources`），并把回答里来源表中没有的引用编号列为 `unverifiedCitations`。只标记，不拦截。数据库迁移 0010 | 运行的表示里多两个字段；事件 `idp.host/run.sources` | 先升级 HOST，再升级 Workspace。保存的是编号、标题、地址、读取时间和摘要，不保存页面正文 |
 | idp-host（D50） | 模型服务在流里报告的错误不再记成 `decode`：按对方的类型分为 `provider_overloaded`、`provider_rate_limit`、`provider_server`（可重试）和 `provider_error` | 步骤的 `error_code`；事件 `idp.host/model.error`（只有错误码） | 对方的原话只在 HOST 的日志里：按运行号找 `model call failed` 那一行。日志过了保留期就没有了 |
+| idp-host（D51） | 网关标为"外部"的工具（第三方上游）自动算作对外工具，不用列进 `externalTools`。创建运行时会多查一次网关目录 | 事件 `context.withheld` 等的 `via` 写明是哪个工具；查不到目录时算对外 | 不需要处理。网关不可达时，有工具的运行一律按对外筛数据 |
+| idp-host（D52） | 给模型配了 `providers[].models[].contextWindow` 之后：调用前按 token 估算输入，按水位逐步截短旧结果和旧脚本参数，到 80% 提示模型收尾，放不下时调用前就失败 | 每步的事件 `idp.host/context.view` | **不配窗口的部署行为不变。** 本机模型建议配上：五轮连续追问从 15 轮完成 7 轮变为全部完成（实测） |
+| idp-host（D53） | 一步里连续的只读工具调用并发执行，缺省最多 4 个（`gateways[].parallelCalls`，1 即关闭） | — | 上游要能承受同一运行的并发请求。idp-web 同时只读 2 个 PDF，超出的 2 秒后答"忙"；沙箱的读工具在 Kubernetes 上每个调用一个任务。不想并发的只读工具列进 `sequentialTools` |
+| idp-host（D54） | 每一步记录开始输出前的等待、模型服务复用和重新处理的 token 数（迁移 0011） | `run_steps` 的新列；`model.usage` 的新字段 | 不需要处理。用来判断模型服务的缓存是否有效 |
+| idp-host（D55） | 因输出上限被截断的回答，带着的工具调用一个也不执行，运行按 D40 失败 | 事件 `idp.host/model.cutoff` | 不需要处理 |
+| idp-host（D56） | 首选模型因自身原因出错（密钥、模型名、额度、窗口）时改问下一个候选模型；内容被拒绝时不改问 | 步骤的 `failed_candidates`（迁移 0012）；事件 `model.error` 的 `outcome` | 配了备用模型的部署，以前一次 401 就失败，现在会改问备用模型 |
+| idp-host（D57） | worker 的运行接上发起请求的追踪，每次模型调用和网关调用各一个 span（迁移 0013）。发给外部模型服务的请求缺省不带追踪头 | 追踪后端里能看到整条运行 | 没配 OTLP 收集器时没有任何开销。自有模型要带追踪头，就在提供方条目写 `tracePropagation: true` |
+| idp-host（D58、D59） | 配了窗口时，截短改为攒批，两次之间发出的前缀不变；`context.keepBudgetNotes` 打开时预算提示改为追加 | `context.view` 的 `batch`、`batchWhy`、`bottom` | **只对按前缀复用缓存的本机模型服务有意义**（如 Strata、llama.cpp）。实测每步重读的 token 中位数下降 84% 到 94%，开始输出前的等待从约 4.6 秒降到约 1 秒；对整个任务用时的影响还在对照测量中。Anthropic、Gemini 适配器不要打开 `keepBudgetNotes` |
 | idp-mcp（D46） | **网关必须有一份客户端名单（`IDP_GATEWAY_CLIENTS_FILE`），没有就不启动。** 名单之外的客户端通过了认证也看不到任何工具 | 网关启动即退出，错误里写明这个设置；原来能用的客户端 `tools/list` 变成空的；审计里 `DENIED`，原因 `client not listed` | 在名单里列出每个调用网关的 OAuth 客户端。平台自己的 HOST 是 `idp-host: {kind: platform, host: true}`（compose 与 kind 的配置里都有）。`"*": platform` 会关掉这项控制，只用于开发或过渡 |
 | idp-mcp（D48） | `hostOnlyTools` 里的工具只有标了 `host: true` 的客户端能看到和调用。平台的配置里是 `web__*` | 其他客户端调用得到"Unknown tool"；审计原因 `host-only` | 不需要处理。确实要让别的客户端用，在 `hostOnlyExcept` 里按工具写例外和理由，每次使用都会记审计 |
 | idp-mcp（D49） | 外部客户端有限流（每客户端每分钟 600 次、每成员 120 次，可按客户端改）；平台客户端不限 | HTTP 429 与 `Retry-After`；审计 `RATE_LIMITED` | 按需在名单里给客户端写 `rateLimit`、`subjectRateLimit` |
 | idp-mcp（契约 1.2.0） | 审计记录多了 `reason`、`bytes` 和三种结果；数据库迁移 0008 | — | **先升级注册服务（含迁移），再升级网关。** 旧的注册服务会整批拒收带新字段的记录，网关会一直重试并积压 |
 | idp-web（D28 到 D30） | 可以给租户设每日的搜索与读取上限（`dailySearches`、`dailyReads`），计数放在 PostgreSQL；来源编号也放进去，多个副本因此一致。发布的清单带数据库：迁移任务、连接用的 Secret、到数据库的出口策略 | 超出上限的调用被拒绝，审计原因 `quota_exceeded`；数据库不通时，有上限的租户得到 `quota_unavailable`，编号得到 `numbering_unavailable`，`/readyz` 返回 503 | 给 idp-web 建库和账号（`idp-web migrate`、`ensure-login`，做法与其他组件相同）。**配了数据库之后它就是硬依赖**：数据库不通，联网工具整体不可用。不想要配额和多副本的部署可以不配数据库，行为与之前相同 |
 | idp-web（D27） | 正文由脚本生成的页面不再当作页面交给模型，返回专门的错误 | 审计原因 `needs_script`；指标 `idp_web_failed_total{reason="needs_script"}` | 不需要处理。这个计数是下限，用来决定要不要做渲染器 |
+| idp-mcp（D50 到 D53，契约 1.3.0） | 上游有了"外部"一类：不外传身份，元数据只放行白名单，结果限长，拒绝对方发起的反向请求，参数按评审时的定义校验，探测失败即拦截，工具带"外部"标记，只许 HOST 调用（迁移 0009） | 审计结果 `RESULT_TOO_LARGE`、`REVERSE_REQUEST_REFUSED`；`lastStatus.targets[].blocked` | 现有上游缺省是内部，行为不变。`IDP_BRIDGE_ENDPOINTS` 在有外联桥之前不用设。批准外部服务时要带评审过的目录摘要 |
+| idp-web（D31） | 读有文字层的 PDF，解析在单独的受限子进程里；扫描件答"没有文字层"。Go 工具链升到 1.27.4。Pod 内存上限从 512Mi 提到 1Gi | 审计原因 `pdf_no_text_layer`、`pdf_encrypted`、`pdf_malformed`、`pdf_too_slow`、`pdf_too_large`、`pdf_busy`、`pdf_reader_unavailable` | 镜像里多了 `/idp-web-pdf`。不想读 PDF 设 `IDP_WEB_PDF=off`；并发由 `IDP_WEB_PDF_CONCURRENCY` 控制（缺省 2） |
+| idp-web（D19、D20） | 引用里的地址始终是被编号的那个；读取发生重定向时另给 `finalUrl` | — | 不需要处理 |
+| idp-sandbox（D10、D23） | `Mcp-Method` 头必填，与网关一致；office 镜像里多了 `sheetmap`、`sheetcheck`，但不推荐给模型（实测没有减少步数） | 直接调用沙箱、不带这个头的请求得到 400 | 自写的直连脚本补上这个头 |
+| idp-workspace（D29，契约 1.3.0） | 运行的收件箱条目带上它用过的网页来源，页面上列出；回答引用了来源表里没有的编号时给出提示（迁移 0006） | 收件箱条目的 `sources`、`unverifiedCitations` | 先升级 HOST。只有正常完成的运行有来源 |
+| 平台（镜像） | 第三方基础镜像有了一份放在 `ghcr.io/idp-xyz/mirror` 的副本（工作流 `mirror.yml`）；各仓库的引用还没有切换过去 | 工作流的汇总表 | 第一次运行后，把 `mirror` 包设为公开，只需一次 |
+
+### 本机模型服务
+
+- **一次只服务一个请求。** 平台上多个成员同时用时要排队；实测有人同时使用时，每一步排队 9 到 31 秒。部署时给模型服务开多个并行槽位，或用能并发的服务。
+- **缓存是否有效，看 D54 的数字**：非攒批步上，复用的 token 应接近上一步的输入总量。如果复用值总是落在固定间隔上（Strata 的缺省是系统提示词结束处，以及每 16,384 token 一个检查点），说明回合边界的检查点没有对上。这时检查是否配了 `contextWindow` 和 `keepBudgetNotes`。
+- **Strata 的检查点**：`--prompt-cache`（缺省 6 个，每个约 118 MB 内存）、`--prompt-cache-every`（缺省 16384）。打开 D58、D59 之后，调小间隔几乎没有额外收益（预测），不必改。
 
 ## 故障排查
 
