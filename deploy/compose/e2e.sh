@@ -592,10 +592,7 @@ fi
 # price workbook, used 50 steps in 12.5 minutes and then, after this limit was raised, all 120 steps in 34
 # minutes. It exported nothing either time: it kept reprinting tables it had already extracted. The skill
 # therefore tells it to deliver a first complete file before it looks again, and to look at an existing workbook
-# once with sheetskel (idp-sandbox D16) instead of unpacking it. On 2026-11-19 three runs of that task took 71 to 82 steps
-# (85% of the time is the model): about 20 steps to find the blocks of each sheet, 17 to check the result in pieces. The skill
-# now names sheetmap and sheetcheck (idp-sandbox D23), one command for each, and two habits (one command for several
-# look-ups, a script edited in place). The host says which step this is, offers only
+# once with sheetskel (idp-sandbox D16) instead of unpacking it. The host says which step this is, offers only
 # delivery on the last two steps, and at the step limit delivers the finished files still in the workspace
 # (idp-host D41, D42). The defaults are 10 steps and 5 minutes.
 # The same skill covers PDF and Markdown (idp-sandbox D17): pdftext reads a PDF, md2pdf writes one from Markdown.
@@ -612,17 +609,15 @@ instructions = (
     "on the last two steps it offers only file delivery, so work in this order: first make a "
     "complete, valid file with the essential content, validate it and deliver it; improve it afterwards only if the user asks "
     "or the host says you still have steps to spare. "
-    "Reading an attached workbook is one command: sheetmap FILE.xlsx (language office; it is on PATH next to officecli). "
-    "It prints each sheet's blocks (range, header, size) and writes every sheet as text to FILE.sheets/sNN.tsv "
-    "(line = row, tab field = column): work from those files. Do not unpack the xlsx or page through it. "
+    "Reading an attached workbook is one command: sheetskel FILE.xlsx (language office; it is on PATH next to officecli). "
+    "It prints each sheet's name, used range and header. Do not unpack the xlsx yourself and do not page through it. "
     "The very next commands write the file the user asked for: one Python script that builds a batch from what you "
     "already extracted, then officecli batch, officecli validate and sandbox_export_file. Do that before you open the workbook "
     "again, reprint a table, or rewrite a parser. A cell you are not sure of becomes a placeholder the user can see, such as [?], "
     "and you say which cells those are. Improving the file comes after it has been delivered. "
-    "Run independent look-ups in ONE command; edit a script in place, do not rewrite it under a new name. "
     "Create a workspace with sandbox_create. Every sandbox_run needs workspaceId, language and code. Use language office for "
     "every run, also for plain commands such as cat, ls or mkdir: it is a POSIX shell in /work (the workspace) with officecli, "
-    "sheetmap, sheetcheck, pdftext, md2pdf and python3, and language shell has none of them. "
+    "sheetskel, pdftext, md2pdf and python3, and language shell has none of them. "
     "Files you write stay in the workspace for later runs; put every file meant for the user under out/. "
     "Use officecli's subcommands (create, view, get, query, set, add, remove, move, batch, validate). For many "
     "cells, rows or paragraphs, write one Python script in a single run that builds the batch as a JSON list of objects "
@@ -641,9 +636,8 @@ instructions = (
     "when asked, and offer a PDF made from the content instead. "
     "Put in a document only what the user gave you: no "
     "names, places, owners, dates or figures of your own; when something is missing, leave a placeholder the user will see, such "
-    "as [地点待定], and say so. Check every file before you deliver it: a workbook with sheetcheck OUT.xlsx --source FILE.xlsx "
-    "(it runs officecli validate and lists empty cells, merges, text-numbers and source numbers missing from OUT; it reports, you decide), "
-    "another Office file with officecli validate, a PDF with pdftext --check. When the user attached "
+    "as [地点待定], and say so. Check every file before you deliver it: officecli validate for an Office file, pdftext --check "
+    "for a PDF. When the user attached "
     "files you are told their references (attachment:1, attachment:2, ...): copy one into the workspace with sandbox_import_file "
     "before you work on it. An attachment can be imported once: a second import of the same one is refused, so leave the "
     "imported file as it is and work on a copy (cp in/a.docx out/a.docx). Give the user every file you make or change with sandbox_export_file (target output, and a file name "
