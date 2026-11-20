@@ -41,7 +41,8 @@
 #                                       first model it lists) instead of the deterministic double; the pods reach it through
 #                                       a forwarder on the kind network's gateway (container idp-kind-model-forward, which
 #                                       outlives the run so that the platform keeps answering)
-#                                       IDP_LIVE_MODEL_CONTEXT_WINDOW / IDP_LIVE_MODEL_WATER_MARK: the live model's window and the water mark (idp-host D52)
+#                                       IDP_LIVE_MODEL_CONTEXT_WINDOW / IDP_LIVE_MODEL_WATER_MARK: the live model's window and the water mark (idp-host D52);
+#                                       IDP_LIVE_MODEL_KEEP_NOTES=1 (with the window): keep the budget notes of earlier steps until a batch drops them (idp-host D59)
 # A run starts by deleting the platform's namespaces (a fresh platform); nothing else in the cluster is touched.
 # Nodes that cannot pull images get every image from the Docker daemon (or, for the infrastructure images, crane).
 set -euo pipefail
@@ -297,8 +298,13 @@ for d in docs:
             for p in host["providers"]:
                 if p["name"] == "local":
                     entry = {"name": live_model, "contextWindow": int(win)}
+                    ctx = {}
                     if os.environ.get("IDP_LIVE_MODEL_WATER_MARK"):
-                        entry["context"] = {"waterMarkShare": float(os.environ["IDP_LIVE_MODEL_WATER_MARK"])}
+                        ctx["waterMarkShare"] = float(os.environ["IDP_LIVE_MODEL_WATER_MARK"])
+                    if os.environ.get("IDP_LIVE_MODEL_KEEP_NOTES") == "1":   # idp-host D59
+                        ctx["keepBudgetNotes"] = True
+                    if ctx:
+                        entry["context"] = ctx
                     p["models"] = [entry]
         d["data"]["host.yaml"] = yaml.safe_dump(host, sort_keys=False)
 docs.append({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "kind-live-model", "namespace": "idp-host"},

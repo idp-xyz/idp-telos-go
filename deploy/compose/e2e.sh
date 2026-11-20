@@ -39,7 +39,9 @@
 #                                       when it wants one) instead of the deterministic double;
 #                                       PATH A then also checks that the answer uses the CMI context
 #                                       IDP_LIVE_MODEL_CONTEXT_WINDOW (tokens, e.g. 131072) gives the HOST the live model's context window (idp-host D52);
-#                                       IDP_LIVE_MODEL_WATER_MARK (e.g. 0.6) overrides the share at which older content is shortened
+#                                       IDP_LIVE_MODEL_WATER_MARK (e.g. 0.6) overrides the share at which older content is shortened;
+#                                       IDP_LIVE_MODEL_KEEP_NOTES=1 (with the window) keeps the budget notes of earlier steps in the request
+#                                       until a batch of shortening drops them (idp-host D59; for a server that caches by turn boundary)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
@@ -155,10 +157,14 @@ if [[ "$MODEL" == live && -n "${IDP_LIVE_MODEL_KEY_FILE:-}" ]]; then
 fi
 # idp-host D52: with MODEL=live, IDP_LIVE_MODEL_CONTEXT_WINDOW (tokens) tells the HOST the live model's context window, so that it
 # counts what it sends, shortens older content before the window fills and tells the model; IDP_LIVE_MODEL_WATER_MARK (a share of
-# the window, default 0.6) is the one optional override. Unset, the generated host.yaml is what it was before.
+# the window, default 0.6) is an optional override, and IDP_LIVE_MODEL_KEEP_NOTES=1 (idp-host D59) another. Unset, the generated
+# host.yaml is what it was before.
 if [[ "$MODEL" == live && -n "${IDP_LIVE_MODEL_CONTEXT_WINDOW:-}" ]]; then
   printf '    models:\n      - name: %s\n        contextWindow: %s\n' "$AGENT_MODEL" "$IDP_LIVE_MODEL_CONTEXT_WINDOW" >> "$L/host.yaml"
-  [[ -z "${IDP_LIVE_MODEL_WATER_MARK:-}" ]] || printf '        context: {waterMarkShare: %s}\n' "$IDP_LIVE_MODEL_WATER_MARK" >> "$L/host.yaml"
+  CTX=()
+  [[ -z "${IDP_LIVE_MODEL_WATER_MARK:-}" ]] || CTX+=("waterMarkShare: $IDP_LIVE_MODEL_WATER_MARK")
+  [[ "${IDP_LIVE_MODEL_KEEP_NOTES:-}" != 1 ]] || CTX+=("keepBudgetNotes: true")
+  if ((${#CTX[@]})); then printf '        context: {%s}\n' "$(IFS=,; echo "${CTX[*]/#/}" | sed 's/,/, /g')" >> "$L/host.yaml"; fi
 fi
 # the CMI: the HOST reads AS THE MEMBER (RFC 8693 exchange for the CMI audience, so a member's own memories are the ones
 # retrieved) and writes conversation memory with its own identity (the client idp-host-svc: cmi-writer), for which it
