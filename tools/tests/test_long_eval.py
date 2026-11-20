@@ -119,7 +119,7 @@ class Metrics(unittest.TestCase):
         r = metrics.repeated_work(calls)
         self.assertEqual((r["calls"], r["repeated"], r["share"]), (5, 2, 0.4))
         self.assertEqual(r["top"], [{"tool": "run", "times": 3}])
-        self.assertEqual(metrics.repeated_work([]), {"calls": 0, "repeated": 0, "share": 0.0, "top": []})
+        self.assertEqual(metrics.repeated_work([]), {"calls": 0, "repeated": 0, "share": 0.0, "top": [], "strict": {"repeated": 0, "share": 0.0, "top": []}})
         self.assertEqual(metrics.repeated_work([call("x", "not json"), call("x", "not json")])["repeated"], 1)
 
     def test_series_and_totals_from_steps(self):
@@ -563,6 +563,158 @@ class History(unittest.TestCase):
         recs = history.records(self.runs[:1], rows_of, 131072)
         self.assertTrue(recs[0]["context"]["present"])
         self.assertAlmostEqual(recs[0]["context"]["estimate_error"]["median"], 0.2)
+
+
+def scall(step, tool, args, state="DONE", **kw):
+    return call(tool, args, state, step=step, **kw)
+
+
+class StrictRepeats(unittest.TestCase):
+    """The refined count of repeated work (README): the same tool and arguments as an earlier call that SUCCEEDED, at a later step,
+    and not a delivery tool. metrics.repeated_work keeps the original count next to it."""
+
+    def strict(self, calls):
+        return metrics.repeated_work(calls)["strict"]["repeated"]
+
+    def test_a_true_repeat_is_counted_in_both(self):
+        calls = [scall(1, "sandbox__sandbox_run", '{"cmd":"ls"}'), scall(2, "sandbox__sandbox_run", '{ "cmd": "ls" }'), scall(5, "sandbox__sandbox_run", '{"cmd":"ls"}')]
+        r = metrics.repeated_work(calls)
+        self.assertEqual((r["repeated"], r["strict"]["repeated"]), (2, 2))
+        self.assertEqual(r["strict"]["top"], [{"tool": "sandbox__sandbox_run", "times": 2}])
+        self.assertEqual(r["strict"]["share"], round(2 / 3, 4))
+
+    def test_the_export_of_a_revised_file_is_not_a_repeat(self):
+        calls = [scall(3, "sandbox__sandbox_export_file", '{"path":"out.xlsx"}'), scall(9, "sandbox__sandbox_export_file", '{"path":"out.xlsx"}')]
+        r = metrics.repeated_work(calls)
+        self.assertEqual((r["repeated"], r["strict"]["repeated"]), (1, 0))
+        # also under another gateway prefix, and a tool that only has the delivery tool's name as a part of its own is not one
+        self.assertEqual(self.strict([scall(1, "box__sandbox_export_file", "{}"), scall(2, "box__sandbox_export_file", "{}")]), 0)
+        self.assertEqual(self.strict([scall(1, "sandbox__sandbox_export_files", "{}"), scall(2, "sandbox__sandbox_export_files", "{}")]), 1)
+
+    def test_calls_of_a_tool_the_agent_does_not_have_are_not_repeats(self):
+        calls = [scall(i, "sandbox_create", "{}", state="DENIED") for i in range(1, 5)] + [scall(5, "sandbox_create", "{}", state="FAILED", is_error=True)]
+        r = metrics.repeated_work(calls)
+        self.assertEqual((r["repeated"], r["strict"]["repeated"]), (4, 0))
+
+    def test_a_retry_after_a_failure_is_not_a_repeat_but_a_redo_after_the_success_is(self):
+        calls = [scall(1, "t", '{"a":1}', state="FAILED"), scall(2, "t", '{"a":1}'), scall(3, "t", '{"a":1}')]
+        r = metrics.repeated_work(calls)
+        self.assertEqual((r["repeated"], r["strict"]["repeated"]), (2, 1))
+        # a call that finished DONE but is flagged as an error did not succeed
+        self.assertEqual(self.strict([scall(1, "t", "{}", is_error=True), scall(2, "t", "{}")]), 0)
+
+    def test_two_identical_calls_of_one_step_are_not_a_redo(self):
+        calls = [scall(4, "t", '{"a":1}'), scall(4, "t", '{"a":1}')]
+        r = metrics.repeated_work(calls)
+        self.assertEqual((r["repeated"], r["strict"]["repeated"]), (1, 0))
+
+    def test_calls_without_steps_are_ordered_by_their_place(self):
+        self.assertEqual(self.strict([call("t", "{}"), call("t", "{}")]), 1)
+        self.assertEqual(self.strict([call("t", "{}", state="FAILED"), call("t", "{}")]), 0)
+
+    def test_a_record_carries_both_and_the_report_shows_both_and_an_old_record_shows_n_a(self):
+        calls = [scall(1, "t", "{}"), scall(2, "t", "{}")]
+        new = row("L1", 1, 1, 2, [10, 20], calls={"calls": 2, "repeated": 1, "share": 0.5, "top": [], "strict": metrics.strict_repeats(calls)})
+        old = row("L1", 1, 1, 2, [10, 20], calls={"calls": 2, "repeated": 1, "share": 0.5, "top": []})
+        text = report.render("new", [new], {})
+        self.assertIn("| repeated tool calls, share (original count) | 50.0% (50.0% to 50.0%) |", text)
+        self.assertIn("| repeated after a success, share (refined count, README) | 50.0% (50.0% to 50.0%) |", text)
+        text = report.render("old", [old], {})
+        self.assertIn("| repeated after a success, share (refined count, README) | n/a |", text)
+        both = report.render("new", [new], {}, "old", [old])
+        self.assertIn("repeated after a success, share (refined count, README)", both)
+
+
+def tstep(step, latency, first=None, prompt=100, **kw):
+    s = {"step": step, "prompt": prompt, "completion": 1, "latency_ms": latency, "stop": "tool_calls", "error": None, "first_output_ms": first}
+    s.update(kw)
+    return s
+
+
+class TimingMetrics(unittest.TestCase):
+    def test_percentile_is_by_nearest_rank(self):
+        self.assertEqual(metrics.percentile(list(range(1, 11)), 0.9), 9)
+        self.assertEqual(metrics.percentile([5], 0.9), 5)
+        self.assertIsNone(metrics.percentile([None, None], 0.9))
+
+    def test_first_output_and_its_share_of_the_step_over_the_steps_where_it_is_known(self):
+        steps = [tstep(1, 10000, 2000), tstep(2, 10000, 4000), tstep(3, 8000, 8000 * 0.5), tstep(4, 9000, None)]
+        t = metrics.timing_stats(steps)
+        f = t["first_output"]
+        self.assertEqual((t["steps"], f["n"], f["median"], f["p90"]), (4, 3, 4000, 4000))
+        self.assertEqual((f["share_median"], f["share_p90"]), (0.4, 0.5))
+
+    def test_reuse_uses_the_servers_numbers_where_it_has_them_and_the_usage_otherwise(self):
+        steps = [tstep(1, 1, prompt=1000, server_cache_n=900, server_prompt_n=100, server_prompt_ms=300.0),
+                 tstep(2, 1, prompt=1000, cached=400),            # only usage.cached_tokens: processed is what is left
+                 tstep(3, 1, prompt=1000)]                       # says nothing: not in the sums at all
+        u = metrics.timing_stats(steps)["reuse"]
+        self.assertEqual((u["n"], u["reused"], u["processed"], u["prompt"], u["share"]), (2, 1300, 700, 2000, 0.65))
+        self.assertEqual(metrics.timing_stats(steps)["server_prompt"]["n"], 1)
+
+    def test_nothing_known_gives_none_everywhere(self):
+        t = metrics.timing_stats([tstep(1, 5000), {"step": 2, "prompt": 1, "completion": 1, "latency_ms": 1}])
+        self.assertEqual((t["first_output"]["n"], t["first_output"]["median"], t["reuse"]["share"], t["server_prompt"]["median"]), (0, None, None, None))
+
+    def test_the_series_reads_the_new_columns_and_an_old_row_gives_none(self):
+        new = {"step": 1, "prompt_tokens": 9, "completion_tokens": 1, "latency_ms": 5000, "first_output_ms": 1200.5, "first_text_ms": 1300.0, "after_first_ms": 3700.0,
+               "cached_tokens": 8, "cache_creation_tokens": None, "server_prompt_n": 1, "server_prompt_ms": 30.9, "server_cache_n": 8, "server_predicted_n": 5, "server_predicted_ms": 60.0}
+        old = {"step": 2, "prompt_tokens": 9, "completion_tokens": 1, "latency_ms": 5000}
+        a, b = metrics.series([old, new])[0], metrics.series([old, new])[1]  # in step order: new first
+        self.assertEqual((a["first_output_ms"], a["cached"], a["server_cache_n"], a["server_prompt_ms"]), (1200.5, 8, 8, 30.9))
+        self.assertTrue(all(b[k] is None for k in ("first_output_ms", "first_text_ms", "after_first_ms", "cached", "server_prompt_ms")))
+
+    def test_the_query_reads_the_whole_step_row_so_that_an_old_schema_still_works(self):
+        q = metrics.run_query("run_1")
+        self.assertIn("to_jsonb(r)", q)
+        self.assertNotIn("first_output_ms", q)
+
+
+class TimingReport(unittest.TestCase):
+    def recs(self, with_timing=True, first=2000, cache=900):
+        out = []
+        for rep in (1, 2, 3):
+            r = row("L1", rep, 1, 2, [100, 200], total=2)
+            r2 = row("L1", rep, 2, 2, [100, 200], total=2)
+            if with_timing:
+                for rr in (r, r2):
+                    for s in rr["series"]:
+                        s.update(latency_ms=10000, first_output_ms=first * rep, server_cache_n=cache, server_prompt_n=1000 - cache, server_prompt_ms=250.0)
+                        s["prompt"] = 1000
+            out += [r, r2]
+        return out
+
+    def test_a_report_per_turn_gives_median_p90_share_reuse_and_server_time(self):
+        text = report.render("new", self.recs(), {})
+        # 6 steps of each turn: first output 2, 2, 4, 4, 6, 6 s of 10 s steps
+        self.assertIn("Time before the first output and reuse of the prompt", text)
+        self.assertIn("| 1 | 6/6 | 4.0 (6.0) |", text)
+        self.assertIn("5,400 of 6,000 (90%); processed 600", text)
+        self.assertIn("| 250 (250) |", text)
+        self.assertIn("| 2 | 6/6 |", text)
+
+    def test_against_puts_the_two_side_by_side(self):
+        text = report.render("new", self.recs(), {}, "old", self.recs(first=1000, cache=0))
+        head = [l for l in text.splitlines() if l.startswith("| turn | steps with a first-output time (new)")]
+        self.assertEqual(len(head), 1)
+        self.assertIn("(old)", head[0])
+        row1 = [l for l in text.splitlines() if l.startswith("| 1 | 6/6 | 6/6 | 4.0 (6.0) | 2.0 (3.0) |")]
+        self.assertEqual(len(row1), 1, text)
+        self.assertIn("0 of 6,000 (0%); processed 6,000", row1[0])
+
+    def test_old_results_without_the_fields_load_and_say_so(self):
+        text = report.render("old", self.recs(with_timing=False), {})
+        self.assertIn("Time to first output and prompt reuse: not recorded", text)
+        # one side has them and the other does not: the missing side is n/a, nothing breaks
+        text = report.render("new", self.recs(), {}, "old", self.recs(with_timing=False))
+        row1 = [l for l in text.splitlines() if l.startswith("| 1 | 6/6 | 0/6 | 4.0 (6.0) | n/a |")]
+        self.assertEqual(len(row1), 1, text)
+
+    def test_a_non_streamed_step_is_not_counted_as_a_first_output(self):
+        r = row("L1", 1, 1, 1, [100])
+        r["series"][0].update(first_output_ms=None)
+        text = report.render("x", [r], {})
+        self.assertIn("not recorded", text)
 
 
 if __name__ == "__main__":

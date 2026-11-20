@@ -48,12 +48,16 @@ def rep_metrics(rs: list) -> dict:
     shares = [r.get("max_prompt_share") for r in rs if r.get("max_prompt_share") is not None]
     calls = _sum(r["repeated"]["calls"] for r in rs if r.get("repeated")) or 0
     rep = _sum(r["repeated"]["repeated"] for r in rs if r.get("repeated")) or 0
+    # the refined count exists only in records made after it was introduced; one rep with any record without it is "not known"
+    stricts = [(r.get("repeated") or {}).get("strict") for r in rs]
+    strict = None if not stricts or any(x is None for x in stricts) else sum(x["repeated"] for x in stricts)
     spec = rs[0].get("success_spec") or {}
     return {"steps": _sum(r.get("steps") for r in rs), "minutes": _sum(r.get("wall_minutes") for r in rs),
             "input": _sum(r.get("input_tokens") for r in rs), "output": _sum(r.get("output_tokens") for r in rs),
             "max_prompt": max((r.get("max_prompt") or 0 for r in rs), default=None),
             "share": max(shares) if shares else None,
             "repeated": rep, "repeated_share": (rep / calls) if calls else None,
+            "strict_share": (strict / calls) if strict is not None and calls else None,
             "success": casesmod.rep_success(spec, rs[0].get("turns_total", len(rs)), rs),
             "statuses": [("skipped" if r.get("outcome") == "skipped" else (r.get("status") or "?") + (f" {r['failure_code']}" if r.get("failure_code") else "")) for r in rs],
             "delivered": any(r.get("files") for r in rs)}
@@ -77,7 +81,8 @@ def pct1(x):
 
 
 METRICS = [("steps", "steps", n0), ("minutes", "minutes", n1), ("input", "input tokens in all", n0), ("share", "largest prompt, share of the window", pct),
-           ("repeated_share", "repeated tool calls, share", pct1)]
+           ("repeated_share", "repeated tool calls, share (original count)", pct1),
+           ("strict_share", "repeated after a success, share (refined count, README)", pct1)]
 
 
 def cell(mr: dict, fmt) -> str:
@@ -216,6 +221,62 @@ def context_block(c: dict, o=None, name="", other="") -> list:
     return L + [f"- WARNING ({n}): {w}" for n, cc in ((name, c), (other, o)) for w in sorted(set(cc["warnings"]))]
 
 
+def sec(ms):
+    return "n/a" if ms is None else f"{ms / 1000:.1f}"
+
+
+def _pair(x, y, f):
+    return "n/a" if x is None else f"{f(x)} ({f(y)})"
+
+
+def turn_timing(reps: dict) -> dict:
+    """{turn: timing_stats of all the steps of that turn over the repetitions}. Records from before idp-host D54 have no timing
+    in their series, which the statistics read as not known."""
+    steps = {}
+    for rs in reps.values():
+        for r in rs:
+            steps.setdefault(r["turn"], []).extend(r.get("series") or [])
+    return {t: metrics.timing_stats(v) for t, v in sorted(steps.items())}
+
+
+def has_timing(tt: dict) -> bool:
+    return any(t["first_output"]["n"] or t["reuse"]["n"] or t["server_prompt"]["n"] for t in tt.values())
+
+
+def timing_cells(t: dict) -> list:
+    f, u, sp = t["first_output"], t["reuse"], t["server_prompt"]
+    reuse = "n/a" if u["share"] is None else f"{u['reused']:,} of {u['prompt']:,} ({pct(u['share'])}); processed {u['processed']:,}"
+    return [f"{f['n']}/{t['steps']}", _pair(f["median"], f["p90"], sec), _pair(f["share_median"], f["share_p90"], pct), reuse,
+            _pair(sp["median"], sp["p90"], lambda x: f"{x:,.0f}")]
+
+
+TIMING_HEAD = ["steps with a first-output time", "first output, s: median (p90)", "share of the step: median (p90)",
+               "prompt tokens reused of all, where known", "provider's prompt processing, ms: median (p90)"]
+
+
+def timing_block(a: dict, o=None, name="", other="") -> list:
+    """Per turn, over the repetitions: the wait before the first output and how much of the prompt the provider reused
+    (idp-host D54). With o, the two evaluations side by side."""
+    if not has_timing(a) and (o is None or not has_timing(o)):
+        return ["Time to first output and prompt reuse: not recorded (a HOST from before idp-host D54, or a provider that does not stream)."]
+    L = ["Time before the first output and reuse of the prompt, per turn over the repetitions (every step pooled; p90 by nearest rank; "
+         "n/a where the HOST or the provider did not say; the provider's own numbers exist only for a server that reports them, "
+         "such as llama.cpp):", ""]
+    turns = sorted(set(a) | set(o or {}))
+    if o is None:
+        L += ["| turn | " + " | ".join(TIMING_HEAD) + " |", "|---:|" + "---|" * len(TIMING_HEAD)]
+        for t in turns:
+            L.append(f"| {t} | " + " | ".join(timing_cells(a[t])) + " |")
+        return L
+    head = ["turn"] + [f"{h} ({n})" for h in TIMING_HEAD for n in (name, other)]
+    L += ["| " + " | ".join(head) + " |", "|---:|" + "---|" * (len(head) - 1)]
+    blank = metrics.timing_stats([])
+    for t in turns:
+        x, y = timing_cells(a.get(t, blank)), timing_cells(o.get(t, blank))
+        L.append(f"| {t} | " + " | ".join(f"{p} | {q}" for p, q in zip(x, y)) + " |")
+    return L
+
+
 def meta_lines(meta: dict) -> list:
     out = []
     if meta.get("source") == "history":
@@ -266,9 +327,10 @@ def render(name: str, recs: list, meta: dict, other_name=None, other_recs=None, 
             L += ["", f"| metric | {name} median (range) | {other_name} median (range) | difference of medians | {name} values | {other_name} values |", "|---|---|---|---|---|---|"]
             for name_, label, fmt in METRICS:
                 x, y = a[name_]["median"], b[name_]["median"]
-                d = "n/a" if x is None or y is None else (f"{(x - y) * 100:+.1f} points" if name_ in ("share", "repeated_share") else f"{x - y:+,.1f}" + (f" ({(x - y) / y * 100:+.0f}%)" if y else ""))
+                d = "n/a" if x is None or y is None else (f"{(x - y) * 100:+.1f} points" if name_ in ("share", "repeated_share", "strict_share") else f"{x - y:+,.1f}" + (f" ({(x - y) / y * 100:+.0f}%)" if y else ""))
                 L.append(f"| {label} | {cell(a[name_], fmt)} | {cell(b[name_], fmt)} | {d} | {values(a[name_], fmt)} | {values(b[name_], fmt)} |")
         L += [""] + context_block(context_agg(reps), context_agg(o) if o is not None else None, name, other_name)
+        L += [""] + timing_block(turn_timing(reps), turn_timing(o) if o is not None else None, name, other_name)
         multi = [r for rs in reps.values() for r in rs if r.get("turns_total", 1) > 1]
         if multi:
             L += ["", "Per turn (median over repetitions):", "", "| turn | steps | minutes | input tokens | largest prompt share | outcomes |", "|---:|---:|---:|---:|---:|---|"]
