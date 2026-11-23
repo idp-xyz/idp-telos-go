@@ -5,36 +5,36 @@ release: 0.1.0-dev
 contracts:
   idp.telos.cmi: 1.4.0
   idp.telos.host: 1.11.0
-  idp.telos.mcp: 1.3.0
+  idp.telos.mcp: 1.4.0
   idp.telos.workspace: 1.4.0
 components:
 - name: idp-mcp
   repository: idp-xyz/idp-mcp
-  commit: 69cb832ac493b028432815e809b6bb4c5a6434f7
+  commit: 77350c77275346ad59ba422cd33bafcb4631ee7c
   clean: true
   contract:
     namespace: idp.telos.mcp
-    version: 1.3.0
+    version: 1.4.0
   image:
     reference: idp-mcp:dev
-    id: sha256:b8bbf1482c9ce8e03a323a1a15d0a393f0f7fd00a5a8695a36e80916aa08a503
+    id: sha256:8460de25bc25a2d389ac5fdcf483105beeb62c45329040dd12682f2888e53960
 - name: idp-host
   repository: idp-xyz/idp-host
-  commit: 2d961cb87fbd4fc6774484bdc720b93a78dd0b66
+  commit: 2df87b300d2927d8646139d8ff723769dad671e2
   clean: true
   contract:
     namespace: idp.telos.host
     version: 1.11.0
   image:
     reference: idp-host:dev
-    id: sha256:f4b547d10524dc18a3408ceebc29fcf8065a8a1ab7638f45c50ba9a6650d44e3
+    id: sha256:dffc794749e816b6f3566b4f2edc4b5ec8c6feed700a0e052f5618127e78db78
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 762ba701f9b02f25467061171c983c33f25c96e6
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:3203307b437031d942422feb3c654ca7098620ae563bde5a5b2f4a0ce47e0981
+    id: sha256:51cc5eb95ae47d48a7be0405daa81b5da719d7468b55902f5594d38ebb44bbef
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: 1a61594c36723a00568835931fcb920a24caf030
@@ -44,7 +44,7 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:44288a75f5a7cd86947f5fd86911c796314eae0e5c738a2dd3c91e4af6a1323f
+    id: sha256:a8f60845b1722f448578857bd17e91870435e1bdc8835a8c71c9c7631e5b72a6
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 94a130543aaf94659304b238959a0b046bf728c6
@@ -54,25 +54,25 @@ components:
     version: 1.4.0
   image:
     reference: idp-workspace:dev
-    id: sha256:057f623a1f189b14c8ec78b9850288a1cf5a35a6729f0d0950e0e27b15597394
+    id: sha256:66f55cab50754345a7b4718aa1b2f52b068691b08d917d1697b7c55c7e8a058b
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 596698bf8456f7f80e96bdeca81848af084d5ee0
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:4de71ff0ae71d7a1b3bf6929491869159b45864d7288e0c0bbae66ac60b6c011
+    id: sha256:72b00fa69c165ee36185067289fd81bdc7d5228267b70bd39a8ad74256cde43d
 - name: idp-web
   repository: idp-xyz/idp-web
   commit: 900b5db642e7885cdc6ee9d8d2d5198567acb14d
   clean: true
   image:
     reference: idp-web:dev
-    id: sha256:c90766391844e1b0190fd5832d13760f559380bd1059cb62c15e60fa81f9926a
+    id: sha256:0d8df843b46bbe500ed5227b4f72630c2987544f16889dc6a60c49ade881105a
 - name: idp-mcp-bridge
   repository: idp-xyz/idp-mcp-bridge
-  commit: 608c8a4e9835e5c2d87cf14c093e503c4437912f
+  commit: fbe059ffa20417fdbca76544cddb32b52b04eced
   clean: true
   image:
     reference: idp-mcp-bridge:dev
-    id: sha256:723dafbbe4b0b53f5dfaf537954f68aa374558bde5de91eff786e4cd6a95da8c
+    id: sha256:a6fe881db63173f427f60142a79c640b0a0514e883da8f2e9c5eae0dfe6ed61d

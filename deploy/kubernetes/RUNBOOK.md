@@ -369,6 +369,21 @@ idp-web 若要用每日配额，要先给它建库（`idp-web migrate`、`ensure
 **已知缺口**（验收发现）：
 - **compose 版的网络隔离比 kind 粗**：compose 不能按对端限制，第三方（测试容器）与桥共用一个网络；kind 里 NetworkPolicy 的验收（O8）才是"只有网关、注册服务与 Workspace 到得了桥的端口"的证明。
 
+## 升级须知（2026-11-23 的 BOM）
+
+从 2026-11-22 的 BOM 升到 2026-11-23 的 BOM。起因是外联桥第一次对真实的第三方服务（GitHub 的托管 MCP 服务）做验证（R1），验证中发现并修好的几处都在这里。**升级顺序**：1. idp-mcp 的注册服务（**迁移 0010**），再网关；2. idp-host（没有迁移）；3. 桥（没有迁移）；Workspace 没有新的变化。
+
+| 组件 | 变了什么 | 怎么看出来 | 怎么处理 |
+|---|---|---|---|
+| idp-mcp（15.3，D53 的修订，契约 `idp.telos.mcp` 1.4.0，迁移 0010） | **外部服务器的描述长度上限按服务器设定。** 登记 `class: external` 的服务器时可带 `maxDescriptionBytes`（字节）；不带用部署缺省 `IDP_EXTERNAL_MAX_DESCRIPTION`（1024，不变）；超过部署的上限 `IDP_EXTERNAL_MAX_DESCRIPTION_CAP`（缺省 8192）的登记与修改被拒绝（400，写明上限）；缺省值超过上限时注册服务不启动。**登记后可改，但要重新评审**：`PATCH /api/v1/servers/{id}` 请求体 `{"maxDescriptionBytes": 数字或 null}`，有变化时服务器退回 `DRAFT`，要重新发现（按新上限）、重新批准（四眼），已做好的 Release 仍用它钉住的目录。评审接口 `GET /api/v1/servers/{id}/catalog` 多 `descriptionLimit`，批准即钉住。契约只在注册服务的 API 上有新增，文档的 JSON Schema 不变 | 发现外部服务器时被拒绝：`tool pull_request_read: inputSchema/properties/method/description is 1546 bytes, more than the 1024 allowed`（GitHub 的真实例子，28 个工具里只有这一个超过 1024） | 先升级注册服务（迁移 0010，两列，可为空）。**不要调高部署缺省**（那会放宽所有第三方服务器）：对需要的那一台服务器登记时写 `maxDescriptionBytes`，评审人读得完那么长的指令文字。没有设置的服务器行为与此前完全一致 |
+| idp-host（D62） | 工具结果里**内嵌的资源块**（`resource`，GitHub 的 `get_file_contents` 就这样返回文件）的文字现在交给模型：一行头 `[resource <uri> <mimeType>]`，再是它的文字（与其他文字块一样计入结果的上限）；二进制只写名字与大小。此前模型只看到 `[resource ]` | 读文件的工具回答里模型说"没有内容" | 不需要处理，没有配置项，契约不变 |
+| idp-mcp-bridge（D36） | **令牌端点用 HTTP 200 回错误（GitHub 就是这样）也算错误**：应答体里有非空 `error` 就是错误应答，不论状态码。`bad_verification_code`、`bad_refresh_token` 按 `invalid_grant` 处理（授权被删除、成员被告知重新授权）；`incorrect_client_credentials`（客户端密钥错）、`redirect_uri_mismatch`（回调地址与 App 里的不同）、`unverified_user_email` 是令牌端点的错误：授权不会被删除，日志里有码 | 此前一个已死的刷新令牌永远是"暂时无法更新"，成员不会被要求重新授权 | 不需要处理 |
+| idp-mcp-bridge（D37） | **最小权限：授权请求恰好是连接文件里配置的 `scopes`**（评审账号：`reviewerScopes`，没有则 `scopes`）；没有配置就**没有 `scope` 参数**。此前 `scopes` 为空时会去要资源元数据列出的全部范围，对企业平台这个缺省不对（可能含写权限）。要旧行为必须明确写 `scopesFromResource: true`（缺省 false） | 授权地址里的 `scope` | GitHub App 的连接写 `scopes: []`（App 的权限在 App 的设置里）。依赖旧缺省的连接要把范围写出来，或明确选 `scopesFromResource` |
+| 平台（验收工具） | **`GITHUB=live` 模式与 `tools/github_app_manifest.py`**：对真实的 GitHub 做一次受控验证，人只点几下。`python3 -I tools/github_app_manifest.py` 在 127.0.0.1:8562 提供 GitHub 的 App Manifest 流程（组织 idp-xyz，只要 Metadata: read，webhook 关闭，两个回调地址 8561 与 8560），凭据写进 `.local/github-app/`（client-id、client-secret、private-key.pem，目录 700、文件 600，不打印）；`GITHUB=live KEEP=1 bash deploy/compose/e2e.sh` 加一条 `github` 连接（预注册客户端、`scopes: []`、不开桥的出口代理，桥直接上网，地址规则照旧），再 `bash deploy/compose/github_live.sh`：一个监听 127.0.0.1:8561 的脚本代替回调页，先后为评审账号与 bob 打印 GitHub 的授权地址，人只在浏览器里授权；脚本登记服务器（`maxDescriptionBytes: 2048`）、批准目录、只授 `get_me` 与 `get_file_contents`、跑两个调用、查审计、在所有日志、事件、数据库里找 App 的密钥与桥持有的令牌、断开并检查再调用要求授权。`--double` 用验收自己的第三方代替 GitHub 测脚本的逻辑 | — | 只用于验证，不是部署的一部分。GitHub 没有撤销端点：验证后到 github.com 的 Settings → Applications → Authorized GitHub Apps 撤销 App 的授权 |
+| 平台（PATH O9） | 验收多一步：一个描述 1500 字节的外部服务器，按缺省上限被拒绝（并写明工具与上限）、PATCH 到 2048 后通过、登记时带 2048 通过、超过上限的值在登记时被拒绝，评审视图写着该服务器的上限 | `PASS: PATH O9` | CI 要求它通过 |
+
+**R1 的结果（2026-11-23，真实的 GitHub）**：用 GitHub App（以清单流程创建，只有 Metadata: read，没有 webhook；GitHub 是否给它发了会过期的用户令牌这次没有核对）和 `https://api.githubcopilot.com/mcp/readonly`：评审账号经真实的 GitHub OAuth 授权，发现列出 28 个工具，批准后只授 `get_me` 与 `get_file_contents`；bob 授权后，他的运行经 HOST、网关、桥调用 `get_me`（得到 GitHub 登录名）与 `get_file_contents`（公开仓库 idp-xyz/idp-mcp-bridge 的 README 回到了模型：这里验证了桥算出的 `Mcp-Param-owner`、`Mcp-Param-repo` 被 GitHub 的真实校验器接受）；桥的审计里两个调用都是 `ok`；App 的密钥和桥持有的所有令牌在任何容器日志、运行事件、数据库里都找不到；bob 断开后下一次调用得到"需要授权"。运行中发现的是描述上限（15.3）与内嵌资源块（D62）；令牌端点的 200 错误（D36）与范围缺省（D37）是接入前读 GitHub 的元数据和审查代码时发现的；都已在上面各行修好。验收脚本自己的两处缺陷（回调监听只认自己发出的 state；交回调时现取令牌）也已修好。另：这台机器到 github.com 时断时续不通，是本地网络的问题，与平台无关。
+
 ## 故障排查
 
 | 现象 | 原因 | 处理 |
