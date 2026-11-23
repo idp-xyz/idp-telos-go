@@ -94,6 +94,7 @@ export IDP_BRIDGE_REDIRECT_URI=http://127.0.0.1:8560/oauth/callback
 if [[ "${GITHUB:-}" == live && "$GITHUB_CALLBACK" == script ]]; then
   export IDP_BRIDGE_REDIRECT_URI=http://127.0.0.1:8561/oauth/callback IDP_BRIDGE_TEST_ORIGINS="thirdparty:8590,127.0.0.1:8560,127.0.0.1:8561"
 fi
+export IDP_BRIDGE_RECONCILE_INTERVAL=5s   # the acceptance waits for a reconciliation round (PATH O10); the default is 15 minutes
 export IDP_THIRDPARTY_PREREG_REDIRECT="$IDP_BRIDGE_REDIRECT_URI" O_REDIRECT="$IDP_BRIDGE_REDIRECT_URI"
 if [[ "$MODEL" == live ]]; then
   LIVE_URL="${IDP_LIVE_MODEL_URL:-http://127.0.0.1:8080/v1}"
@@ -394,7 +395,9 @@ YAML
 fi
 printf 'k1:%s\n' "$(openssl rand -base64 32)" > "$L/bridge-encryption.keys"
 printf '%s' "$IDP_THIRDPARTY_PREREG_SECRET" > "$L/bridge-prereg.secret"
-chmod 644 "$L/bridge-connections.yaml" "$L/bridge-encryption.keys" "$L/bridge-prereg.secret" "$L/bridge-github.secret"
+# the dev/test directory adapter's client secret (deploy/keycloak/realm.py: idp-bridge-directory, view-users only)
+python3 -c "import json; print(json.load(open('$L/clients.json'))['idp-bridge-directory'], end='')" > "$L/bridge-directory.secret"
+chmod 644 "$L/bridge-connections.yaml" "$L/bridge-encryption.keys" "$L/bridge-prereg.secret" "$L/bridge-github.secret" "$L/bridge-directory.secret"
 chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/live-model.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
@@ -1286,6 +1289,29 @@ if [[ "$MODEL" == live ]]; then
 else
 REG=http://127.0.0.1:8250 BRIDGE_ENDPOINT=http://bridge:8680/mcp/thirdparty TP_PRE_ID="$IDP_THIRDPARTY_PREREG_ID"
 O_REQUIRED="log-bridge log-thirdparty log-workspace log-host log-mcp-gateway log-mcp-registry log-keycloak db-idp_bridge db-idp_workspace events-"
+# PATH O10's adapters (the identity system is Keycloak only for dev and test): an administrator of the dev/test Keycloak, the bridge's API from where the Workspace reaches it,
+# and the bridge's path to Keycloak
+KC_ADMIN_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD"
+kc_admin_token() { "${KC[@]}" "${ISSUER%/realms/idp}/realms/master/protocol/openid-connect/token" -d grant_type=password -d client_id=admin-cli -d username=admin --data-urlencode "password=$KC_ADMIN_PASSWORD" | token_json; }
+kc_set_enabled() { # kc_set_enabled USERNAME true|false
+  local t id; t="$(kc_admin_token)"
+  id="$("${KC[@]}" -H "Authorization: Bearer $t" "${ISSUER%/realms/idp}/admin/realms/idp/users?username=$1&exact=true" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+  "${KC[@]}" -X PUT -H "Authorization: Bearer $t" -H 'Content-Type: application/json' -d "{\"enabled\": $2}" "${ISSUER%/realms/idp}/admin/realms/idp/users/$id"
+}
+bridge_api() { # bridge_api METHOD PATH TOKEN [BODY]: from a container on bridgenet, where the Workspace is; prints the status, then the body
+  docker run --rm --network idp-telos-platform_bridgenet -e M="$1" -e U="http://bridge:8681$2" -e T="$3" -e B="${4:-}" --entrypoint python "${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}" -c '
+import os, urllib.request, urllib.error
+h = {"Content-Type": "application/json"}
+if os.environ["T"]: h["Authorization"] = "Bearer " + os.environ["T"]
+r = urllib.request.Request(os.environ["U"], data=os.environ["B"].encode() or None, method=os.environ["M"], headers=h)
+try:
+    with urllib.request.urlopen(r, timeout=20) as x: print(x.status); print(x.read().decode())
+except urllib.error.HTTPError as e: print(e.code); print(e.read().decode())'
+}
+bridge_api_done() { :; }
+idp_cut() { docker network disconnect idp-telos-platform_bridgenet "$("${C[@]}" ps -q keycloak)"; }   # the bridge reaches Keycloak only there
+idp_restore() { docker network connect --alias keycloak idp-telos-platform_bridgenet "$("${C[@]}" ps -q keycloak)"; }
+o_bridge_log() { "${C[@]}" logs --no-color --no-log-prefix bridge 2>/dev/null; }
 o_diag() { "${C[@]}" logs --tail 30 bridge thirdparty mcp-registry mcp-gateway host host-worker workspace; }
 bridge_sql() { "${C[@]}" exec -T postgres psql -U postgres -d idp_bridge -tAc "$1"; }
 o_dump() { "${C[@]}" exec -T postgres pg_dump -U postgres -a -d "$1" 2>/dev/null; }

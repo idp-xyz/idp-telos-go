@@ -19,6 +19,13 @@ Clients:
 - GATEWAY, idp-cmi, eer-runtime, idp-mcp-bridge audiences (bearer only; GATEWAY = the gateway's canonical MCP URI; idp-mcp-bridge is
                     the client that stands for the bridge: its client id is IDP_BRIDGE_API_AUDIENCE)
 - idp-probe         ACCEPTANCE ONLY: a platform client that is not the HOST, exchanging a member's token for the gateway (PATH M2)
+- idp-bridge-directory  DEV/TEST ONLY: the dev/test directory adapter of idp-mcp-bridge (IDP_BRIDGE_DIRECTORY=keycloak-dev, offboarding plan F1): a confidential
+                    client with a service account that holds only realm-management view-users (it reads a user's state: found, enabled, tenant attribute).
+                    Keycloak is the dev/test identity provider; the final one is not chosen, and this adapter is replaced by its directory or SCIM query
+- idp-lifecycle-svc DEV/TEST ONLY: stands for the future "member lifecycle service" (offboarding plan section 1, layer 2: SCIM or SSF in the final identity
+                    system): a confidential client-credentials client whose tokens carry the bridge's audience; it is the only `azp` in the bridge's
+                    IDP_BRIDGE_OFFBOARD_CLIENTS. The bridge refuses a token with a session (`sid`) or a delegation (`act`): Keycloak's client-credentials
+                    tokens have neither unless the client keeps a session (see the comment at the client)
 - e2e-cli           the acceptance script (password grant), aud idp-workspace, idp-host, idp-probe, idp-cmi, eer-runtime
 
   python3 deploy/keycloak/realm.py OUT_DIR TENANT_ID CLIENTS_FILE
@@ -61,11 +68,12 @@ users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "
          "bridgeop": ["ws-member", "bridge-reviewer"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
-secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "idp-probe", "svc-eer", "eer-intelligence", "e2e-cli")}
+secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "idp-probe", "svc-eer", "eer-intelligence", "e2e-cli", "idp-bridge-directory", "idp-lifecycle-svc")}
 realm = {
     "realm": "idp", "enabled": True, "sslRequired": "none", "accessTokenLifespan": 600,
     "roles": {"realm": [{"name": r} for r in ("ws-admin", "ws-member", "ws-producer", "host-user", "host-admin", "host-approver", "cmi-admin", "cmi-writer", "cmi-reader", "bridge-reviewer")]},
-    "users": [{"id": ids[u], "username": u, "enabled": True, "emailVerified": True, "email": u + "@example.com", "firstName": u, "lastName": "User",
+    "users": [{"username": "service-account-idp-bridge-directory", "enabled": True, "serviceAccountClientId": "idp-bridge-directory",
+               "clientRoles": {"realm-management": ["view-users"]}}] + [{"id": ids[u], "username": u, "enabled": True, "emailVerified": True, "email": u + "@example.com", "firstName": u, "lastName": "User",
                "attributes": {"tenant_id": [tenant]}, "realmRoles": roles,
                "credentials": [{"type": "password", "value": passwords[u], "temporary": False}]} for u, roles in users.items()],
     "clients": [
@@ -101,11 +109,37 @@ realm = {
         {"clientId": "idp-cmi", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "eer-runtime", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "idp-mcp-bridge", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
+        # DEV/TEST ONLY (see the docstring): the directory adapter's own client; its service account has view-users and nothing else, no audience, no mappers
+        {"clientId": "idp-bridge-directory", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-bridge-directory"], "standardFlowEnabled": False,
+         "serviceAccountsEnabled": True, "fullScopeAllowed": True,   # fullScopeAllowed: the token must carry the account's one role (realm-management view-users); the account has no other
+         # since Keycloak 26.8 the admin REST API accepts only a token that carries the client scope kc-admin-api (its audience and its scope): without it the answer is 401
+         # "Token is missing the required admin API scope", whatever roles the service account has
+         "defaultClientScopes": ["kc-admin-api"]},
+        # DEV/TEST ONLY: the stand-in for the lifecycle service. A client-credentials token of this client carries the bridge's audience and no `sid` (a
+        # `sid` appears only when the client keeps a session for it: the client attribute client_credentials.use_refresh_token / a session for service
+        # accounts, which is off here and must stay off: the bridge refuses a token with `sid`)
+        {"clientId": "idp-lifecycle-svc", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-lifecycle-svc"], "standardFlowEnabled": False,
+         "serviceAccountsEnabled": True, "fullScopeAllowed": False, "protocolMappers": [audience("idp-mcp-bridge")]},
         {"clientId": "e2e-cli", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["e2e-cli"], "standardFlowEnabled": False,
          "directAccessGrantsEnabled": True, "fullScopeAllowed": True,
          "protocolMappers": [audience("idp-workspace"), audience("idp-host"), audience("idp-probe"), audience("idp-cmi"), audience("eer-runtime")] + user_mappers},
     ],
 }
+# DEV/TEST ONLY (the dev/test directory adapter of idp-mcp-bridge): Keycloak's admin API shows a user's attributes (tenant_id) only when the realm's user profile
+# allows unmanaged attributes for admins: ADMIN_VIEW (readable by an administrator and the view-users service account, not editable by the user). The four default attributes
+# are Keycloak's own profile, unchanged. Without it the adapter cannot compare the tenant and tells "unknown" for every enabled user
+USER_PROFILE = {"attributes": [
+    {"name": "username", "displayName": "${username}", "validations": {"length": {"min": 3, "max": 255}, "username-prohibited-characters": {}, "up-username-not-idn-homograph": {}},
+     "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": False},
+    {"name": "email", "displayName": "${email}", "validations": {"email": {}, "length": {"max": 255}}, "required": {"roles": ["user"]},
+     "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": False},
+    {"name": "firstName", "displayName": "${firstName}", "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}}, "required": {"roles": ["user"]},
+     "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": False},
+    {"name": "lastName", "displayName": "${lastName}", "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}}, "required": {"roles": ["user"]},
+     "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": False}],
+    "groups": [{"name": "user-metadata", "displayHeader": "User metadata", "displayDescription": "Attributes, which refer to user metadata"}],
+    "unmanagedAttributePolicy": "ADMIN_VIEW"}
+realm["components"] = {"org.keycloak.userprofile.UserProfileProvider": [{"providerId": "declarative-user-profile", "subComponents": {}, "config": {"kc.user.profile.config": [json.dumps(USER_PROFILE)]}}]}
 os.makedirs(out, exist_ok=True)
 with open(os.path.join(out, "idp-realm.json"), "w") as f:
     json.dump(realm, f, indent=1)

@@ -310,6 +310,7 @@ patches:
   - target: {kind: Deployment, name: idp-mcp-bridge, namespace: idp-mcp-bridge}
     patch: |-
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_TEST_ORIGINS, value: "thirdparty.thirdparty.svc.cluster.local:8590,127.0.0.1:17560"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_RECONCILE_INTERVAL, value: 5s}}   # the acceptance waits for a round (PATH O10); shipped: 15m
   - target: {kind: Deployment, name: idp-web, namespace: idp-web}
     patch: |-
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_WEB_PROVIDER, value: fixture}}
@@ -438,7 +439,8 @@ sed -n 's/^Public key: //p' "$L/backup-age.pub" > "$L/backup-recipients.txt"; rm
 kubectl -n databases create secret generic backup-target --from-literal=S3_ENDPOINT="http://$BACKUP_GW:$BACKUP_PORT" --from-literal=S3_BUCKET=backups \
   --from-literal=S3_ACCESS_KEY="$BK_AK" --from-literal=S3_SECRET_KEY="$BK_SK" >/dev/null
 kubectl -n databases create configmap backup-recipients --from-file=recipients.txt="$L/backup-recipients.txt" >/dev/null
-kubectl -n keycloak create secret generic keycloak-admin --from-literal=password="$(rnd)" >/dev/null
+KC_ADMIN_PASSWORD="$(rnd)"
+kubectl -n keycloak create secret generic keycloak-admin --from-literal=password="$KC_ADMIN_PASSWORD" >/dev/null
 kubectl -n keycloak create secret generic keycloak-realm --from-file=idp-realm.json="$L/keycloak/idp-realm.json" >/dev/null
 kubectl -n keycloak create secret generic keycloak-tls --from-file=server.crt="$L/tls/server.crt" --from-file=server.key="$L/tls/server.key" >/dev/null
 kubectl apply -f "$L/phase-1-infra.yaml" >/dev/null
@@ -502,7 +504,7 @@ mksecret idp-mcp-bridge idp-mcp-bridge-database --from-literal=service-url="post
 mksecret idp-mcp-bridge idp-mcp-bridge-database-owner --from-literal=owner-url="postgres://postgres:$PG@$PGH/idp_bridge?sslmode=verify-full" --from-literal=app-password="$BRIDGE_DB"
 mksecret idp-mcp-bridge idp-mcp-bridge-encryption-keys --from-literal=keys="k1:$(openssl rand -base64 32)"
 TP_PRE_ID=tp-preregistered-client TP_PRE_SECRET="$(openssl rand -hex 16)"
-mksecret idp-mcp-bridge idp-mcp-bridge-client-secrets --from-literal=thirdparty-pre="$TP_PRE_SECRET"
+mksecret idp-mcp-bridge idp-mcp-bridge-client-secrets --from-literal=thirdparty-pre="$TP_PRE_SECRET" --from-literal=directory="$(secret_of idp-bridge-directory)"   # directory: the dev/test adapter's client (PATH O10)
 mksecret thirdparty thirdparty-preregistered --from-literal=id="$TP_PRE_ID" --from-literal=secret="$TP_PRE_SECRET"
 kubectl -n thirdparty create configmap thirdparty-script --from-file=thirdparty_double.py=deploy/compose/thirdparty_double.py >/dev/null
 mksecret idp-mcp idp-mcp-admin --from-literal=secret="$MCP_ADMIN"
@@ -1330,6 +1332,57 @@ o_collect() { # every pod's log of every namespace of the platform (the Jobs' po
   done
   for db in idp_bridge idp_workspace idp_host idp_mcp; do o_dump "$db" > "$1/db-$db.sql"; done
 }
+# PATH O10's adapters (the identity system is Keycloak only for dev and test): an administrator of the dev/test Keycloak, the bridge's API from where the Workspace
+# reaches it (a pod labelled as the Workspace, which the bridge's ingress admits to the API port), and the bridge's path to Keycloak (its egress rule to Keycloak, which
+# is the overlay's: deleted for a few rounds and applied again)
+kc_admin_token() { "${KC[@]}" "${ISSUER%/realms/idp}/realms/master/protocol/openid-connect/token" -d grant_type=password -d client_id=admin-cli -d username=admin --data-urlencode "password=$KC_ADMIN_PASSWORD" | token_json; }
+kc_set_enabled() { # kc_set_enabled USERNAME true|false
+  local t id; t="$(kc_admin_token)"
+  id="$("${KC[@]}" -H "Authorization: Bearer $t" "${ISSUER%/realms/idp}/admin/realms/idp/users?username=$1&exact=true" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+  "${KC[@]}" -X PUT -H "Authorization: Bearer $t" -H 'Content-Type: application/json' -d "{\"enabled\": $2}" "${ISSUER%/realms/idp}/admin/realms/idp/users/$id"
+}
+api_pod_up=0
+bridge_api() { # bridge_api METHOD PATH TOKEN [BODY]: prints the status, then the body
+  if ((!api_pod_up)); then
+    kubectl apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Pod
+metadata: {name: api-probe, namespace: idp-workspace, labels: {app.kubernetes.io/component: workspace}}
+spec:
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: python:3.12-slim
+      imagePullPolicy: IfNotPresent
+      command: [python, -c, "import time; time.sleep(1800)"]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+YAML
+    kubectl -n idp-workspace wait --for=condition=Ready pod/api-probe --timeout=120s >/dev/null; api_pod_up=1
+  fi
+  kubectl -n idp-workspace exec api-probe -- python -c '
+import sys, urllib.request, urllib.error
+m, path, tok, body = sys.argv[1:5]
+h = {"Content-Type": "application/json"}
+if tok: h["Authorization"] = "Bearer " + tok
+r = urllib.request.Request("http://idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local:8681" + path, data=body.encode() or None, method=m, headers=h)
+try:
+    with urllib.request.urlopen(r, timeout=20) as x: print(x.status); print(x.read().decode())
+except urllib.error.HTTPError as e: print(e.code); print(e.read().decode())' "$1" "$2" "$3" "${4:-}"
+}
+bridge_api_done() { kubectl -n idp-workspace delete pod api-probe --wait=false >/dev/null 2>&1 || true; api_pod_up=0; }
+idp_cut() {
+  kubectl -n idp-mcp-bridge get netpol keycloak-bridge -o json | python3 -c '
+import json, sys
+d = json.load(sys.stdin); m = d["metadata"]
+d["metadata"] = {"name": m["name"], "namespace": m["namespace"], "labels": m.get("labels", {})}
+json.dump(d, sys.stdout)' > "$L/keycloak-bridge-netpol.json"
+  kubectl -n idp-mcp-bridge delete netpol keycloak-bridge >/dev/null
+  # a NetworkPolicy does not end a connection that is already established (the adapter keeps its one alive): a new pod has none, and its first new connection is refused
+  kubectl -n idp-mcp-bridge rollout restart deploy/idp-mcp-bridge >/dev/null; kubectl -n idp-mcp-bridge rollout status deploy/idp-mcp-bridge --timeout=180s >/dev/null
+}
+idp_restore() { kubectl apply -f "$L/keycloak-bridge-netpol.json" >/dev/null; }
+o_bridge_log() { kubectl -n idp-mcp-bridge logs deploy/idp-mcp-bridge 2>/dev/null; }
 source deploy/compose/path_o.sh
 
 # ---- O8: nothing but the gateway, the registry and the Workspace reaches the bridge's ports ----

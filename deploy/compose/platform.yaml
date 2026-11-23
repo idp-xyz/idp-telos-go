@@ -282,7 +282,7 @@ services:
     image: ${IDP_BRIDGE_IMAGE:-idp-mcp-bridge:dev}
     networks: [bridgenet, bridgedb, thirdparty]
     volumes: ['../../.local/platform/caller.pub:/etc/idp/gateway.pub:ro', '../../.local/platform/bridge-connections.yaml:/etc/idp/connections.yaml:ro',
-              '../../.local/platform/bridge-encryption.keys:/etc/idp/encryption.keys:ro', '../../.local/platform/bridge-prereg.secret:/etc/idp/secrets/thirdparty-pre:ro', '../../.local/platform/bridge-github.secret:/etc/idp/secrets/github:ro']
+              '../../.local/platform/bridge-encryption.keys:/etc/idp/encryption.keys:ro', '../../.local/platform/bridge-prereg.secret:/etc/idp/secrets/thirdparty-pre:ro', '../../.local/platform/bridge-github.secret:/etc/idp/secrets/github:ro', '../../.local/platform/bridge-directory.secret:/etc/idp/directory.secret:ro']
     environment:
       IDP_BRIDGE_CONFIG_FILE: /etc/idp/connections.yaml
       # the gateway's signature over the caller, made for this connection's endpoint: IDP_BRIDGE_BASE_URL + /mcp/<id>, which is what the registry holds
@@ -301,6 +301,15 @@ services:
       IDP_BRIDGE_API_AUDIENCE: idp-mcp-bridge
       IDP_BRIDGE_WORKSPACE_CLIENT: idp-workspace
       IDP_BRIDGE_REVIEWER_ROLE: bridge-reviewer
+      # a member who leaves (offboarding plan, idp-mcp-bridge D38 to D42): the route takes the tokens of this one service client; the reconciliation asks the
+      # dev/test directory adapter (Keycloak is only the dev/test identity provider: the final one is not chosen) every few seconds here, 15 minutes by default
+      IDP_BRIDGE_OFFBOARD_CLIENTS: idp-lifecycle-svc
+      IDP_BRIDGE_DIRECTORY: keycloak-dev
+      IDP_BRIDGE_RECONCILE_INTERVAL: ${IDP_BRIDGE_RECONCILE_INTERVAL:-15m}
+      IDP_BRIDGE_KEYCLOAK_URL: http://keycloak:7080
+      IDP_BRIDGE_KEYCLOAK_REALM: idp
+      IDP_BRIDGE_KEYCLOAK_CLIENT_ID: idp-bridge-directory
+      IDP_BRIDGE_KEYCLOAK_CLIENT_SECRET_FILE: /etc/idp/directory.secret
       # TESTS ONLY (deploy/compose/e2e.sh sets it): the third party is a container of this project at a private address on a port that is not 443,
       # and the Workspace's public address is http (ADR-0001 D6); nothing else is exempt
       IDP_BRIDGE_TEST_ORIGINS: ${IDP_BRIDGE_TEST_ORIGINS:-}

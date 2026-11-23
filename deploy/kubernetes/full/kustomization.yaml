@@ -320,3 +320,13 @@ patches:
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_API_AUDIENCE, value: idp-mcp-bridge}}
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_WORKSPACE_CLIENT, value: idp-workspace}}
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_REVIEWER_ROLE, value: bridge-reviewer}}
+      # a member who leaves (offboarding plan, D38 to D42). DEV/TEST ONLY: Keycloak is only the dev/test identity provider and the final one is not chosen, so the
+      # dev/test directory adapter (keycloak-dev, the client idp-bridge-directory of deploy/keycloak/realm.py: view-users only) and the one client that stands for the
+      # lifecycle service (idp-lifecycle-svc) are scaffolding of this overlay; the directory's client secret is a key of the Secret idp-mcp-bridge-client-secrets
+      # (tests/kind/full.sh). The reconciliation interval is the shipped 15 minutes here; the per-run overlay of full.sh shortens it for the acceptance
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_OFFBOARD_CLIENTS, value: idp-lifecycle-svc}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_DIRECTORY, value: keycloak-dev}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_KEYCLOAK_URL, value: "http://keycloak.keycloak.svc.cluster.local:7080"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_KEYCLOAK_REALM, value: idp}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_KEYCLOAK_CLIENT_ID, value: idp-bridge-directory}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_KEYCLOAK_CLIENT_SECRET_FILE, value: /etc/idp/secrets/directory}}

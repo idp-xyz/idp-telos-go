@@ -272,6 +272,104 @@ assert l['bytes']==2048 and l['serverSetting']==2048, l
 print('descriptionLimit bytes %d, deployment default %d, cap %d' % (l['bytes'], l['deploymentDefault'], l['cap']))")" || { echo "FAIL: PATH O9: the review view does not show the server's limit" >&2; exit 1; }
 echo "PASS: PATH O9 — a catalog with a 1500 byte description: refused at the default limit ('$O9REF...'), accepted after PATCH maxDescriptionBytes 2048 (the server went back to DRAFT and was discovered again), accepted when registered with 2048, a limit of 1000000 refused at registration naming the cap; the review view says: $LIM9"
 
+# ---- O10: a member who leaves loses their third-party authorizations (the offboarding plan; idp-mcp-bridge D38 to D42) ----
+# The identity system is Keycloak only for dev and test, and the final one is not chosen: the bridge's route takes a service token (client credentials) of one
+# client that stands for the future lifecycle service, and its reconciliation asks a dev/test adapter (deploy/keycloak/realm.py says which clients are scaffolding).
+# The caller supplies kc_set_enabled USER true|false (an administrator of the dev/test Keycloak), bridge_api METHOD PATH TOKEN [BODY] (the bridge's internal API, from
+# where the Workspace reaches it: prints the HTTP status, then the body), idp_cut and idp_restore (the bridge's path to Keycloak, for the adapter), o_bridge_log.
+ALICE_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['alice'])")"
+LIFE_TOKEN() { "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=client_credentials -d client_id=idp-lifecycle-svc -d "client_secret=$(secret_of idp-lifecycle-svc)" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
+o_audit_offboard() { o_bridge_log | python3 -c "
+import json,sys
+for l in sys.stdin:
+    if l.startswith('{') and '\"offboard\"' in l:
+        try: d=json.loads(l)
+        except ValueError: continue
+        if d.get('event')=='offboard': print(json.dumps({k:d.get(k) for k in ('reason','source','caller','grants','revocationsFailed')}))"; }
+live_of() { tp_tokens_json | python3 -c "
+import json,sys
+mine=[t for t in json.load(sys.stdin) if t['user']==sys.argv[1] and t['resource']==sys.argv[2]]
+print(json.dumps([[t for t in mine if t['kind']=='access'][-1]['value'], [t for t in mine if t['kind']=='refresh' and not t['revoked']][-1]['value']]))" "$1" "$TP_BASE/mcp"; }
+revoked_check() { # revoked_check USER MEMBER-ID MARK LIVE VERB: the third party saw the revocations of the live tokens and the member's grant row is gone
+  python3 -c "
+import json,sys
+print(json.dumps({'requests': json.loads(sys.argv[1]), 'tokens': json.loads(sys.argv[2]), 'user': sys.argv[3], 'resource': '$TP_BASE/mcp', 'live': json.loads(sys.argv[4]), 'rows': json.loads(sys.argv[5]), 'verb': sys.argv[6]}))" \
+    "$(tp_since "$3")" "$(tp_tokens_json)" "$1" "$4" "$(bridge_rows_of "$2" thirdparty)" "$5" | "${BCHECK[@]}" o6-revoke; }
+wait_row_gone() { # wait_row_gone MEMBER-ID SECONDS
+  for _ in $(seq 1 "$2"); do [[ "$(bridge_rows_of "$1" thirdparty)" == "[]" ]] && return 0; sleep 1; done; return 1
+}
+# a) bob connects (the earlier steps left him disconnected)
+connect "$(user_token bob)" bob thirdparty >/dev/null
+[[ "$(bridge_rows_of "$BOB_ID" thirdparty)" != "[]" ]] || { echo "FAIL: PATH O10 a: bob has no grant after connecting" >&2; exit 1; }
+O10LIVE="$(live_of bob)"; O10M="$(tp_mark)"
+# b) the lifecycle service's token on the route
+OFF_BODY='{"tenant":"'"$TENANT"'","member":"'"$BOB_ID"'","reason":"user_disabled"}'
+LT="$(LIFE_TOKEN)"
+python3 -c "
+import base64,json,sys
+c=json.loads(base64.urlsafe_b64decode(sys.argv[1].split('.')[1]+'==')); assert c['azp']=='idp-lifecycle-svc' and 'sid' not in c and 'act' not in c and 'idp-mcp-bridge' in (c['aud'] if isinstance(c['aud'],list) else [c['aud']]), sorted(c)" "$LT" \
+  || { echo "FAIL: PATH O10 b: the lifecycle client's token is not a service token for the bridge (azp, no sid, no act, the bridge's audience)" >&2; exit 1; }
+R10="$(bridge_api POST /internal/v1/members/offboard "$LT" "$OFF_BODY")"
+[[ "${R10%%$'\n'*}" == 200 ]] && echo "${R10#*$'\n'}" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['grants_removed']>=1 and d['revocations_failed']==0, d" \
+  || { echo "FAIL: PATH O10 b: the offboard call for bob: $R10" >&2; exit 1; }
+O10GONE="$(revoked_check bob "$BOB_ID" "$O10M" "$O10LIVE" "was offboarded (user_disabled)")" || exit 1
+O10AUD="$(o_audit_offboard | tail -1)"
+echo "$O10AUD" | python3 -c "
+import json,sys
+d=json.load(sys.stdin); assert d['reason']=='user_disabled' and d['caller']=='idp-lifecycle-svc' and d['grants']>=1, d" || { echo "FAIL: PATH O10 b: the audit line of the offboard: $O10AUD" >&2; exit 1; }
+R10B="$(bridge_api POST /internal/v1/members/offboard "$LT" "$OFF_BODY")"
+[[ "${R10B%%$'\n'*}" == 200 && "$R10B" == *'"grants_removed":0'* ]] || { echo "FAIL: PATH O10 b: repeating the offboard call was not an idempotent 200 with zeros: $R10B" >&2; exit 1; }
+MT="$("${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange -d client_id=idp-workspace -d "client_secret=$(secret_of idp-workspace)" \
+  -d "subject_token=$(user_token bob)" -d subject_token_type=urn:ietf:params:oauth:token-type:access_token -d audience=idp-mcp-bridge | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+R10M="$(bridge_api POST /internal/v1/members/offboard "$MT" "$OFF_BODY")"; R10N="$(bridge_api POST /internal/v1/members/offboard "" "$OFF_BODY")"
+[[ "${R10M%%$'\n'*}" == 403 && "${R10N%%$'\n'*}" == 401 ]] || { echo "FAIL: PATH O10 b: a member's exchanged token on the route gave ${R10M%%$'\n'*} (want 403), no token ${R10N%%$'\n'*} (want 401)" >&2; exit 1; }
+echo "PASS: PATH O10b — the lifecycle service's client-credentials token (azp idp-lifecycle-svc, the bridge's audience, no sid, no act) on POST /internal/v1/members/offboard for bob (user_disabled): 200 ${R10#*$'\n'}; $O10GONE; audit $O10AUD; repeated: 200 with zeros; bob's own exchanged token: 403, no token: 401"
+
+# c) and d) the reconciliation with the dev/test adapter. alice connects; the bridge's path to Keycloak is cut and alice is disabled: the directory cannot tell, so nothing is
+# revoked (d); the path is restored: within a few rounds her grant is deleted and revoked at the third party (c); enabled again she is not connected
+connect "$(user_token alice)" alice thirdparty >/dev/null
+O10ALIVE="$(live_of alice)"; O10AM="$(tp_mark)"
+rounds_since() { o_bridge_log | python3 -c "
+import json,sys
+n=0
+for l in sys.stdin:
+    if l.startswith('{') and 'reconciliation round' in l:
+        d=json.loads(l); n+=1
+        if n>int(sys.argv[1]): print(d['unknown'], d['offboarded'], d['leaving'])" "$1"; }
+# the adapter works while the path is open: a round after alice connected finds her (and bob's absence is no member) present, nobody unknown
+sleep 7
+LASTROUND="$(rounds_since "$(( $(o_bridge_log | grep -c 'reconciliation round') - 1 ))" | tail -1)"
+python3 -c "
+import sys
+u,o,l=map(int,sys.argv[1].split()); assert u==0 and l==0, sys.argv[1]" "$LASTROUND" || { echo "FAIL: PATH O10 c: with the path to Keycloak open a round did not find everyone present: unknown/offboarded/leaving $LASTROUND" >&2; exit 1; }
+idp_cut
+kc_set_enabled alice false
+sleep 7   # a round that began before the cut may still be in flight: the rounds counted are the ones after this
+ROUNDS0="$(o_bridge_log | grep -c 'reconciliation round' || true)"
+# two rounds with the adapter unable to reach the directory (5 seconds apart; where the path is cut by a dropped policy each round waits for its timeout, so up to 90 s)
+for _ in $(seq 1 90); do [[ "$(rounds_since "$ROUNDS0" | wc -l)" -ge 2 ]] && break; sleep 1; done
+UNKNOWN_ROUNDS="$(rounds_since "$ROUNDS0")"
+[[ "$(bridge_rows_of "$ALICE_ID" thirdparty)" != "[]" ]] || { idp_restore; kc_set_enabled alice true; echo "FAIL: PATH O10 d: alice's grant was removed while the directory could not be reached" >&2; exit 1; }
+python3 -c "
+import sys
+rows=[l.split() for l in sys.argv[1].splitlines() if l.strip()]
+assert len(rows)>=2 and all(int(r[0])>=1 and int(r[1])==0 for r in rows), rows" "$UNKNOWN_ROUNDS" \
+  || { idp_restore; kc_set_enabled alice true; echo "FAIL: PATH O10 d: the rounds while Keycloak was unreachable did not report the member as unknown and offboard nobody: $UNKNOWN_ROUNDS" >&2; exit 1; }
+[[ "$(tp_since "$O10AM" | python3 -c "import json,sys; print(len([r for r in json.load(sys.stdin) if r['path']=='/revoke']))")" == 0 ]] || { idp_restore; kc_set_enabled alice true; echo "FAIL: PATH O10 d: the third party saw a revocation while the directory could not be reached" >&2; exit 1; }
+echo "PASS: PATH O10d — the bridge's path to Keycloak cut and alice disabled: $(echo "$UNKNOWN_ROUNDS" | wc -l) reconciliation rounds reported the member as unknown (the directory could not tell) and offboarded nobody; alice's grant is still there and the third party saw no revocation"
+idp_restore
+wait_row_gone "$ALICE_ID" 60 || { kc_set_enabled alice true; echo "FAIL: PATH O10 c: alice was disabled in the directory and her grant was still there 60 seconds later" >&2; exit 1; }
+O10ALICE="$(revoked_check alice "$ALICE_ID" "$O10AM" "$O10ALIVE" "was offboarded by the reconciliation")" || exit 1
+O10RAUD="$(o_audit_offboard | tail -1)"
+echo "$O10RAUD" | python3 -c "
+import json,sys
+d=json.load(sys.stdin); assert d['reason']=='user_disabled' and d['source']=='reconcile' and d['grants']>=1, d" || { echo "FAIL: PATH O10 c: the audit line of the reconciliation: $O10RAUD" >&2; exit 1; }
+kc_set_enabled alice true
+O10ST="$(call 200 GET "$WS/v1/me/connections" "$(user_token alice)" | python3 -c "import json,sys; print([x['status'] for x in json.load(sys.stdin)['connections'] if x['id']=='thirdparty'][0])")"
+[[ "$O10ST" == not_connected ]] || { echo "FAIL: PATH O10 c: alice, enabled again, is $O10ST, not not_connected" >&2; exit 1; }
+echo "PASS: PATH O10c — the dev/test directory adapter (keycloak-dev, every 5 s here): alice disabled in Keycloak, her grant was deleted within a few rounds and the third party saw the revocation ($O10ALICE); audit $O10RAUD; enabled again she is not connected and has to connect again"
+bridge_api_done
+
 # ---- O7: no token, code or client secret the third party issued is in any container's log, any run's events, or the databases in plain text ----
 o_collect "$L/path-o"   # every container's log and the databases of the bridge, the Workspace, the HOST and the registry, as files next to the runs' events
 tp /_test/secrets > "$L/path-o/secrets.json"

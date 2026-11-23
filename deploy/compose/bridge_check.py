@@ -286,7 +286,7 @@ def o6_revoke():
     if d['rows']:
         fail('6 revoke', f'the grant row is still in the database: {d["rows"]}')
     kinds = sorted({t['kind'] for t in live_before})
-    print(f'{d["user"]} disconnected: the third party received {len(revs)} revocation requests, for the live access and refresh token ({kinds}), and its records say they are revoked; the grant row is deleted')
+    print(f'{d["user"]} {d.get("verb", "disconnected")}: the third party received {len(revs)} revocation requests, for the live access and refresh token ({kinds}), and its records say they are revoked; the grant row is deleted')
 
 
 def forms(s):
