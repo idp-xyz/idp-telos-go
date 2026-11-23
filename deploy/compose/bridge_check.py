@@ -375,7 +375,12 @@ def listen(port, timeout, state=None):
 def unseal(sealed, keys, tenant, member, connection, reviewer):
     """What idp-mcp-bridge's sealer (internal/sealer) made of a token: version 1, the length and the id of the key, the nonce, AES-256-GCM with the
     owner (tenant, member, connection, member or reviewer) and the key id as additional data. Only the acceptance's check opens it, in memory."""
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        print('BLOCKED: R1 d secrets: the Python package cryptography (pinned cryptography==50.0.2, as in .github/workflows/ci.yml) is needed to open the bridge\'s sealed tokens: '
+              'pip install cryptography==50.0.2', file=sys.stderr)
+        sys.exit(2)
     if len(sealed) < 2 or sealed[0] != 1:
         raise ValueError('not a sealed value')
     kid = sealed[2:2 + sealed[1]].decode()

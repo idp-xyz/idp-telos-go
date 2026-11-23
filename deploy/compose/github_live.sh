@@ -7,6 +7,8 @@
 #     bash deploy/compose/github_live.sh
 #
 # (the model double must have the "call:" script, idp-host's tests/fixtures/fakemodel: build it first with bash idp-host/deploy/fixtures/build-fakemodel.sh).
+# Needs on the host: docker compose, curl, python3 and the Python package cryptography (pip install cryptography==50.0.2, the version ci.yml pins), with which
+# step 7 opens the tokens the bridge holds to search for them; without it that step stops with one BLOCKED line.
 # What it does, in this order: tells you what to do in your browser; waits until the reviewer account is authorized (you, as bridgeop), then registers the
 # github server at the bridge's address (class external), discovers it, approves that catalog and grants ONLY get_me and get_file_contents to the role of the
 # HOST's calls; waits until bob is connected (you, as bob), then runs bob's agent: `call: get_me {}` and `call: get_file_contents {...}` on the public

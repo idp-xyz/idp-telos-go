@@ -31,7 +31,9 @@ jobs:
         with:
           go-version: '1.26'
       - name: Pinned tools
-        run: pip install --disable-pip-version-check 'jsonschema[format]==4.26.0' 'PyYAML==6.0.3'
+        # cryptography: the tests of the GitHub-live secret search (tools/tests/test_thirdparty_double.py, deploy/compose/bridge_check.py gh-secrets) unseal the
+        # bridge's AES-256-GCM rows; 50.0.2 is the newest release at least two weeks old (2026-09-30)
+        run: pip install --disable-pip-version-check 'jsonschema[format]==4.26.0' 'PyYAML==6.0.3' 'cryptography==50.0.2'
       - name: Components at the BOM's commits
         env:
           IDP_EER_DEPLOY_KEY: ${{ secrets.IDP_EER_DEPLOY_KEY }}

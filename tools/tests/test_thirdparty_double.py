@@ -407,6 +407,20 @@ class GitHubLiveTest(unittest.TestCase):
         (self.dir / "search" / "log-bridge.txt").write_text("a log with nothing in it")
         self.assertIn("none found", self.run_check())
 
+    def test_without_the_cryptography_package_it_says_so_in_one_line(self):
+        import contextlib
+        import io
+        import unittest.mock
+        err = io.StringIO()
+        with unittest.mock.patch.dict(sys.modules, {"cryptography": None, "cryptography.hazmat": None, "cryptography.hazmat.primitives": None,
+                                                    "cryptography.hazmat.primitives.ciphers": None, "cryptography.hazmat.primitives.ciphers.aead": None}):
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as r:
+                bridge_check.unseal(b"\x01\x02k1" + b"\x00" * 40, {}, "t", "m", "c", False)
+        self.assertEqual(r.exception.code, 2)
+        self.assertEqual(len(err.getvalue().strip().splitlines()), 1)
+        self.assertIn("BLOCKED", err.getvalue())
+        self.assertIn("cryptography==50.0.2", err.getvalue())
+
     def test_a_row_sealed_for_another_owner_does_not_open(self):
         self.rows["rows"][0]["member"] = "alice"   # the additional data names the owner
         with self.assertRaises(Exception):
