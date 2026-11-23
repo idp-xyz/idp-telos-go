@@ -17,7 +17,7 @@ components:
     version: 1.4.0
   image:
     reference: idp-mcp:dev
-    id: sha256:8460de25bc25a2d389ac5fdcf483105beeb62c45329040dd12682f2888e53960
+    id: sha256:ef782230fb02140b0a1750cdc95e9f4ef65eb120f912108b5129bdf23469fcc4
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: 2df87b300d2927d8646139d8ff723769dad671e2
@@ -27,14 +27,14 @@ components:
     version: 1.11.0
   image:
     reference: idp-host:dev
-    id: sha256:dffc794749e816b6f3566b4f2edc4b5ec8c6feed700a0e052f5618127e78db78
+    id: sha256:f2ef6d6e4e470190d05f2ba41602d334ad5035e825477b87364418e60b7e23e7
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 762ba701f9b02f25467061171c983c33f25c96e6
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:51cc5eb95ae47d48a7be0405daa81b5da719d7468b55902f5594d38ebb44bbef
+    id: sha256:090ee084a6f654537fc280aaf1b5d3f89d3b5fdaee400ac64880d12a346c0a48
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
   commit: 1a61594c36723a00568835931fcb920a24caf030
@@ -44,7 +44,7 @@ components:
     version: 1.4.0
   image:
     reference: idp-cmi:dev
-    id: sha256:a8f60845b1722f448578857bd17e91870435e1bdc8835a8c71c9c7631e5b72a6
+    id: sha256:4df1267b16c9b4f68b4b38130d2b805f713806ebffd9b494bd886a09fa5a6c69
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
   commit: 94a130543aaf94659304b238959a0b046bf728c6
@@ -54,25 +54,25 @@ components:
     version: 1.4.0
   image:
     reference: idp-workspace:dev
-    id: sha256:66f55cab50754345a7b4718aa1b2f52b068691b08d917d1697b7c55c7e8a058b
+    id: sha256:34ab8c7260da7c22ea1fa26231cd16340f7ae9cb9bdd75f73075f589e2713892
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
   commit: 596698bf8456f7f80e96bdeca81848af084d5ee0
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:72b00fa69c165ee36185067289fd81bdc7d5228267b70bd39a8ad74256cde43d
+    id: sha256:89f67ed31468837d0c2f0a58864bf075a3f806953fb338fecc1dce732f86e62f
 - name: idp-web
   repository: idp-xyz/idp-web
   commit: 900b5db642e7885cdc6ee9d8d2d5198567acb14d
   clean: true
   image:
     reference: idp-web:dev
-    id: sha256:0d8df843b46bbe500ed5227b4f72630c2987544f16889dc6a60c49ade881105a
+    id: sha256:5d0f2db031c7daad8260f6806984e97839b690f9e75a2fb727f64847b0cfd634
 - name: idp-mcp-bridge
   repository: idp-xyz/idp-mcp-bridge
-  commit: fbe059ffa20417fdbca76544cddb32b52b04eced
+  commit: ae0cf6347f232b498c2112cbf93aeb08f43aa747
   clean: true
   image:
     reference: idp-mcp-bridge:dev
-    id: sha256:a6fe881db63173f427f60142a79c640b0a0514e883da8f2e9c5eae0dfe6ed61d
+    id: sha256:8f5f04b8fd77d3542ed084cec496b944941680a713507a605034fa55f235a8de
