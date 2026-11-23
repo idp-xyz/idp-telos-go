@@ -39,6 +39,13 @@
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev, idp-host:dev, idp-host-fakemodel:dev, idp-workspace:dev, eer-runtime:dev,
 #                                       idp-mcp:dev, idp-sandbox:dev, idp-sandbox-egress:dev, idp-sandbox-office:dev, idp-web:dev, idp-mcp-bridge:dev)
 #   KEEP=1 ...                          leave the platform running
+#   GITHUB_CALLBACK=script|workspace   with GITHUB=live: who receives GitHub's redirect (default script: a listener of github_live.sh on 127.0.0.1:8561)
+#   GITHUB=live ...                     R1 (plan idp-mcp-bridge-oauth-plan.md section 5): a connection `github` to GitHub's hosted MCP server
+#                                       (https://api.githubcopilot.com/mcp/readonly) is added to the bridge, with the GitHub App whose Client ID and
+#                                       secret are in .local/github-app/client-id and .local/github-app/client-secret (it does not start without them;
+#                                       they are never printed or logged). The normal PATHs run as always; with KEEP=1 the stack stays up for
+#                                       deploy/compose/github_live.sh, where a person authorizes on github.com. The bridge reaches the internet
+#                                       directly (containers here can; it ignores the environment's proxy and its address rules apply as ever)
 #   MODEL=live ...                      the HOST's agent answers with a real OpenAI-compatible model on the Docker
 #                                       host (IDP_LIVE_MODEL_URL, default http://127.0.0.1:8080/v1; IDP_LIVE_MODEL,
 #                                       default the first model it lists; IDP_LIVE_MODEL_KEY_FILE, a file with its API key
@@ -69,6 +76,25 @@ ISSUER=https://127.0.0.1:7443/realms/idp
 WS=http://127.0.0.1:8560 HOST=http://127.0.0.1:8450 CMI=http://127.0.0.1:8550 EER=http://127.0.0.1:18180
 mkdir -p "$L"
 MODEL="${MODEL:-fake}"
+GITHUB_APP_DIR="${GITHUB_APP_DIR:-.local/github-app}"
+GITHUB_ID_FILE="$GITHUB_APP_DIR/client-id" GITHUB_SECRET_FILE="$GITHUB_APP_DIR/client-secret"
+if [[ "${GITHUB:-}" == live ]]; then
+  for f in "$GITHUB_ID_FILE" "$GITHUB_SECRET_FILE"; do
+    [[ -s "$f" ]] || { echo "BLOCKED: GITHUB=live needs $f (the GitHub App's Client ID and secret, one file each; see idp-mcp-bridge/docs/RUNBOOK.md 5.8)" >&2; exit 2; }
+  done
+  # who receives GitHub's redirect: script (default) a listener of deploy/compose/github_live.sh on 127.0.0.1:8561, which hands it to the Workspace's
+  # callback route with the member's token as the shell's callback page does; workspace: the Workspace's own page at 8560, a person signed in there
+  GITHUB_CALLBACK="${GITHUB_CALLBACK:-script}"
+  [[ "$GITHUB_CALLBACK" == script || "$GITHUB_CALLBACK" == workspace ]] || { echo "BLOCKED: GITHUB_CALLBACK=$GITHUB_CALLBACK: script or workspace" >&2; exit 2; }
+elif [[ -n "${GITHUB:-}" ]]; then
+  echo "BLOCKED: GITHUB=$GITHUB: the only value is live" >&2; exit 2
+fi
+# the redirect address of every connection: the Workspace's callback page; for R1's scripted callback the script's listener (GitHub's App has both)
+export IDP_BRIDGE_REDIRECT_URI=http://127.0.0.1:8560/oauth/callback
+if [[ "${GITHUB:-}" == live && "$GITHUB_CALLBACK" == script ]]; then
+  export IDP_BRIDGE_REDIRECT_URI=http://127.0.0.1:8561/oauth/callback IDP_BRIDGE_TEST_ORIGINS="thirdparty:8590,127.0.0.1:8560,127.0.0.1:8561"
+fi
+export IDP_THIRDPARTY_PREREG_REDIRECT="$IDP_BRIDGE_REDIRECT_URI" O_REDIRECT="$IDP_BRIDGE_REDIRECT_URI"
 if [[ "$MODEL" == live ]]; then
   LIVE_URL="${IDP_LIVE_MODEL_URL:-http://127.0.0.1:8080/v1}"
   # a model that wants an API key: IDP_LIVE_MODEL_KEY_FILE (sent as Authorization: Bearer; the HOST reads it as apiKeyFile)
@@ -130,12 +156,14 @@ bash tools/pull_image.sh "${THIRD[@]}"
 
 "${C[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 cleanup() {
+  local status=$?
   [[ -n "${FORWARDER:-}" && "${KEEP:-0}" != 1 ]] && kill "$FORWARDER" 2>/dev/null
   if [[ "${KEEP:-0}" != 1 ]]; then
     "${C[@]}" down -v --remove-orphans >/dev/null 2>&1
     docker ps -aq --filter label=idp.sandbox=platform | xargs -r docker rm -fv >/dev/null 2>&1
     docker volume ls -q --filter label=idp.sandbox=platform | xargs -r docker volume rm -f >/dev/null 2>&1
   fi
+  [[ "${GITHUB:-}" == live && "${KEEP:-0}" == 1 && $status -eq 0 ]] && echo "READY: the platform is up with the connection github: now run  bash deploy/compose/github_live.sh  (it tells you what to do in your browser)"
   return 0
 }
 trap cleanup EXIT
@@ -283,7 +311,7 @@ cat > "$L/gateway-clients.yaml" <<'Y'
 clients:
   idp-host: {kind: platform, host: true}
   idp-probe: {kind: platform}
-hostOnlyTools: ["web__*", "thirdparty__*"]
+hostOnlyTools: ["web__*", "thirdparty__*", "thirdparty-pre__*", "github__*"]
 Y
 chmod 644 "$L/gateway-clients.yaml"
 # the sandbox's egress proxy (idp-sandbox D13, D21): the key the sandbox signs a run's credential with and the proxy verifies it
@@ -339,10 +367,34 @@ connections:
       issuer: $TP_BASE
       client: {mode: preregistered, id: $TP_PRE_ID, secretFile: /etc/idp/secrets/thirdparty-pre}
       scopes: [echo.read]
+  - id: thirdparty-open
+    title: Third party, no token (test double; a long description, PATH O9)
+    endpoint: $TP_BASE/open/mcp
+    authorization: {mode: none}
+  - id: thirdparty-open-2
+    title: Third party, no token, a second one (test double, PATH O9)
+    endpoint: $TP_BASE/open2/mcp
+    authorization: {mode: none}
 YAML
+# R1: GitHub's hosted MCP server, with a GitHub App as the preregistered client (idp-mcp-bridge RUNBOOK 5.8). The secret is a mounted file (an empty one
+# when GITHUB is not live, so that the bind mount has a source); the Client ID is in the connections file, which is a local file of this run.
+: > "$L/bridge-github.secret"
+if [[ "${GITHUB:-}" == live ]]; then
+  tr -d '\r\n' < "$GITHUB_SECRET_FILE" > "$L/bridge-github.secret"
+  cat >> "$L/bridge-connections.yaml" <<YAML
+  - id: github
+    title: GitHub
+    endpoint: https://api.githubcopilot.com/mcp/readonly
+    authorization:
+      mode: oauth
+      issuer: https://github.com/login/oauth
+      client: {mode: preregistered, id: "$(tr -d '\r\n' < "$GITHUB_ID_FILE")", secretFile: /etc/idp/secrets/github}
+      scopes: []   # a GitHub App has no scopes: its permissions are in the App's settings
+YAML
+fi
 printf 'k1:%s\n' "$(openssl rand -base64 32)" > "$L/bridge-encryption.keys"
 printf '%s' "$IDP_THIRDPARTY_PREREG_SECRET" > "$L/bridge-prereg.secret"
-chmod 644 "$L/bridge-connections.yaml" "$L/bridge-encryption.keys" "$L/bridge-prereg.secret"
+chmod 644 "$L/bridge-connections.yaml" "$L/bridge-encryption.keys" "$L/bridge-prereg.secret" "$L/bridge-github.secret"
 chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/live-model.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }

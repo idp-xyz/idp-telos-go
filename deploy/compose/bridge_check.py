@@ -17,6 +17,8 @@ evidence and exits 0, or prints `FAIL: PATH O <step>: ...` to stderr and exits 1
     <{"events", "requests", "connections", "rows"}>      | bridge_check.py o4-scope     (insufficient_scope: authorization required, the grant is kept)
     <{"status", "body", "requests", "rows"}>             | bridge_check.py o5-iss       (a wrong iss: refused, nothing stored, no code exchanged)
     <{"requests", "tokens", "user", "rows"}>             | bridge_check.py o6-revoke
+    <{"rows"}>                                           | bridge_check.py gh-secrets KEYS_FILE SECRET_FILE SOURCES_DIR   (R1: the tokens the bridge holds are
+                                                     unsealed in memory and never printed; THIRDPARTY_TOKENS_URL: a stand-in whose records prove the unsealing)
     <{"secrets", "sources", "required"}>                  | bridge_check.py o7-secrets   (sources: {name: text}; required: prefixes of those that must not be empty)
 
 Standard library only; run it with -I.
@@ -325,10 +327,110 @@ def o7_secrets():
           f'for {len(secrets_)} secrets the third party issued ({kinds["tpat_"]} access tokens, {kinds["tprt_"]} refresh tokens, {kinds["tpcode_"]} codes, the client secret) in plain, hex, base64 and URL-encoded form: none found')
 
 
+def listen(port, timeout, state=None):
+    """R1: the redirect of the scripted callback. The third party redirects the member's browser to http://127.0.0.1:PORT/oauth/callback?code=..&state=..&iss=..;
+    this answers that one request with a plain page and prints code, state, iss and error (those four, as the Workspace's callback route takes them) as JSON.
+    With STATE (the one in the authorization address just obtained) only a redirect that carries it is taken; any other redirect to the callback path, such as a
+    reloaded tab of an earlier authorization, is answered with a plain page and ignored (a line says so, never the state or the code), and the wait goes on."""
+    import time
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    got = {}
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            u = urllib.parse.urlsplit(self.path)
+            q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query, keep_blank_values=True).items()}
+            ok = u.path == '/oauth/callback' and ('code' in q or 'error' in q)
+            if ok and state and q.get('state') != state:
+                print('ignored a redirect with another state', file=sys.stderr, flush=True)
+                body, status = b'<!doctype html><meta charset=utf-8><p>This is an old authorization link: use the newest one the script printed.</p>', 200
+                ok = False
+            else:
+                status = 200 if ok else 404
+                body = (b'<!doctype html><meta charset=utf-8><p>Done, you can close this tab. Do not reload it: an authorization is used once.</p>' if ok else b'not here')
+            self.send_response(status)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Referrer-Policy', 'no-referrer')
+            self.end_headers()
+            self.wfile.write(body)
+            if ok:
+                got.update({k: q[k] for k in ('code', 'state', 'iss', 'error') if k in q})
+
+    server = HTTPServer(('127.0.0.1', int(port)), H)
+    server.timeout = 1
+    deadline = time.time() + float(timeout)
+    while not got and time.time() < deadline:
+        server.handle_request()
+    server.server_close()
+    if not got:
+        print(f'FAIL: PATH {PATH}: no redirect came to 127.0.0.1:{port} within {timeout} s', file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(got))
+
+
+def unseal(sealed, keys, tenant, member, connection, reviewer):
+    """What idp-mcp-bridge's sealer (internal/sealer) made of a token: version 1, the length and the id of the key, the nonce, AES-256-GCM with the
+    owner (tenant, member, connection, member or reviewer) and the key id as additional data. Only the acceptance's check opens it, in memory."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    if len(sealed) < 2 or sealed[0] != 1:
+        raise ValueError('not a sealed value')
+    kid = sealed[2:2 + sealed[1]].decode()
+    nonce, body = sealed[2 + sealed[1]:14 + sealed[1]], sealed[14 + sealed[1]:]
+    aad = b''.join(len(x).to_bytes(2, 'big') + x.encode() for x in ('idp-mcp-bridge/v1', tenant, member, connection, 'reviewer' if reviewer else 'member', kid))
+    return AESGCM(keys[kid]).decrypt(nonce, body, aad).decode()
+
+
+def gh_secrets(keys_file, secret_file, sources_dir):
+    """R1 step d: neither the App's client secret nor any token the bridge holds is in any file of sources_dir (the logs, the runs' events, the
+    databases). The tokens are read inside this check, from the grants rows on stdin, and are not printed."""
+    global PATH
+    PATH = 'R1'
+    rows = json.load(sys.stdin)['rows']
+    keys = {}
+    for line in open(keys_file).read().splitlines():
+        if line.strip() and not line.startswith('#'):
+            kid, enc = line.split(':', 1)
+            keys[kid.strip()] = base64.b64decode(enc.strip())
+    held = []
+    for r in rows:
+        for col in ('sealed_access', 'sealed_refresh'):
+            if r.get(col):
+                held.append((r['connection'], bool(r['reviewer']), col, unseal(bytes.fromhex(r[col]), keys, r['tenant'], r['member'], r['connection'], r['reviewer'])))
+    tokens = [t for *_, t in held]
+    if len(tokens) < 2 or any(len(t) < 16 for t in tokens):
+        fail('d secrets', f'the bridge holds {len(tokens)} tokens that opened: too few, or too short, to search for')
+    tp = os.environ.get('THIRDPARTY_TOKENS_URL')
+    if tp:   # a stand-in third party: what the bridge holds must be what it issued, which proves the unsealing above
+        import urllib.request
+        issued = {t['value'] for t in json.load(urllib.request.build_opener(urllib.request.ProxyHandler({})).open(tp, timeout=10))}
+        wrong = [c for c, _, col, t in held if t not in issued]
+        if wrong:
+            fail('d secrets', f'tokens the bridge holds that the stand-in did not issue: {wrong}')
+    client_secret = open(secret_file).read().strip()
+    secrets_ = tokens + ([client_secret] if client_secret else [])
+    sources = {f: open(os.path.join(sources_dir, f), errors='replace').read() for f in sorted(os.listdir(sources_dir))}
+    for name, f in forms(secrets_[0]).items():
+        if not search({'planted': 'a ' + f + ' b'}, secrets_[:1]):
+            fail('d secrets', f'the search itself does not find the {name} form of a secret')
+    found = search(sources, secrets_)
+    if found:
+        fail('d secrets', f'{len(found)} places hold a secret: {[x.split(" form")[0] for x in found[:6]]}')
+    print(f'searched {len(sources)} files ({sum(map(len, sources.values())) // 1024} KiB: every container\'s log, the events of the runs, the databases) for the client secret and {len(tokens)} tokens '
+          f'the bridge holds ({sum(1 for _, rv, *_ in held if rv) // 1} of them the reviewer account\'s) in plain, hex, base64 and URL-encoded form: none found')
+
+
 if __name__ == '__main__':
     cmd, *args = sys.argv[1:]
     if cmd == 'consent':
         consent(*args)
+    elif cmd == 'listen':
+        listen(*args)
+    elif cmd == 'gh-secrets':
+        gh_secrets(*args)
     else:
         {'auth-url': auth_url, 'o1-sealed': o1_sealed, 'o2-call': o2_call, 'o3-alice': o3_alice, 'o4-refresh': o4_refresh, 'o4-proactive': o4_proactive,
          'o4-scope': o4_scope, 'o5-iss': o5_iss, 'o6-revoke': o6_revoke, 'o7-secrets': o7_secrets}[cmd](*args)

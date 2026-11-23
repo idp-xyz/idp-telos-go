@@ -262,6 +262,14 @@ connections:
       issuer: $TP_BASE
       client: {mode: preregistered, id: tp-preregistered-client, secretFile: /etc/idp/secrets/thirdparty-pre}
       scopes: [echo.read]
+  - id: thirdparty-open
+    title: Third party, no token (test double; a long description, PATH O9)
+    endpoint: $TP_BASE/open/mcp
+    authorization: {mode: none}
+  - id: thirdparty-open-2
+    title: Third party, no token, a second one (test double, PATH O9)
+    endpoint: $TP_BASE/open2/mcp
+    authorization: {mode: none}
 YAML
 # dailySearches: 3 is the daily quota PATH M3 uses up (PATH M searches once, M3 the other two and is refused the next; M3 then zeroes the
 # count so that PATH N has its own searches)

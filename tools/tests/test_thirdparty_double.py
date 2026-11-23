@@ -353,5 +353,123 @@ class CheckTest(unittest.TestCase):
         self.refused(bridge_check.o7_secrets, dict(ctx7, secrets=secrets_[:2]))
 
 
+def seal(plaintext, key_id, key, tenant, member, connection, reviewer):
+    """idp-mcp-bridge's sealer, as internal/sealer/sealer.go writes it (the test's own copy: version, key id, nonce, AES-256-GCM, additional data)"""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    nonce = os.urandom(12)
+    aad = b"".join(len(x).to_bytes(2, "big") + x.encode() for x in ("idp-mcp-bridge/v1", tenant, member, connection, "reviewer" if reviewer else "member", key_id))
+    return bytes([1, len(key_id)]) + key_id.encode() + nonce + AESGCM(key).encrypt(nonce, plaintext.encode(), aad)
+
+
+class GitHubLiveTest(unittest.TestCase):
+    """R1's search for the secrets a bridge holds (bridge_check.py gh-secrets) and the guard of GITHUB=live"""
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.key = os.urandom(32)
+        (self.dir / "keys").write_text("# a comment\nk1:" + base64.b64encode(self.key).decode() + "\n")
+        (self.dir / "secret").write_text("the-apps-client-secret-0123456789\n")
+        (self.dir / "search").mkdir()
+        (self.dir / "search" / "log-bridge.txt").write_text("a log with nothing in it")
+        self.rows = {"rows": [
+            {"tenant": "T", "member": "bob", "connection": "github", "reviewer": False, "sealed_access": seal("gho_memberaccess0123456789", "k1", self.key, "T", "bob", "github", False).hex(),
+             "sealed_refresh": seal("ghr_memberrefresh0123456789", "k1", self.key, "T", "bob", "github", False).hex()},
+            {"tenant": "", "member": "", "connection": "github", "reviewer": True, "sealed_access": seal("gho_reviewaccess0123456789", "k1", self.key, "", "", "github", True).hex(), "sealed_refresh": None}]}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_check(self):
+        import contextlib
+        import io
+        sys.stdin = io.StringIO(json.dumps(self.rows))
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+                bridge_check.gh_secrets(str(self.dir / "keys"), str(self.dir / "secret"), str(self.dir / "search"))
+            return out.getvalue()
+        finally:
+            sys.stdin = sys.__stdin__
+
+    def test_it_opens_the_sealed_tokens_and_prints_none_of_them(self):
+        out = self.run_check()
+        self.assertIn("3 tokens the bridge holds (1 of them the reviewer account's)", out)
+        for secret in ("gho_memberaccess", "ghr_memberrefresh", "gho_reviewaccess", "the-apps-client-secret"):
+            self.assertNotIn(secret, out)
+
+    def test_a_secret_in_a_log_a_run_event_or_a_dump_is_found(self):
+        for name, text in (("log-bridge.txt", "oops gho_memberaccess0123456789 oops"), ("events-run.json", "token=" + "ghr_memberrefresh0123456789".encode().hex()),
+                           ("db-idp_host.sql", "the-apps-client-secret-0123456789")):
+            (self.dir / "search" / name).write_text(text)
+            with self.assertRaises(SystemExit):
+                self.run_check()
+            (self.dir / "search" / name).unlink()
+        (self.dir / "search" / "log-bridge.txt").write_text("a log with nothing in it")
+        self.assertIn("none found", self.run_check())
+
+    def test_a_row_sealed_for_another_owner_does_not_open(self):
+        self.rows["rows"][0]["member"] = "alice"   # the additional data names the owner
+        with self.assertRaises(Exception):
+            self.run_check()
+
+    def test_github_live_does_not_start_without_the_apps_files(self):
+        env = dict(os.environ, GITHUB="live", GITHUB_APP_DIR=str(self.dir / "none"))
+        r = subprocess.run(["bash", str(COMPOSE / "e2e.sh")], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("client-id", r.stderr)
+        (self.dir / "app").mkdir()
+        (self.dir / "app" / "client-id").write_text("Iv1.x")   # the secret is missing too
+        r = subprocess.run(["bash", str(COMPOSE / "e2e.sh")], env=dict(env, GITHUB_APP_DIR=str(self.dir / "app")), capture_output=True, text=True, timeout=60)
+        self.assertEqual((r.returncode, "client-secret" in r.stderr), (2, True))
+        r = subprocess.run(["bash", str(COMPOSE / "e2e.sh")], env=dict(os.environ, GITHUB="yes"), capture_output=True, text=True, timeout=60)
+        self.assertEqual((r.returncode, "only value is live" in r.stderr), (2, True))
+
+
+class ListenerTest(unittest.TestCase):
+    """R1's listener for the scripted callback takes only the redirect that carries the state of the authorization just started"""
+    def start(self, state):
+        port = free_port()
+        p = subprocess.Popen([sys.executable, "-I", str(COMPOSE / "bridge_check.py"), "listen", str(port), "20", state], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for _ in range(100):
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=1).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        return p, port
+
+    def get(self, port, query):
+        try:
+            with PLAIN.open(f"http://127.0.0.1:{port}/oauth/callback?{query}", timeout=10) as r:
+                return r.status, r.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+    def test_an_old_redirect_is_ignored_and_the_right_one_is_taken(self):
+        p, port = self.start("state-NEW")
+        status, page = self.get(port, "code=oldcode&state=state-OLD&iss=https%3A%2F%2Fx")
+        self.assertEqual(status, 200)
+        self.assertIn("old authorization link", page)
+        self.assertIsNone(p.poll())                     # it keeps waiting
+        self.assertEqual(self.get(port, "")[0], 404)    # not a redirect
+        self.assertIsNone(p.poll())
+        status, page = self.get(port, "code=newcode&state=state-NEW&iss=https%3A%2F%2Fx&other=1")
+        out, err = p.communicate(timeout=20)
+        self.assertEqual((status, p.returncode), (200, 0))
+        self.assertIn("Do not reload", page)
+        self.assertEqual(json.loads(out), {"code": "newcode", "state": "state-NEW", "iss": "https://x"})
+        self.assertIn("ignored a redirect with another state", err)
+        for secret in ("oldcode", "state-OLD", "newcode", "state-NEW"):
+            self.assertNotIn(secret, err)
+
+    def test_an_error_redirect_with_the_state_is_taken_and_one_without_it_is_not(self):
+        p, port = self.start("s1")
+        self.get(port, "error=access_denied")            # no state at all: not this authorization's
+        self.assertIsNone(p.poll())
+        self.get(port, "error=access_denied&state=s1")
+        out, _ = p.communicate(timeout=20)
+        self.assertEqual(json.loads(out), {"error": "access_denied", "state": "s1"})
+
+
 if __name__ == "__main__":
     unittest.main()

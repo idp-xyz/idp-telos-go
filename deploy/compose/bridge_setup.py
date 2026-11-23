@@ -47,7 +47,10 @@ if missing:
     print(f'the bridge did not offer {sorted(missing)} (it offered {sorted(found)})', file=sys.stderr)
     sys.exit(2)
 digest = must(reviewer, 'GET', f'/api/v1/servers/{sid}/catalog')['latest']['digest']
-must(reviewer, 'POST', f'/api/v1/servers/{sid}/approve', {'digest': digest})
+status, out = api(reviewer, 'POST', f'/api/v1/servers/{sid}/approve', {'digest': digest})
+if status not in (200, 201) and 'is APPROVED' not in str(out):   # approved by an earlier run with the same catalog: nothing to do
+    print(f'POST approve: HTTP {status} {out}', file=sys.stderr)
+    sys.exit(2)
 g = must(operator, 'POST', '/api/v1/grants', {'serverId': sid, 'roles': [role], 'tools': tools})
 must(reviewer, 'POST', f"/api/v1/grants/{g['grantId']}/approve")
 rel = must(operator, 'POST', '/api/v1/releases', {'gatewayId': gateway_id})

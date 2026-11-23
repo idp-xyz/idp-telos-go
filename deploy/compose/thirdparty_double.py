@@ -2,6 +2,7 @@
 authorization server and a protected MCP 2026-07-28 server in one process, which records every request it gets.
 
 What it is, as far as the bridge (idp-mcp-bridge) can tell:
+  open resource        POST /open/mcp and /open2/mcp: no token, one tool with a 1500 byte description (PATH O9: the description limit of an external server)
   protected resource   POST /mcp and POST /pre/mcp: tools/list AND tools/call need `Authorization: Bearer <a token it issued for that
                        resource>`; without one it answers 401 with WWW-Authenticate: Bearer resource_metadata="..." (RFC 9728, RFC 6750).
                        One tool, echo (readOnlyHint), which answers "echo from <the user the token was issued to>: <text>".
@@ -56,6 +57,7 @@ PREREG_ID = os.environ.get('THIRDPARTY_PREREG_ID', '')
 PREREG_SECRET = os.environ.get('THIRDPARTY_PREREG_SECRET', '')
 PREREG_REDIRECT = os.environ.get('THIRDPARTY_PREREG_REDIRECT', '')
 RESOURCES = {'/mcp': BASE + '/mcp', '/pre/mcp': BASE + '/pre/mcp'}
+OPEN = ('/open/mcp', '/open2/mcp')   # two of them, for two servers (an endpoint is registered once); needs no token: the connection `thirdparty-open` has authorization mode none; its one tool has a description of 1500 bytes (PATH O9)
 BASE_SCOPE = 'echo.read'
 
 lock = threading.Lock()
@@ -150,6 +152,8 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.token(urllib.parse.parse_qs(body.decode()))
         if path == '/revoke' and self.command == 'POST':
             return self.revoke(urllib.parse.parse_qs(body.decode()))
+        if path in OPEN and self.command == 'POST':
+            return self.open_mcp(body)
         if path in RESOURCES and self.command == 'POST':
             return self.mcp(path, body)
         self.send(404, {'error': 'not_found'})
@@ -304,6 +308,17 @@ class H(http.server.BaseHTTPRequestHandler):
                 text += ' ' + cfg['inject']
             return reply({'resultType': 'complete', 'content': [{'type': 'text', 'text': text}]})
         self.send(404, {'jsonrpc': '2.0', 'id': rid, 'error': {'code': -32601, 'message': 'Method not found'}})
+
+    def open_mcp(self, body):
+        try:
+            req = json.loads(body)
+        except ValueError:
+            return self.send(400, {'error': 'bad_request'})
+        if req.get('method') == 'tools/list':
+            return self.send(200, {'jsonrpc': '2.0', 'id': req.get('id'), 'result': {'resultType': 'complete', 'tools': [{
+                'name': 'longdesc', 'description': 'A tool whose description is long, as real servers\' are: ' + 'x' * 1470, 'annotations': {'readOnlyHint': True},
+                'inputSchema': {'type': 'object', 'properties': {}}}]}})
+        self.send(404, {'jsonrpc': '2.0', 'id': req.get('id'), 'error': {'code': -32601, 'message': 'Method not found'}})
 
     # ---- test controls ----
     def control(self, u, body):

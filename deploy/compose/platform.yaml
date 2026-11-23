@@ -282,7 +282,7 @@ services:
     image: ${IDP_BRIDGE_IMAGE:-idp-mcp-bridge:dev}
     networks: [bridgenet, bridgedb, thirdparty]
     volumes: ['../../.local/platform/caller.pub:/etc/idp/gateway.pub:ro', '../../.local/platform/bridge-connections.yaml:/etc/idp/connections.yaml:ro',
-              '../../.local/platform/bridge-encryption.keys:/etc/idp/encryption.keys:ro', '../../.local/platform/bridge-prereg.secret:/etc/idp/secrets/thirdparty-pre:ro']
+              '../../.local/platform/bridge-encryption.keys:/etc/idp/encryption.keys:ro', '../../.local/platform/bridge-prereg.secret:/etc/idp/secrets/thirdparty-pre:ro', '../../.local/platform/bridge-github.secret:/etc/idp/secrets/github:ro']
     environment:
       IDP_BRIDGE_CONFIG_FILE: /etc/idp/connections.yaml
       # the gateway's signature over the caller, made for this connection's endpoint: IDP_BRIDGE_BASE_URL + /mcp/<id>, which is what the registry holds
@@ -294,7 +294,7 @@ services:
       IDP_BRIDGE_METRICS: 0.0.0.0:9680
       IDP_BRIDGE_DATABASE_URL: postgres://idp_bridge_svc:${IDP_BRIDGE_DB_PASSWORD:?run deploy/compose/e2e.sh}@postgres:5432/idp_bridge?sslmode=disable
       IDP_BRIDGE_ENCRYPTION_KEYS_FILE: /etc/idp/encryption.keys
-      IDP_BRIDGE_REDIRECT_URI: http://127.0.0.1:8560/oauth/callback   # the Workspace's callback page, as the member's browser reaches it
+      IDP_BRIDGE_REDIRECT_URI: ${IDP_BRIDGE_REDIRECT_URI:-http://127.0.0.1:8560/oauth/callback}   # the Workspace's callback page, as the member's browser reaches it (R1: the script's, 8561)
       IDP_BRIDGE_OIDC_ISSUER: https://127.0.0.1:7443/realms/idp
       IDP_BRIDGE_OIDC_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
       IDP_BRIDGE_OIDC_ALLOW_HTTP: 'true'    # DEV: Keycloak over plain http on the compose network
@@ -323,7 +323,7 @@ services:
       THIRDPARTY_CIMD_MAP: http://127.0.0.1:8560=http://workspace:8560
       THIRDPARTY_PREREG_ID: ${IDP_THIRDPARTY_PREREG_ID:-}
       THIRDPARTY_PREREG_SECRET: ${IDP_THIRDPARTY_PREREG_SECRET:-}
-      THIRDPARTY_PREREG_REDIRECT: http://127.0.0.1:8560/oauth/callback
+      THIRDPARTY_PREREG_REDIRECT: ${IDP_THIRDPARTY_PREREG_REDIRECT:-http://127.0.0.1:8560/oauth/callback}
     command: [python, -I, /srv/thirdparty_double.py, '8590']
 
   # ---- idp-host ----

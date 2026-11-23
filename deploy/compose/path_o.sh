@@ -5,7 +5,7 @@
 # itself for the test user), the redirect's query is taken from its Location header and POSTed to /v1/me/connections/callback with the member's token, which is
 # what the shell's callback page does. Steps: O0 the reviewer account and the registration; O1 bob connects (the grant is sealed); O1b a preregistered client;
 # O2 bob's run calls the third party with his token and nothing of TELOS; O3 alice, not connected, is told to authorize and the third party is not called;
-# O4 an expired token is refreshed once, a short-lived one before the call, insufficient_scope keeps the grant; O4c a state of bob's presented with alice's token is
+# O9 the description limit of an external server is per server, under a cap; O4 an expired token is refreshed once, a short-lived one before the call, insufficient_scope keeps the grant; O4c a state of bob's presented with alice's token is
 # refused; O5 a wrong iss stores nothing; O6 bob disconnects and the third party sees the revocation; O7 no secret the third party issued is anywhere it must not be.
 # The caller sets (they are the two acceptances' own): L (a directory for the files), WS HOST REG (the Workspace, the HOST, the idp-mcp registry as the script
 # reaches them), TP (the third party's test controls) TP_BASE (its address as the platform names it) TP_PRE_ID (the preregistered client's id), BRIDGE_ENDPOINT (the
@@ -95,10 +95,10 @@ echo "PASS: PATH O0 — alice (no reviewer role) is refused the reviewer account
 O1CIMD="$(curl -s --noproxy '*' "$WS/oauth/client/thirdparty.json")"
 python3 -c "
 import json,sys
-d=json.loads(sys.argv[1]); assert d['client_id']=='$TP_DOCURL' and d['redirect_uris']==['$WS/oauth/callback'] and d['token_endpoint_auth_method']=='none', d
+d=json.loads(sys.argv[1]); assert d['client_id']=='$TP_DOCURL' and d['redirect_uris']==['${O_REDIRECT:-$WS/oauth/callback}'] and d['token_endpoint_auth_method']=='none', d
 " "$O1CIMD" || { echo "FAIL: PATH O1: the Workspace's client metadata document is not the bridge's, at its own address: $O1CIMD" >&2; exit 1; }
 O1URL="$(connect_start "$BOB" thirdparty)"
-O1AUTH="$(python3 -c "import json,sys; print(json.dumps({'url':sys.argv[1],'client_id':'$TP_DOCURL','resource':'$TP_BASE/mcp','scope':'echo.read','redirect_uri':'$WS/oauth/callback'}))" "$O1URL" | "${BCHECK[@]}" auth-url)" || exit 1
+O1AUTH="$(python3 -c "import json,sys; print(json.dumps({'url':sys.argv[1],'client_id':'$TP_DOCURL','resource':'$TP_BASE/mcp','scope':'echo.read','redirect_uri':'${O_REDIRECT:-$WS/oauth/callback}'}))" "$O1URL" | "${BCHECK[@]}" auth-url)" || exit 1
 O1Q="$(connect_browser "$O1URL" bob)"
 # the third party fetched the client metadata document at the Workspace's address (CIMD), as a server that supports them does
 O1R="$(connect_callback "$BOB" "$O1Q")"
@@ -196,7 +196,7 @@ echo "PASS: PATH O4 — $O4A; $O4B; $O4SC"
 
 # ---- O4c: bob authorizes again, for the scope that was asked; a state he started and alice's token presents is refused, and the bridge is not called ----
 O4CURL="$(connect_start "$BOB" thirdparty)"
-python3 -c "import json,sys; print(json.dumps({'url':sys.argv[1],'client_id':'$TP_DOCURL','resource':'$TP_BASE/mcp','scope':'echo.read echo.write','redirect_uri':'$WS/oauth/callback'}))" "$O4CURL" | "${BCHECK[@]}" auth-url >/dev/null || exit 1
+python3 -c "import json,sys; print(json.dumps({'url':sys.argv[1],'client_id':'$TP_DOCURL','resource':'$TP_BASE/mcp','scope':'echo.read echo.write','redirect_uri':'${O_REDIRECT:-$WS/oauth/callback}'}))" "$O4CURL" | "${BCHECK[@]}" auth-url >/dev/null || exit 1
 O4CQ="$(connect_browser "$O4CURL" bob)"
 O4CM="$(tp_mark)"
 O4CF="$(connect_callback "$ALICE" "$O4CQ")"   # alice presents bob's state
@@ -245,6 +245,32 @@ import json,sys
 print(json.dumps({'events': json.loads(sys.argv[1])['events'], 'requests': json.loads(sys.argv[2]), 'tokens': json.loads(sys.argv[3]), 'connection': 'thirdparty', 'reviewer': 'tp-reviewer'}))" "$(o_events "$BOB" "$O6RUN")" "$(tp_since "$O6M2")" "$(tp_tokens_json)" | "${BCHECK[@]}" o3-alice)" || exit 1
 call 204 DELETE "$WS/v1/me/connections/thirdparty-pre/grant" "$BOB" >/dev/null
 echo "PASS: PATH O6 — $O6; bob's next run: $O6EV"
+
+# ---- O9: the description limit of an external server is the operator's, per server, under the deployment's cap (idp-mcp ADR-0001 15.3) ----
+# thirdparty-open and thirdparty-open-2 (no token; an endpoint is registered once) have one tool whose description is 1500 bytes, as GitHub's pull_request_read has one of 1546. At the deployment's default (1024) the
+# registry refuses the catalog and names the tool; registered with maxDescriptionBytes, or changed by PATCH, it is accepted; a value over the cap is refused at
+# registration; and the limit is in the review view.
+reg_open() { ws_status POST $REG/api/v1/servers "$MOPERATOR" '{"displayName":"'"$1"'","targetName":"'"$1"'","endpoint":"'"${BRIDGE_ENDPOINT%/*}/$1"'","class":"external"'"${2:+,\"maxDescriptionBytes\":$2}"'}'; }
+R9="$(reg_open thirdparty-open)"; [[ "${R9%%$'\n'*}" == 201 ]] || { echo "FAIL: PATH O9: registering thirdparty-open: $R9" >&2; exit 1; }
+SRV9="$(echo "${R9#*$'\n'}" | field "['serverId']")"
+D9="$(ws_status POST "$REG/api/v1/servers/$SRV9/discover" "$MOPERATOR")"
+[[ "${D9%%$'\n'*}" != 200 && "$D9" == *longdesc* && "$D9" == *1024* ]] || { echo "FAIL: PATH O9: a 1500 byte description at the default limit was not refused with the tool and the limit named: $D9" >&2; exit 1; }
+O9REF="$(echo "${D9#*$'\n'}" | cut -c1-110)"
+P9="$(ws_status PATCH "$REG/api/v1/servers/$SRV9" "$MOPERATOR" '{"maxDescriptionBytes":2048}')"
+[[ "${P9%%$'\n'*}" == 200 ]] || { echo "FAIL: PATH O9: PATCH maxDescriptionBytes: $P9" >&2; exit 1; }
+D9B="$(ws_status POST "$REG/api/v1/servers/$SRV9/discover" "$MOPERATOR")"
+[[ "${D9B%%$'\n'*}" == 200 && "$D9B" == *longdesc* ]] || { echo "FAIL: PATH O9: after the PATCH to 2048 the catalog was still refused: $D9B" >&2; exit 1; }
+R9B="$(reg_open thirdparty-open-2 2048)"; [[ "${R9B%%$'\n'*}" == 201 ]] || { echo "FAIL: PATH O9: registering with maxDescriptionBytes 2048: $R9B" >&2; exit 1; }
+SRV9B="$(echo "${R9B#*$'\n'}" | field "['serverId']")"
+[[ "$(ws_status POST "$REG/api/v1/servers/$SRV9B/discover" "$MOPERATOR" | head -1)" == 200 ]] || { echo "FAIL: PATH O9: a server registered with 2048 was not discovered" >&2; exit 1; }
+CAP9="$(reg_open thirdparty-open-3 1000000)"
+[[ "${CAP9%%$'\n'*}" == 400 && "$CAP9" == *CAP* ]] || { echo "FAIL: PATH O9: a limit over the cap was not refused at registration naming the cap: $CAP9" >&2; exit 1; }
+LIM9="$(call 200 GET "$REG/api/v1/servers/$SRV9B/catalog" "$MREVIEWER" | python3 -c "
+import json,sys
+l=json.load(sys.stdin)['descriptionLimit']
+assert l['bytes']==2048 and l['serverSetting']==2048, l
+print('descriptionLimit bytes %d, deployment default %d, cap %d' % (l['bytes'], l['deploymentDefault'], l['cap']))")" || { echo "FAIL: PATH O9: the review view does not show the server's limit" >&2; exit 1; }
+echo "PASS: PATH O9 — a catalog with a 1500 byte description: refused at the default limit ('$O9REF...'), accepted after PATCH maxDescriptionBytes 2048 (the server went back to DRAFT and was discovered again), accepted when registered with 2048, a limit of 1000000 refused at registration naming the cap; the review view says: $LIM9"
 
 # ---- O7: no token, code or client secret the third party issued is in any container's log, any run's events, or the databases in plain text ----
 o_collect "$L/path-o"   # every container's log and the databases of the bridge, the Workspace, the HOST and the registry, as files next to the runs' events
