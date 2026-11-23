@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The WHOLE platform on a kind cluster (docs/adr/ADR-0001-platform-integration.md): idp-cmi, idp-host, idp-workspace,
-# idp-eer, idp-mcp, idp-sandbox and idp-web from their own Kubernetes manifests, composed by deploy/kubernetes/full with an
+# idp-eer, idp-mcp, idp-sandbox, idp-web and idp-mcp-bridge from their own Kubernetes manifests, composed by deploy/kubernetes/full with an
 # in-cluster PostgreSQL, Keycloak (https issuer, a per-run CA), Temporal and the HOST's model double; every namespace
 # default-deny (the cluster must enforce NetworkPolicies, e.g. Calico). Then the paths of deploy/compose/e2e.sh,
 # with the same assertions, through kubectl port-forwards on high local ports:
@@ -24,17 +24,26 @@
 #           search provider, the tenants file that enables the run's tenant, IDP_WEB_TEST_ORIGINS, two test origins in their own
 #           namespaces and the one test NetworkPolicy that lets idp-web reach them: tests/kind/web-origin.yaml. Neither path
 #           has a live-model variant: with MODEL=live they are NOT_RUN)
+#   PATH O  a third party's MCP server with the member's own OAuth authorization, through idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md section 4):
+#           the steps are deploy/compose/path_o.sh, shared with deploy/compose/e2e.sh (bob connects, his run reaches the third party with his token and
+#           nothing of TELOS, alice is told to authorize, an expired token is refreshed, a wrong iss stores nothing, bob disconnects, no secret is in
+#           any log, event or database); step O8 is this script's own: probe pods stand where the policies say who may reach the bridge's ports. The third
+#           party is a pod (tests/kind/thirdparty.yaml, the script of the compose acceptance), the bridge is as shipped plus what this platform's Keycloak,
+#           Workspace and gateway need of it (deploy/kubernetes/full) and the per-run overlay (the connections file, IDP_BRIDGE_TEST_ORIGINS, the test
+#           NetworkPolicies); with MODEL=live it is NOT_RUN
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
 # and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
-# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway, 17561 the assistant's page, 17570 the sandbox (PATH D's unsigned call), 17580 idp-web (PATH M's).
+# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway, 17561 the assistant's page, 17570 the sandbox (PATH D's unsigned call), 17580 idp-web (PATH M's), 17590 the third party's test controls and its authorization page (PATH O).
 #
 #   bash tests/kind/full.sh             build the images (as deploy/compose/e2e.sh), load them, deploy, run the paths
 #   PG_HA=1 ...                         PostgreSQL as a CloudNativePG cluster (a primary and two synchronous standbys, deploy/kubernetes/ha-postgres)
 #                                       instead of the single Deployment; tests/kind/failover-drill.sh then kills the primary under load
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev
-#                                       eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev)
+#                                       eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev)
 #   KIND_CLUSTER=kind ...               the cluster (default kind; kubectl context kind-$KIND_CLUSTER)
+#   KIND_BACKUP_TARGET=NAME KIND_BACKUP_PORT=N ...   the backup target container and its port (default idp-kind-backup-target, 19000): the script
+#                                       recreates the container, so a cluster that runs beside another one on this host names its own
 #   TEARDOWN=1 ...                      delete the platform's namespaces at the end (default: leave it running)
 #   MODEL=live ...                      the HOST's agents answer with a real OpenAI-compatible model on this host
 #                                       (IDP_LIVE_MODEL_URL, default http://127.0.0.1:8080/v1; IDP_LIVE_MODEL, default the
@@ -57,7 +66,10 @@ KCS=keycloak.keycloak.svc.cluster.local
 GATEWAY_URL=http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/mcp
 SANDBOX_URL=http://idp-sandbox.idp-sandbox.svc.cluster.local:8570/mcp
 WEB_URL=http://idp-web.idp-web.svc.cluster.local:8580/mcp   # as shipped in idp-web's manifest (IDP_WEB_CALLER_AUDIENCE) and as registered at the gateway
-NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web web-origin web-attacker egress-origin databases keycloak temporal)
+# PATH O: the bridge, the third party it talks to (tests/kind/thirdparty.yaml) and the connection's endpoint at the bridge, as registered at the gateway
+BRIDGE_ENDPOINT=http://idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local:8680/mcp/thirdparty
+TP_BASE=http://thirdparty.thirdparty.svc.cluster.local:8590 TP=http://127.0.0.1:17590
+NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web idp-mcp-bridge thirdparty bridge-probe web-origin web-attacker egress-origin databases keycloak temporal)
 EGRESS_ORIGIN=origin.egress-origin.svc.cluster.local   # PATH L: the one host bob's tenant may reach (tests/kind/egress-origin.yaml)
 # PATH M and N: the page server and the "attacker" (tests/kind/web-origin.yaml), each in a namespace of its own, on the Service port 80
 WEB_ORIGIN=origin.web-origin.svc.cluster.local WEB_ATTACKER=attacker.web-attacker.svc.cluster.local
@@ -69,7 +81,7 @@ PFPIDS=()
 pf() { # pf NAMESPACE SERVICE LOCAL:REMOTE
   ( while true; do kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null 2>&1 || true; sleep 1; done ) & PFPIDS+=($!)
 }
-for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web; do
+for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge; do
   [[ -d "$repo/.git" ]] || { echo "BLOCKED: $repo is not checked out next to this repository" >&2; exit 2; }
 done
 for tool in kubectl kind docker openssl python3 curl; do command -v "$tool" >/dev/null || { echo "BLOCKED: $tool not found" >&2; exit 2; }; done
@@ -86,7 +98,7 @@ fi
 diagnose() {
   echo "== diagnostics" >&2
   kubectl get pods -A 2>&1 | grep -E 'idp-|databases|keycloak|temporal' | grep -vE 'Running +[0-9]+ .*|Completed' >&2 || true
-  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web web-origin web-attacker keycloak temporal; do
+  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge thirdparty web-origin web-attacker keycloak temporal; do
     for p in $(kubectl -n "$ns" get pods --no-headers 2>/dev/null | awk '$3!="Running" && $3!="Completed" {print $1}'); do
       echo "-- $ns/$p" >&2; kubectl -n "$ns" describe pod "$p" 2>&1 | tail -8 >&2; kubectl -n "$ns" logs "$p" --all-containers --tail=15 2>&1 >&2 || true
     done
@@ -113,6 +125,7 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-sandbox/deploy/build.sh idp-sandbox:dev
   bash idp-sandbox/deploy/build-egress.sh idp-sandbox-egress:dev
   bash idp-web/deploy/build.sh idp-web:dev
+  bash idp-mcp-bridge/deploy/build.sh idp-mcp-bridge:dev
   bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
 fi
 # load an image into the cluster; a Docker with the containerd image store saves all platforms and kind's import fails
@@ -140,7 +153,7 @@ ensure_image() { # ensure_image IMAGE [NODE-NAME]
   load_image "$want"
 }
 log "loading images into $CLUSTER"
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-pg-backup:dev; do
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-pg-backup:dev; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing (run without SKIP_BUILD)" >&2; exit 2; }
   load_image "$img"
 done
@@ -204,8 +217,10 @@ token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_t
 KC=(curl -sf --noproxy '*' --cacert "$L/tls/ca.crt")
 user_token() { "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d "username=$1" -d "password=$(secret_of "$1")" | token_json; }
 rnd() { openssl rand -hex 16; }
-PG=$(rnd) CMI_DB=$(rnd) HOST_DB=$(rnd) WS_DB=$(rnd) MCP_DB=$(rnd) WEB_DB=$(rnd) EER_OWNER=$(rnd) EER_APP=$(rnd) EER_RO=$(rnd) EER_IOWN=$(rnd) EER_IAPP=$(rnd) MCP_ADMIN="$(openssl rand -hex 32)"
+PG=$(rnd) CMI_DB=$(rnd) HOST_DB=$(rnd) WS_DB=$(rnd) MCP_DB=$(rnd) WEB_DB=$(rnd) BRIDGE_DB=$(rnd) EER_OWNER=$(rnd) EER_APP=$(rnd) EER_RO=$(rnd) EER_IOWN=$(rnd) EER_IAPP=$(rnd) MCP_ADMIN="$(openssl rand -hex 32)"
 PGH=postgresql.databases.svc.cluster.local:5432
+# the backup target is a container on this host (tests/kind/s3-target.sh, which recreates it): a second cluster on the same host names its own
+BACKUP_NAME="${KIND_BACKUP_TARGET:-idp-kind-backup-target}" BACKUP_PORT="${KIND_BACKUP_PORT:-19000}"
 
 # ---------------------------------------------------------------- render
 log "render"
@@ -223,6 +238,31 @@ cp tests/kind/egress-origin.yaml "$L/overlay/egress-origin.yaml"
 # per run, idp-web-fixture); the two test origins, exempt from the address rules by exactly host:port (idp-web D14); and the test origins
 # and the one NetworkPolicy that lets idp-web reach their private addresses (tests/kind/web-origin.yaml).
 cp tests/kind/web-origin.yaml "$L/overlay/web-origin.yaml"
+# PATH O: the bridge as shipped plus what the acceptance needs, all of it here and none of it in the bridge's manifests: the connections (the test
+# third party's addresses: `thirdparty` is a client metadata document client whose document the Workspace hosts at its public address, `thirdparty-pre` a
+# preregistered one; the issuer is pinned), IDP_BRIDGE_TEST_ORIGINS (exactly the third party's host:port and the Workspace's plain-http public address: the
+# bridge refuses every other address that is not public https, ADR-0001 D6), and the test third party with the policy that lets the bridge reach its private
+# address (tests/kind/thirdparty.yaml).
+cp tests/kind/thirdparty.yaml "$L/overlay/thirdparty.yaml"
+cat > "$L/overlay/bridge-connections.yaml" <<YAML
+connections:
+  - id: thirdparty
+    title: Third party (test double)
+    endpoint: $TP_BASE/mcp
+    authorization:
+      mode: oauth
+      issuer: $TP_BASE
+      client: {mode: cimd, document: $WS/oauth/client/thirdparty.json}
+      scopes: [echo.read]
+  - id: thirdparty-pre
+    title: Third party, preregistered client (test double)
+    endpoint: $TP_BASE/pre/mcp
+    authorization:
+      mode: oauth
+      issuer: $TP_BASE
+      client: {mode: preregistered, id: tp-preregistered-client, secretFile: /etc/idp/secrets/thirdparty-pre}
+      scopes: [echo.read]
+YAML
 # dailySearches: 3 is the daily quota PATH M3 uses up (PATH M searches once, M3 the other two and is refused the next; M3 then zeroes the
 # count so that PATH N has its own searches)
 printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true, dailySearches: 3}\n' "$TENANT" > "$L/overlay/web-tenants.yaml"
@@ -234,7 +274,8 @@ tenants:
     hosts: [$EGRESS_ORIGIN]
 EOF
 cat > "$L/overlay/kustomization.yaml" <<EOF
-# generated by tests/kind/full.sh: the full overlay plus this cluster's API server address for the sandbox's egress rule,
+# generated by tests/kind/full.sh: the full overlay plus this cluster's API server address for the sandbox's egress rule, the bridge's connections
+# and test origins and the test third party (PATH O),
 # the egress proxy's allow-list and origin for PATH L, and what idp-web needs for PATH M and N (its tenants file and the fixture
 # provider, the test origins and the policy that reaches them)
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -243,6 +284,7 @@ resources:
   - ../../../deploy/kubernetes/full
   - egress-origin.yaml
   - web-origin.yaml
+  - thirdparty.yaml
 configMapGenerator:
   - name: idp-sandbox-egress-tenants
     namespace: idp-sandbox
@@ -252,7 +294,14 @@ configMapGenerator:
     namespace: idp-web
     behavior: replace
     files: [tenants.yaml=web-tenants.yaml]
+  - name: idp-mcp-bridge-connections
+    namespace: idp-mcp-bridge
+    behavior: replace
+    files: [connections.yaml=bridge-connections.yaml]
 patches:
+  - target: {kind: Deployment, name: idp-mcp-bridge, namespace: idp-mcp-bridge}
+    patch: |-
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_TEST_ORIGINS, value: "thirdparty.thirdparty.svc.cluster.local:8590,127.0.0.1:17560"}}
   - target: {kind: Deployment, name: idp-web, namespace: idp-web}
     patch: |-
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_WEB_PROVIDER, value: fixture}}
@@ -269,6 +318,7 @@ patches:
   - target: {kind: NetworkPolicy, name: pg-backup, namespace: databases}
     patch: |-
       - {op: replace, path: /spec/egress/2/to/0/ipBlock/cidr, value: "$BACKUP_GW/32"}
+      - {op: replace, path: /spec/egress/2/ports/0/port, value: $BACKUP_PORT}
 EOF
 if [[ -n "${SANDBOX_RUNTIME_CLASS:-}" ]]; then   # e.g. gvisor (idp-sandbox/tests/kind/gvisor.sh installs it): the sandbox's run Pods use it
   cat >> "$L/overlay/kustomization.yaml" <<YAML
@@ -325,7 +375,7 @@ def pod_spec(d):
     if d["kind"] in ("Deployment", "StatefulSet", "Job"): return d["spec"]["template"]["spec"]
     if d["kind"] == "CronJob": return d["spec"]["jobTemplate"]["spec"]["template"]["spec"]
 for d in docs:
-    spec = pod_spec(d) if ns(d) in ("idp-cmi", "idp-host", "idp-workspace", "idp-mcp", "idp-eer", "idp-web") else None
+    spec = pod_spec(d) if ns(d) in ("idp-cmi", "idp-host", "idp-workspace", "idp-mcp", "idp-eer", "idp-web", "idp-mcp-bridge") else None
     if not spec: continue
     spec.setdefault("volumes", []).append({"name": "pg-ca", "configMap": {"name": "pg-ca"}})
     for c in spec.get("containers", []) + spec.get("initContainers", []):
@@ -370,14 +420,14 @@ fi
 # the pod to run psql in: the single PostgreSQL's Deployment, or the cluster's current primary
 pgtarget() { if [[ "$PG_HA" == 1 ]]; then echo "pod/$(kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}')"; else echo deploy/postgresql; fi; }
 [[ "$PG_HA" == 1 ]] || kubectl -n databases create secret generic postgres-tls --from-file=tls.crt="$L/tls/pg.crt" --from-file=tls.key="$L/tls/pg.key" >/dev/null   # HA: created above, as the kubernetes.io/tls type the cluster wants
-for ns_ in databases idp-cmi idp-host idp-workspace idp-mcp idp-eer idp-web; do kubectl -n "$ns_" create configmap pg-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null; done
+for ns_ in databases idp-cmi idp-host idp-workspace idp-mcp idp-eer idp-web idp-mcp-bridge; do kubectl -n "$ns_" create configmap pg-ca --from-file=ca.crt="$L/tls/ca.crt" >/dev/null; done
 # the backup target: an S3-compatible store on the HOST (outside the cluster), reached through the kind network's gateway (RustFS:
 # tests/kind/s3-target.sh), and the age key pair whose private half stays in $L and never enters the cluster
 BK_AK="backup$(openssl rand -hex 4)"; BK_SK="$(openssl rand -hex 16)"
-S3_ACCESS_KEY="$BK_AK" S3_SECRET_KEY="$BK_SK" bash tests/kind/s3-target.sh idp-kind-backup-target "$BACKUP_GW" 19000
+S3_ACCESS_KEY="$BK_AK" S3_SECRET_KEY="$BK_SK" bash tests/kind/s3-target.sh "$BACKUP_NAME" "$BACKUP_GW" "$BACKUP_PORT"
 docker run --rm --network host idp-pg-backup:dev age-keygen 2>"$L/backup-age.pub" >"$L/backup-identity.txt"
 sed -n 's/^Public key: //p' "$L/backup-age.pub" > "$L/backup-recipients.txt"; rm -f "$L/backup-age.pub"
-kubectl -n databases create secret generic backup-target --from-literal=S3_ENDPOINT="http://$BACKUP_GW:19000" --from-literal=S3_BUCKET=backups \
+kubectl -n databases create secret generic backup-target --from-literal=S3_ENDPOINT="http://$BACKUP_GW:$BACKUP_PORT" --from-literal=S3_BUCKET=backups \
   --from-literal=S3_ACCESS_KEY="$BK_AK" --from-literal=S3_SECRET_KEY="$BK_SK" >/dev/null
 kubectl -n databases create configmap backup-recipients --from-file=recipients.txt="$L/backup-recipients.txt" >/dev/null
 kubectl -n keycloak create secret generic keycloak-admin --from-literal=password="$(rnd)" >/dev/null
@@ -409,7 +459,7 @@ PY
 else
   kubectl -n databases rollout status deploy/postgresql --timeout=300s
 fi
-for db in idp_cmi idp_host idp_workspace idp_mcp idp_web eer; do kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
+for db in idp_cmi idp_host idp_workspace idp_mcp idp_web idp_bridge eer; do kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
 # idp-eer: its roles (deploy/postgres/bootstrap-runtime-roles.sql)
 kubectl -n databases exec -i -c postgres $(pgtarget) -- psql -U postgres --no-psqlrc -q --set ON_ERROR_STOP=1 \
   --set "runtime_owner_password=$EER_OWNER" --set "runtime_app_password=$EER_APP" --set "runtime_readonly_password=$EER_RO" \
@@ -437,6 +487,16 @@ dbsecret idp-mcp idp-mcp-registry-db idp_mcp x idp_mcp_svc "$MCP_DB"
 # service role's password are the Secret of the migration and login Jobs, which the service never mounts
 mksecret idp-web idp-web-database --from-literal=service-url="postgres://idp_web_svc:$WEB_DB@$PGH/idp_web?sslmode=verify-full"
 mksecret idp-web idp-web-database-owner --from-literal=owner-url="postgres://postgres:$PG@$PGH/idp_web?sslmode=verify-full" --from-literal=app-password="$WEB_DB"
+# idp-mcp-bridge (its RUNBOOK 2 and 5): the database of the members' grants (the service's URL is the Deployment's Secret with the CA that signed
+# PostgreSQL's certificate, the owner's URL and the service role's password the Secret of the migration and login Jobs, which the service never mounts), the
+# keys that seal the tokens, the secret of the preregistered client, and the gateway's public key (a ConfigMap, the same key pair as the others)
+mksecret idp-mcp-bridge idp-mcp-bridge-database --from-literal=service-url="postgres://idp_bridge_svc:$BRIDGE_DB@$PGH/idp_bridge?sslmode=verify-full" --from-file=ca.crt="$L/tls/ca.crt"
+mksecret idp-mcp-bridge idp-mcp-bridge-database-owner --from-literal=owner-url="postgres://postgres:$PG@$PGH/idp_bridge?sslmode=verify-full" --from-literal=app-password="$BRIDGE_DB"
+mksecret idp-mcp-bridge idp-mcp-bridge-encryption-keys --from-literal=keys="k1:$(openssl rand -base64 32)"
+TP_PRE_ID=tp-preregistered-client TP_PRE_SECRET="$(openssl rand -hex 16)"
+mksecret idp-mcp-bridge idp-mcp-bridge-client-secrets --from-literal=thirdparty-pre="$TP_PRE_SECRET"
+mksecret thirdparty thirdparty-preregistered --from-literal=id="$TP_PRE_ID" --from-literal=secret="$TP_PRE_SECRET"
+kubectl -n thirdparty create configmap thirdparty-script --from-file=thirdparty_double.py=deploy/compose/thirdparty_double.py >/dev/null
 mksecret idp-mcp idp-mcp-admin --from-literal=secret="$MCP_ADMIN"
 # the key the gateway signs the caller it forwards with (idp-mcp D44, IDP_GATEWAY_CALLER_KEY_FILE) and its public half, which the
 # sandbox verifies against (idp-sandbox D18, IDP_SANDBOX_CALLER_KEYS_FILE; a ConfigMap: it is not a secret). Both new every run.
@@ -448,6 +508,7 @@ kubectl -n idp-sandbox create configmap idp-sandbox-gateway-caller-keys --from-f
 # run's addresses: what a query containing "october" finds is the article, one containing "bulletin" the page that carries the instruction;
 # the first entry that matches wins) and the test origins' script (deploy/compose/web_origin.py, shared with the compose acceptance)
 kubectl -n idp-web create configmap idp-web-gateway-caller-keys --from-file=caller.pub="$L/caller.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n idp-mcp-bridge create configmap idp-mcp-bridge-gateway-caller-keys --from-file=caller.pub="$L/caller.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 mksecret idp-web idp-web-ref-key --from-literal=ref.key="$(head -c 48 /dev/urandom | base64 -w0)"
 WEB_ARTICLE="http://$WEB_ORIGIN/article.html" WEB_BULLETIN="http://$WEB_ORIGIN/bulletin.html" WEB_COLLECT="http://$WEB_ATTACKER/collect?d=CONTEXT"
 WEB_TARIFF="http://$WEB_ORIGIN/tariff.pdf" WEB_SCAN="http://$WEB_ORIGIN/scan.pdf"   # PATH M4: built by web_origin.py
@@ -492,7 +553,7 @@ log "components"
 kubectl apply -f "$L/phase-2-components.yaml" >/dev/null
 waitjobs() { # waitjobs SELECTOR: every Job with the selector in the platform's namespaces completes
   local ns
-  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-web; do
+  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-web idp-mcp-bridge; do
     kubectl -n "$ns" wait --for=condition=complete job -l "$1" --timeout=600s >/dev/null || { kubectl -n "$ns" get pods; kubectl -n "$ns" logs -l "job-name" --all-containers --tail=20 || true; echo "BLOCKED: jobs ($1) in $ns" >&2; exit 2; }
   done
 }
@@ -506,15 +567,17 @@ for ns in idp-cmi idp-host idp-workspace idp-mcp; do
   [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: $ns tenant '$got' != $TENANT" >&2; exit 2; }
 done
 kubectl -n idp-web wait --for=condition=complete job -l idp-telos/phase=setup --timeout=600s >/dev/null || { kubectl -n idp-web logs -l job-name --all-containers --tail=20; echo "BLOCKED: setup jobs in idp-web" >&2; exit 2; }
+kubectl -n idp-mcp-bridge wait --for=condition=complete job -l idp-telos/phase=setup --timeout=600s >/dev/null || { kubectl -n idp-mcp-bridge logs -l job-name --all-containers --tail=20; echo "BLOCKED: setup jobs in idp-mcp-bridge" >&2; exit 2; }
 kubectl -n idp-eer wait --for=condition=complete job/eer-configure --timeout=600s >/dev/null || { kubectl -n idp-eer logs job/eer-configure --tail=30; echo "BLOCKED: eer-configure" >&2; exit 2; }
 log "rollouts"
 for ns in idp-cmi idp-host idp-workspace idp-eer; do kubectl -n "$ns" rollout restart deploy >/dev/null; done   # pick up the logins and schemas created after the first start
 kubectl -n idp-mcp rollout restart deploy/idp-mcp-registry >/dev/null
 kubectl -n idp-web rollout restart deploy/idp-web >/dev/null   # it did not start before its login existed
+kubectl -n idp-mcp-bridge rollout restart deploy/idp-mcp-bridge >/dev/null   # nor did the bridge
 for ns in idp-cmi idp-host idp-workspace idp-eer; do
   for d in $(kubectl -n "$ns" get deploy -o name); do kubectl -n "$ns" rollout status "$d" --timeout=300s >/dev/null || { echo "BLOCKED: $ns/$d" >&2; exit 2; }; done
 done
-for d in idp-mcp/idp-mcp-registry idp-sandbox/idp-sandbox idp-sandbox/idp-sandbox-egress egress-origin/origin idp-web/idp-web web-origin/origin web-attacker/attacker idp-host/fakemodel temporal/temporal; do kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=300s >/dev/null; done
+for d in idp-mcp/idp-mcp-registry idp-sandbox/idp-sandbox idp-sandbox/idp-sandbox-egress egress-origin/origin idp-web/idp-web idp-mcp-bridge/idp-mcp-bridge thirdparty/thirdparty web-origin/origin web-attacker/attacker idp-host/fakemodel temporal/temporal; do kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=300s >/dev/null; done
 
 pf idp-workspace idp-workspace 17560:8560; pf idp-host idp-host 17450:8450; pf idp-cmi idp-cmi 17550:8550
 pf idp-eer eer-api 17180:8080; pf idp-mcp idp-mcp-registry 17250:8250
@@ -1233,6 +1296,74 @@ run_input() { kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postg
 NIN="$(python3 -c "import json,sys; print(json.dumps({'web': json.loads(sys.argv[1]), 'control': json.loads(sys.argv[2])}))" "$(run_input "$NRUN")" "$(run_input "$CONTROL")" \
   | python3 -I deploy/compose/web_check.py n-input "$SECRET")" || exit 1
 echo "PASS: PATH N — a page told the model to send data to $WEB_ATTACKER: (a) $NAUD; (b) web_open_url waited for bob ($NEV) and he rejected it; (c) $NATT; (d) $NIN"
+fi
+
+# ---- PATH O: a third party's MCP server with the member's own OAuth authorization, through idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md section 4) ----
+# The steps are in deploy/compose/path_o.sh, which deploy/compose/e2e.sh sources too (the header there says what it needs from the caller): the third party is a
+# pod that is an authorization server and a protected MCP server and records every request (tests/kind/thirdparty.yaml), the browser is scripted. What is this
+# acceptance's own is below: where the logs and the bridge's database are, and step O8, where NetworkPolicies say who may reach the bridge's ports.
+if [[ "$MODEL" == live ]]; then
+  for p in O; do echo "NOT_RUN: PATH $p uses the model double's scripted echo flow (MODEL=fake)"; done
+else
+pf thirdparty thirdparty 17590:8590
+export THIRDPARTY_CONNECT=127.0.0.1:17590   # the scripted browser (bridge_check.py consent) reaches the third party's page through the port-forward, with the Host of its address
+O_REQUIRED="log-idp-mcp-bridge- log-thirdparty- log-idp-workspace- log-idp-host- log-idp-mcp- log-keycloak- db-idp_bridge db-idp_workspace events-"
+o_diag() {
+  kubectl -n idp-mcp-bridge logs deploy/idp-mcp-bridge --tail 30; kubectl -n thirdparty logs deploy/thirdparty --tail 20
+  kubectl -n idp-mcp logs deploy/idp-mcp-gateway-edge-1 --tail 20; kubectl -n idp-mcp logs deploy/idp-mcp-registry --tail 20
+  kubectl -n idp-host logs deploy/idp-host --tail 20; kubectl -n idp-workspace logs deploy/idp-workspace --tail 20
+}
+bridge_sql() { kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postgres -d idp_bridge -tAc "$1"; }
+o_dump() { kubectl -n databases exec -c postgres $(pgtarget) -- pg_dump -U postgres -a -d "$1" 2>/dev/null; }
+o_collect() { # every pod's log of every namespace of the platform (the Jobs' pods too), and the four databases
+  local ns pod db
+  for ns in "${NAMESPACES[@]}"; do
+    for pod in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do kubectl -n "$ns" logs "$pod" --all-containers > "$1/log-$ns-${pod#pod/}.txt" 2>&1 || true; done
+  done
+  for db in idp_bridge idp_workspace idp_host idp_mcp; do o_dump "$db" > "$1/db-$db.sql"; done
+}
+source deploy/compose/path_o.sh
+
+# ---- O8: nothing but the gateway, the registry and the Workspace reaches the bridge's ports ----
+# The policies decide, so the probes stand where the policies look: a pod that the bridge's ingress admits (labelled as the Workspace, in its namespace) reaches the
+# API port 8681 and neither the MCP port 8680 nor the ops port 9680; one labelled as the gateway reaches 8680 and not 8681 or 9680; and a pod in a namespace with no
+# policy at all, which can send anything anywhere, reaches none of the three: the bridge's own ingress policy is what stops it.
+BRIDGE_POD_IP="$(kubectl -n idp-mcp-bridge get pod -l app.kubernetes.io/component=bridge -o jsonpath='{.items[0].status.podIP}')"
+probe_pod() { # probe_pod NAMESPACE LABEL-YAML: a python pod that only sleeps, as restricted as the namespaces it stands in
+  kubectl apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Pod
+metadata: {name: probe, namespace: $1, labels: {$2}}
+spec:
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: python:3.12-slim
+      imagePullPolicy: IfNotPresent
+      command: [python, -c, "import time; time.sleep(1200)"]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+YAML
+}
+reaches() { kubectl -n "$1" exec probe -- python -c "import socket,sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), 3).close()" "$BRIDGE_POD_IP" "$2" >/dev/null 2>&1; }
+kubectl create ns bridge-probe >/dev/null   # restricted pod security like the others, and no NetworkPolicy
+kubectl label ns bridge-probe pod-security.kubernetes.io/enforce=restricted >/dev/null
+probe_pod idp-workspace 'app.kubernetes.io/component: workspace'
+probe_pod idp-mcp 'app.kubernetes.io/component: gateway'
+probe_pod bridge-probe 'app: probe'
+for ns_ in idp-workspace idp-mcp bridge-probe; do kubectl -n "$ns_" wait --for=condition=Ready pod/probe --timeout=120s >/dev/null; done
+O8="" ; O8BAD=""
+expect() { # expect NAMESPACE PORT yes|no
+  local got=no; reaches "$1" "$2" && got=yes
+  [[ "$got" == "$3" ]] || O8BAD+=" $1->$2 (reached: $got, want $3)"
+  O8+="$1:$2=$got "
+}
+expect idp-workspace 8681 yes; expect idp-workspace 8680 no; expect idp-workspace 9680 no
+expect idp-mcp 8680 yes; expect idp-mcp 8681 no; expect idp-mcp 9680 no
+expect bridge-probe 8680 no; expect bridge-probe 8681 no; expect bridge-probe 9680 no
+kubectl -n idp-workspace delete pod probe --wait=false >/dev/null; kubectl -n idp-mcp delete pod probe --wait=false >/dev/null; kubectl delete ns bridge-probe --wait=false >/dev/null
+[[ -z "$O8BAD" ]] || { echo "FAIL: PATH O8: the bridge's ports are reached as the policies do not say:$O8BAD" >&2; exit 1; }
+echo "PASS: PATH O8 — probe pods against the bridge's pod ($O8): as the Workspace only the API port 8681 is reached, as the gateway only the MCP port 8680, and a pod in a namespace with no policy reaches none of 8680, 8681 and 9680 (the bridge's ingress policy admits the gateway and the registry to 8680, the Workspace to 8681, observability to 9680); the Workspace and the gateway reach it as they must (O1, O2)"
 fi
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----

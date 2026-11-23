@@ -22,7 +22,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TRIVY="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.76.2}"
 CACHE="${TRIVY_CACHE:-$PWD/.local/trivy-cache}"; mkdir -p "$CACHE"; chmod 777 "$CACHE"
-OWN=(idp-cmi:dev idp-host:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-pg-backup:dev idp-postgres-ha:17-dev)
+OWN=(idp-cmi:dev idp-host:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-pg-backup:dev idp-postgres-ha:17-dev)
 THIRD=(pgvector/pgvector:0.8.7-pg17 public.ecr.aws/docker/library/postgres:17-alpine quay.io/keycloak/keycloak:26.8.2 temporalio/temporal:1.10.0 ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1
        ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.16.0 ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.16.0
        quay.io/jetstack/cert-manager-controller:v1.21.3 quay.io/jetstack/cert-manager-webhook:v1.21.3 quay.io/jetstack/cert-manager-cainjector:v1.21.3

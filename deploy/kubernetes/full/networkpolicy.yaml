@@ -88,6 +88,7 @@ spec:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-eer}}
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp}}
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-web}}   # the daily quota and the source numbers (idp-web D29)
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp-bridge}}   # the members' sealed grants (idp-mcp-bridge D24)
       ports: [{protocol: TCP, port: 5432}]
 ---
 apiVersion: networking.k8s.io/v1
@@ -105,6 +106,7 @@ spec:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-workspace}}
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-eer}}
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp-bridge}}   # the Workspace's calls to the bridge are verified against these keys
       ports: [{protocol: TCP, port: 7080}, {protocol: TCP, port: 7443}]   # 7080 keys and tokens, 7443 idp-eer's https keys
 ---
 apiVersion: networking.k8s.io/v1
@@ -199,6 +201,22 @@ metadata:
   namespace: idp-mcp
 spec:
   podSelector: {matchLabels: {app.kubernetes.io/component: gateway}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+      ports: [{protocol: TCP, port: 7080}]
+
+# idp-mcp-bridge's keys: the bridge's own policy (bridge-keycloak) opens Keycloak's https port 8443; here Keycloak serves 7080 inside the cluster
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-bridge
+  namespace: idp-mcp-bridge
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: bridge}}
   policyTypes: [Egress]
   egress:
     - to:

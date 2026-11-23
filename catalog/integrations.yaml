@@ -86,3 +86,19 @@ integrations:
     contract: idp.telos.cmi
     auth: [exchange (RFC 8693)]
     evidence: [idp-workspace ADR-0001 D21 (TestMyMemory), idp-cmi ADR-0001 D26, this repository deploy/compose/e2e.sh (PATH F)]
+  - id: mcp-bridge-tools
+    port: 8680   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
+    from: idp-mcp
+    to: idp-mcp-bridge
+    interface: MCP (streamable HTTP) upstream of mcp-gateway, one endpoint per connection (/mcp/<id>, class external); the registry discovers its tools with tools/list; the tools are the third party's
+    contract: null  # the MCP protocol itself
+    auth: [the gateway's signed caller assertion, made for the connection's endpoint (idp-mcp ADR-0001 15.1, IDP_GATEWAY_CALLER_KEY_FILE), which the bridge verifies (its ADR-0001 D2); the registry's tools/list carries no caller]
+    evidence: [idp-mcp-bridge ADR-0001, idp-mcp ADR-0001 15.1, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH O: bob's run reaches the third party through HOST, gateway and bridge with his own token and nothing of TELOS; alice, who has not connected, is told to authorize and the third party is not called), platform plan idp-mcp-bridge-oauth-plan.md]
+  - id: workspace-bridge-connections
+    port: 8681   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
+    from: idp-workspace
+    to: idp-mcp-bridge
+    interface: GET /internal/v1/connections, POST /internal/v1/connections/{id}/authorization and /callback, DELETE /internal/v1/connections/{id}/grant, the reviewer account's routes, GET /internal/v1/connections/{id}/client-metadata (connected services, idp-workspace D30)
+    contract: null  # the bridge's own internal API; what the Workspace answers members follows idp.telos.workspace 1.4.0
+    auth: [exchange (RFC 8693): the member's token exchanged for the bridge's audience (IDP_BRIDGE_API_AUDIENCE) by the Workspace's client (azp), which the bridge verifies against Keycloak's keys; the member and the tenant come from that token and from nothing else]
+    evidence: [idp-workspace ADR-0001 D30 (go test ./tests/integration), idp-mcp-bridge ADR-0001 D16, D21 to D32, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH O: connect, refresh, a wrong iss, disconnect; a state started by bob and presented with alice's token is refused and the bridge is not called)]

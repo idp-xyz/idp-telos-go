@@ -8,11 +8,13 @@ flows:
   - {id: keycloak-keys-workspace, from: idp-workspace, to: keycloak, port: 7080, what: "JWKS and token exchange (RFC 8693)"}
   - {id: keycloak-keys-eer, from: idp-eer, to: keycloak, port: 7443, what: JWKS over https (idp-eer accepts no other)}
   - {id: keycloak-token-eer, from: idp-eer, to: keycloak, port: 7080, what: svc-eer client credentials (Workspace inbox)}
+  - {id: keycloak-keys-bridge, from: idp-mcp-bridge, to: keycloak, port: 7080, what: "JWKS of the Workspace's exchanged tokens (the bridge's internal API; IDP_BRIDGE_OIDC_ALLOW_HTTP in this overlay)"}
   - {id: keycloak-keys-mcp, from: idp-mcp, to: keycloak, port: 7080, what: JWKS of the gateway in jwt mode}
   - {id: postgres-cmi, from: idp-cmi, to: databases, port: 5432, what: PostgreSQL}
   - {id: postgres-host, from: idp-host, to: databases, port: 5432, what: PostgreSQL}
   - {id: postgres-workspace, from: idp-workspace, to: databases, port: 5432, what: PostgreSQL}
   - {id: postgres-eer, from: idp-eer, to: databases, port: 5432, what: PostgreSQL}
   - {id: postgres-mcp, from: idp-mcp, to: databases, port: 5432, what: PostgreSQL}
+  - {id: postgres-bridge, from: idp-mcp-bridge, to: databases, port: 5432, what: "PostgreSQL (the members' sealed grants)"}
   - {id: postgres-web, from: idp-web, to: databases, port: 5432, what: "PostgreSQL (the daily quota and the numbers of the sources)"}
   - {id: temporal-eer, from: idp-eer, to: temporal, port: 7233, what: Temporal frontend (api and worker)}

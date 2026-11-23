@@ -189,6 +189,10 @@ class Platform:
         # the BOM pins the platform: checkouts must be at its commits, contracts as registered
         if bom_doc.get("contracts") != {ns: n["version"] for ns, n in sorted(self.registry["namespaces"].items()) if n.get("status") == "PUBLISHED"}:
             problems.append("platform-bom.yaml: contract versions differ from idp-contracts (run tools/platform.py bom)")
+        in_bom = {entry["name"] for entry in bom_doc.get("components", [])}
+        for c in self.components:  # a component of the catalog that the BOM does not pin would be released without a commit
+            if c["name"] not in in_bom:
+                problems.append(f"platform-bom.yaml: {c['name']} is in the catalog but not in the BOM (run tools/platform.py bom)")
         for entry in bom_doc.get("components", []):
             repo = self.checkout(entry["name"])
             if repo is None:

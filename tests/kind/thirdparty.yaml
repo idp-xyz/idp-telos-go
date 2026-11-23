@@ -1,0 +1,115 @@
+# TEST ONLY, added by tests/kind/full.sh to the overlay it renders (PATH O): the third party idp-mcp-bridge talks to, so that the path does not depend on the
+# internet. It is the script of the compose acceptance, deploy/compose/thirdparty_double.py (full.sh puts it in a ConfigMap, thirdparty-script): an
+# OAuth authorization server and a protected MCP 2026-07-28 server in one process, which records every request. It is in a namespace of its own, as closed as
+# the platform's: restricted, default-deny, in from the bridge's pod only, and out to the Workspace's pod only, on the one port it needs, to fetch the client
+# metadata document (the document's address is the Workspace's public one, which from here is its Service: THIRDPARTY_CIMD_MAP, set by full.sh).
+# It has a private (pod and Service) address, and the shipped egress rule of the bridge rightly excludes those: the last policy below, in the bridge's own
+# namespace, is the only thing that lets the bridge reach it, and the Workspace's ingress needs the one before it. They are test files (tests/kind): the
+# reverse check of the P1 task removes them and PATH O fails. The bridge is also told to exempt exactly this host:port and the Workspace's public address
+# (IDP_BRIDGE_TEST_ORIGINS, which full.sh puts in its rendered overlay and which no shipped manifest has).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: thirdparty
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: thirdparty}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: thirdparty}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: thirdparty, namespace: thirdparty}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: thirdparty}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp-bridge}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: bridge}}
+      ports: [{protocol: TCP, port: 8590}]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-workspace}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: workspace}}
+      ports: [{protocol: TCP, port: 8560}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: thirdparty, namespace: thirdparty}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: thirdparty}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: thirdparty}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: thirdparty
+          image: python:3.12-slim          # on the nodes already: it is what the sandbox runs
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+            - {name: THIRDPARTY_BASE, value: "http://thirdparty.thirdparty.svc.cluster.local:8590"}
+            # the Workspace's public address as the member's browser has it (full.sh: the port-forward) is, from here, the Workspace's Service
+            - {name: THIRDPARTY_CIMD_MAP, value: "http://127.0.0.1:17560=http://idp-workspace.idp-workspace.svc.cluster.local:8560"}
+            - {name: THIRDPARTY_PREREG_REDIRECT, value: "http://127.0.0.1:17560/oauth/callback"}
+            - {name: THIRDPARTY_PREREG_ID, valueFrom: {secretKeyRef: {name: thirdparty-preregistered, key: id}}}
+            - {name: THIRDPARTY_PREREG_SECRET, valueFrom: {secretKeyRef: {name: thirdparty-preregistered, key: secret}}}
+          command: [python, -I, /srv/thirdparty_double.py, "8590"]
+          ports: [{containerPort: 8590}]
+          volumeMounts: [{name: script, mountPath: /srv, readOnly: true}]
+          readinessProbe: {tcpSocket: {port: 8590}, periodSeconds: 2}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      volumes: [{name: script, configMap: {name: thirdparty-script}}]   # created by full.sh from deploy/compose/thirdparty_double.py
+---
+apiVersion: v1
+kind: Service
+metadata: {name: thirdparty, namespace: thirdparty}
+spec:
+  selector: {app.kubernetes.io/name: thirdparty}
+  ports: [{port: 8590, targetPort: 8590}]
+---
+# the third party fetches the client metadata document from the Workspace (public, no login): the one thing it may ask of it
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: workspace-thirdparty, namespace: idp-workspace}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: workspace}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: thirdparty}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: thirdparty}}
+      ports: [{protocol: TCP, port: 8560}]
+---
+# the one thing that lets the bridge reach a private address: the third party's pod, on the port it listens on
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: idp-mcp-bridge-test-thirdparty, namespace: idp-mcp-bridge}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: bridge}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: thirdparty}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: thirdparty}}
+      ports: [{protocol: TCP, port: 8590}]

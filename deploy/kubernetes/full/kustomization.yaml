@@ -1,5 +1,5 @@
 # The WHOLE platform (the paths of tests/kind/full.sh) on a kind cluster from the components' own manifests: idp-cmi, idp-host,
-# idp-workspace, idp-eer, idp-mcp, idp-sandbox and idp-web, plus PostgreSQL, Keycloak (OIDC, https issuer) and Temporal in
+# idp-workspace, idp-eer, idp-mcp, idp-sandbox, idp-web and idp-mcp-bridge, plus PostgreSQL, Keycloak (OIDC, https issuer) and Temporal in
 # the cluster, the HOST's model double, setup Jobs and the NetworkPolicies the integrations need
 # (networkpolicy.yaml; every namespace stays default-deny). Everything cluster-specific is a patch here.
 # The sandbox comes with its egress proxy (idp-sandbox/deploy/kubernetes-egress, idp-sandbox ADR-0001 D22): a run may ask
@@ -10,6 +10,12 @@
 # tests/kind/full.sh renders per run: the fixture provider, the tenants file that enables the run's tenant, the two test origins
 # and the one test NetworkPolicy that lets idp-web reach them (tests/kind/web-origin.yaml). Here: the gateway's host name at the
 # registry, and the HOST's rules for the web tools.
+# idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md: third-party MCP servers, each member with their own OAuth authorization) is included as
+# shipped (its namespace, Deployment, migration Job, NetworkPolicies) plus what this platform's Keycloak, Workspace and gateway need of it: the
+# settings of its OAuth side, its Keycloak and database flows (networkpolicy.yaml), its login Job (setup-jobs.yaml), the gateway's and the
+# registry's address list and the Workspace's connections target. What its acceptance (PATH O) needs is NOT here but in the overlay that
+# tests/kind/full.sh renders per run: the connections file (the test third party's addresses), IDP_BRIDGE_TEST_ORIGINS, and the test third party
+# with the one test NetworkPolicy that lets the bridge reach it (tests/kind/thirdparty.yaml).
 # Secrets (the key the sandbox and its proxy share among them) and the per-run configuration (idp-eer's identity
 # ConfigMap, the allow-list of the run's tenant) are NOT in this overlay: tests/kind/full.sh generates them.
 # tests/kind/full.sh drives it. DEV ONLY (a test realm and CA, plain http inside the cluster).
@@ -26,6 +32,7 @@ resources:
   - ../../../idp-mcp/deploy/kubernetes
   - ../../../idp-sandbox/deploy/kubernetes-egress   # deploy/kubernetes plus the egress proxy
   - ../../../idp-web/deploy/kubernetes
+  - ../../../idp-mcp-bridge/deploy/kubernetes
   - fakemodel.yaml
   - assistant.yaml
   - setup-jobs.yaml
@@ -39,11 +46,13 @@ images:
   - {name: registry.example.com/idp/idp-sandbox, newName: idp-sandbox, newTag: dev}
   - {name: registry.example.com/idp/idp-sandbox-egress, newName: idp-sandbox-egress, newTag: dev}
   - {name: registry.example.com/idp/idp-web, newName: idp-web, newTag: dev}
+  - {name: registry.example.com/idp/idp-mcp-bridge, newName: idp-mcp-bridge, newTag: dev}
   - {name: idp-cmi, newTag: dev}         # the setup Jobs name the images directly
   - {name: idp-host, newTag: dev}
   - {name: idp-workspace, newTag: dev}
   - {name: idp-mcp, newTag: dev}
   - {name: idp-web, newTag: dev}
+  - {name: idp-mcp-bridge, newTag: dev}
 patches:
   # ================= idp-cmi: Keycloak tokens (keys over http inside the cluster), plain http, no model endpoints =================
   - target: {kind: ConfigMap, name: idp-cmi-env}
@@ -176,6 +185,15 @@ patches:
                 endpoint: "http://idp-cmi.idp-cmi.svc.cluster.local:8550"
                 auth: exchange
                 exchange: {tokenUrl: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange/client-secret, audience: idp-cmi}
+              # connected services (idp-workspace D30): the bridge's internal API (8681); the member's token exchanged for the bridge's audience, which is
+              # IDP_BRIDGE_API_AUDIENCE; publicUrl is the Workspace as the member's browser has it (the port-forward). TESTS ONLY: it is plain http, and so is
+              # the test third party's authorization page: testOrigins names those two exactly
+              connections:
+                endpoint: "http://idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local:8681"
+                auth: exchange
+                exchange: {tokenUrl: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange/client-secret, audience: idp-mcp-bridge}
+                publicUrl: "http://127.0.0.1:17560"
+                testOrigins: ["127.0.0.1:17560", "thirdparty.thirdparty.svc.cluster.local:8590"]
             webhooks:
               secretFile: /etc/idp/webhook/secret
   - target: {kind: Deployment, name: idp-workspace}
@@ -218,8 +236,10 @@ patches:
         value:
           IDP_REGISTRY_LISTEN: "0.0.0.0:8250"
           IDP_DEV_MODE: "true"          # HS256 admin tokens (registry-service dev-token); the data plane verifies Keycloak tokens
-          IDP_ALLOWED_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local,idp-web.idp-web.svc.cluster.local"
-          IDP_PRIVATE_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local,idp-web.idp-web.svc.cluster.local"
+          IDP_ALLOWED_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local,idp-web.idp-web.svc.cluster.local,idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local"
+          IDP_PRIVATE_UPSTREAM_HOSTS: "idp-sandbox.idp-sandbox.svc.cluster.local,idp-web.idp-web.svc.cluster.local,idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local"
+          # a server registered at the bridge's address must be of class external (idp-mcp ADR-0001 D50); the gateway holds the same list
+          IDP_BRIDGE_ENDPOINTS: "http://idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local:8680/mcp/"
           IDP_DEPLOY_TIMEOUT: "60s"
           IDP_LOG_LEVEL: "info"
   - target: {kind: Deployment, name: idp-mcp-registry}
@@ -240,6 +260,9 @@ patches:
           IDP_GATEWAY_TOKEN_FILE: "/etc/idp/credential/token"
           IDP_GATEWAY_CALLER_KEY_FILE: "/etc/idp/caller/caller.key"   # signs the caller it forwards (idp-mcp D44); the sandbox and idp-web require it
           IDP_GATEWAY_CLIENTS_FILE: "/etc/idp/clients/clients.yaml"   # the OAuth clients served; the gateway does not start without it (idp-mcp D46)
+          # the bridge's address: a target there is external and receives the signed caller assertion (the caller key above; without it a call to
+          # the bridge is not delivered) and nothing else of the caller (idp-mcp ADR-0001 15.1)
+          IDP_BRIDGE_ENDPOINTS: "http://idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local:8680/mcp/"
           IDP_GATEWAY_ALLOWED_HOSTS: "idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local,idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220"
           IDP_RELEASE_CACHE: "/var/cache/idp/release.json"
           IDP_CALL_TIMEOUT: "60s"
@@ -258,7 +281,7 @@ patches:
             clients:
               idp-host: {kind: platform, host: true}
               idp-probe: {kind: platform}
-            hostOnlyTools: ["web__*"]
+            hostOnlyTools: ["web__*", "thirdparty__*"]
   - target: {kind: Deployment, name: idp-mcp-gateway-edge-1}
     patch: |-
       - {op: replace, path: /spec/replicas, value: 1}
@@ -283,3 +306,17 @@ patches:
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_SANDBOX_CALLER_AUDIENCE, value: "http://idp-sandbox.idp-sandbox.svc.cluster.local:8570/mcp"}}
       - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: gateway-caller-keys, mountPath: /etc/idp/gateway, readOnly: true}}
       - {op: add, path: /spec/template/spec/volumes/-, value: {name: gateway-caller-keys, configMap: {name: idp-sandbox-gateway-caller-keys}}}
+  # ================= idp-mcp-bridge: Keycloak's keys over plain http inside the cluster, the Workspace's redirect address =================
+  # The OAuth side's settings are the operator's own (the shipped Deployment says so): the Workspace's callback page, Keycloak's realm, the bridge's
+  # audience and the one client whose token is accepted, and the realm role of the operators who authorize reviewer accounts. The secrets and files
+  # it mounts (the gateway's public key, the connections file, the database URLs, the sealing keys, a preregistered client's secret) are created by
+  # tests/kind/full.sh; IDP_BRIDGE_TEST_ORIGINS and the connections are in its per-run overlay.
+  - target: {kind: Deployment, name: idp-mcp-bridge, namespace: idp-mcp-bridge}
+    patch: |-
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_REDIRECT_URI, value: "http://127.0.0.1:17560/oauth/callback"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_OIDC_ISSUER, value: "https://127.0.0.1:17443/realms/idp"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_OIDC_JWKS_URL, value: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/certs"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_OIDC_ALLOW_HTTP, value: "true"}}   # DEV: Keycloak over plain http in the cluster
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_API_AUDIENCE, value: idp-mcp-bridge}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_WORKSPACE_CLIENT, value: idp-workspace}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BRIDGE_REVIEWER_ROLE, value: bridge-reviewer}}

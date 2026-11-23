@@ -388,6 +388,9 @@ if WS in schemas:
         ('ws_run_item_with_sources_only', WS, 'InboxItem', 2, U('unverifiedCitations')),
         ('ws_run_item_with_unverified_only', WS, 'InboxItem', 2, U('sources')),
         ('ws_run_item_without_either', WS, 'InboxItem', 2, U('sources', 'unverifiedCitations')),
+        # 1.4.0 (D30): a connection that is not connected has no reason, and a result for a reviewer account says so
+        ('ws_connection_list_empty', WS, 'ConnectionList', 0, S(connections=[])),
+        ('ws_connection_authorization_http_for_a_test_origin', WS, 'ConnectionAuthorization', 0, S(url='http://thirdparty:8590/authorize?state=abcdefghijklmnop')),
     ]
     NEGATIVE += [
         ('ws_manifest_wrong_schema_version', WS, 'AppManifest', 0, S(schemaVersion='idp.workspace.app/v2')),
@@ -426,6 +429,13 @@ if WS in schemas:
         ('ws_item_unverified_year', WS, 'InboxItem', 2, S(unverifiedCitations=[2026])),
         ('ws_item_unverified_repeated', WS, 'InboxItem', 2, S(unverifiedCitations=[7, 7])),
         ('ws_item_sources_not_a_list', WS, 'InboxItem', 2, S(sources={})),
+        # 1.4.0 (D30): what the Workspace would never answer a member with
+        ('ws_connection_authorization_javascript_address', WS, 'ConnectionAuthorization', 0, S(url='javascript:alert(1)')),
+        ('ws_connection_authorization_with_a_token_field', WS, 'ConnectionAuthorization', 0, S(accessToken='x')),
+        ('ws_connection_result_return_path_is_a_host', WS, 'ConnectionResult', 0, S(returnPath='//evil.example/x')),
+        ('ws_connection_result_return_path_with_a_backslash', WS, 'ConnectionResult', 0, S(returnPath='/\\evil.example')),
+        ('ws_connection_result_status_not_connected', WS, 'ConnectionResult', 0, S(status='not_connected')),
+        ('ws_connection_result_id_with_a_slash', WS, 'ConnectionResult', 0, S(connection='a/b')),
     ]
 
 for expect, cases in ((True, POSITIVE), (False, NEGATIVE)):
@@ -482,7 +492,7 @@ if HOST in schemas:
     invariant('host_definitions_are_closed', not host_open, host_open)
 
 if WS in schemas:
-    invariant('workspace_root_documents', roots[WS] == {'Workspace', 'AppManifest', 'AppRelease', 'Installation', 'InboxItem', 'WorkContext', 'Invocation', 'BridgeMessage', 'Problem', 'MemberFile'}, sorted(roots[WS]))
+    invariant('workspace_root_documents', roots[WS] == {'Workspace', 'AppManifest', 'AppRelease', 'Installation', 'InboxItem', 'WorkContext', 'Invocation', 'BridgeMessage', 'Problem', 'MemberFile', 'ConnectionList', 'ConnectionAuthorization', 'ConnectionResult'}, sorted(roots[WS]))
     ws_open = [n for n, d in schemas[WS]['$defs'].items() if d.get('additionalProperties') is not False]
     invariant('workspace_definitions_are_closed', not ws_open, ws_open)
 

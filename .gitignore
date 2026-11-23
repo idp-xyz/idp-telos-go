@@ -1,4 +1,4 @@
-# idp-mcp, idp-host, idp-eer, idp-cmi, idp-workspace, idp-sandbox and idp-web are their own repositories
+# idp-mcp, idp-host, idp-eer, idp-cmi, idp-workspace, idp-sandbox, idp-web and idp-mcp-bridge are their own repositories
 /idp-mcp/
 /idp-host/
 /idp-eer/
@@ -6,6 +6,7 @@
 /idp-workspace/
 /idp-sandbox/
 /idp-web/
+/idp-mcp-bridge/
 # Windows download markers
 *:Zone.Identifier
 # local

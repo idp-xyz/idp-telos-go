@@ -12,6 +12,12 @@
 # reaches the hosts on its tenant's allow-list (.local/platform/egress-tenants.yaml) through the proxy, and nothing else.
 # idp-web (platform ADR-0003) is a second upstream of the gateway, for web search and page reading; its search provider is the fixture and
 # its pages come from two test containers that record requests (profile web-test), so that PATH M and N need no internet.
+# idp-mcp-bridge (platform plan idp-mcp-bridge-oauth-plan.md; the bridge's ADR-0001): members reach a third party's MCP server with their own
+# OAuth authorization. The bridge has a database of its own (idp_bridge, owner role and app role as the other components') and its own
+# networks: `bridgenet` (internal) holds the bridge and those that may reach its ports: the gateway and the registry (8680, MCP), the
+# Workspace (8681, the internal API) and Keycloak, whose keys the bridge fetches; `bridgedb` (internal) holds it and PostgreSQL;
+# `thirdparty` holds it and the third party. The third party is a test container (profile bridge-test): an authorization server
+# and a protected MCP server that records every request (deploy/compose/thirdparty_double.py).
 # DEV ONLY: a test realm and CA, plaintext http on private networks.
 name: idp-telos-platform
 
@@ -27,6 +33,9 @@ networks:
   edge: {}
   upstream: {internal: true}
   data: {internal: true}
+  bridgenet: {internal: true}   # the bridge's ports: the gateway, the registry, the Workspace (and Keycloak, which the bridge calls) and nothing else
+  bridgedb: {internal: true}    # the bridge's database: PostgreSQL and the bridge
+  thirdparty: {}                # the bridge and the third party (TEST ONLY: a container; production reaches public https addresses)
 
 volumes:
   pgdata: {}
@@ -35,7 +44,7 @@ volumes:
 services:
   postgres:
     image: ${IDP_PG_IMAGE:-pgvector/pgvector:0.8.7-pg17}
-    networks: [data]
+    networks: [data, bridgedb]
     environment: {POSTGRES_PASSWORD: '${IDP_PG_OWNER_PASSWORD:?run deploy/compose/e2e.sh}'}
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck: {test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres'], interval: 2s, timeout: 3s, retries: 30}
@@ -58,7 +67,7 @@ services:
   keycloak:
     image: ${IDP_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.2}
     command: [start-dev, --import-realm, --features, 'token-exchange-standard']
-    networks: [edge, upstream]
+    networks: [edge, upstream, bridgenet]   # bridgenet: the bridge verifies the Workspace's calls against its keys
     ports: ['127.0.0.1:7443:7443']
     environment:
       KC_HTTP_ENABLED: 'true'
@@ -113,20 +122,22 @@ services:
     image: ${IDP_MCP_IMAGE:-idp-mcp:dev}
     entrypoint: [/usr/local/bin/registry-service]
     command: [serve]
-    networks: [edge, upstream, data]
+    networks: [edge, upstream, data, bridgenet]   # bridgenet: it discovers the bridge's tools
     ports: ['127.0.0.1:8250:8250']
     environment:
       IDP_DATABASE_URL: postgres://idp_mcp_svc:${IDP_MCP_DB_PASSWORD}@postgres:5432/idp_mcp?sslmode=disable
       IDP_REGISTRY_LISTEN: 0.0.0.0:8250
       IDP_DEV_MODE: 'true'   # HS256 admin tokens (dev-token); the data plane below verifies Keycloak tokens
       IDP_DEV_ADMIN_SECRET: ${IDP_MCP_ADMIN_SECRET}
-      IDP_ALLOWED_UPSTREAM_HOSTS: sandbox,web
-      IDP_PRIVATE_UPSTREAM_HOSTS: sandbox,web
+      IDP_ALLOWED_UPSTREAM_HOSTS: sandbox,web,bridge
+      IDP_PRIVATE_UPSTREAM_HOSTS: sandbox,web,bridge
+      # a server registered at the bridge's address must be of class external (idp-mcp ADR-0001 D50); the gateway holds the same list
+      IDP_BRIDGE_ENDPOINTS: http://bridge:8680/mcp/
   mcp-gateway:
     <<: *hardened
     image: ${IDP_MCP_IMAGE:-idp-mcp:dev}
     entrypoint: [/usr/local/bin/mcp-gateway]
-    networks: [edge, upstream]
+    networks: [edge, upstream, bridgenet]
     ports: ['127.0.0.1:3320:3320']
     tmpfs: ['/var/cache/idp:uid=10001,gid=10001,mode=0700']
     environment:
@@ -142,6 +153,9 @@ services:
       # the OAuth clients the gateway serves, which is the HOST, and the tools only the HOST may call (idp-mcp ADR-0001 D46 to D48):
       # the gateway does not start without it; written by deploy/compose/e2e.sh
       IDP_GATEWAY_CLIENTS_FILE: /etc/idp/clients.yaml
+      # the bridge's address: a target there is external and receives the gateway's signed caller assertion (the caller key above; without
+      # it a call to the bridge is not delivered) and nothing else of the caller (idp-mcp ADR-0001 15.1)
+      IDP_BRIDGE_ENDPOINTS: http://bridge:8680/mcp/
     volumes: ['../../.local/platform/caller.key:/etc/idp/caller.key:ro', '../../.local/platform/gateway-clients.yaml:/etc/idp/clients.yaml:ro']
     depends_on: [mcp-registry]
   sandbox:
@@ -253,6 +267,65 @@ services:
     <<: *web-test-origin
     command: [python, -I, /srv/web_origin.py, attacker]
 
+  # ---- idp-mcp-bridge: third-party MCP servers, each member with their own OAuth authorization (the bridge's ADR-0001) ----
+  # The database tasks as the other components': `migrate` as the owner (the Job's equivalent), `ensure-login idp_bridge_svc` for the app role.
+  bridge-admin:
+    <<: *hardened
+    image: ${IDP_BRIDGE_IMAGE:-idp-mcp-bridge:dev}
+    profiles: [tools]
+    networks: [bridgedb]
+    environment:
+      IDP_BRIDGE_MIGRATION_DATABASE_URL: postgres://postgres:${IDP_PG_OWNER_PASSWORD}@postgres:5432/idp_bridge?sslmode=disable
+      IDP_BRIDGE_APP_DB_PASSWORD: ${IDP_BRIDGE_DB_PASSWORD:?run deploy/compose/e2e.sh}
+  bridge:
+    <<: *hardened
+    image: ${IDP_BRIDGE_IMAGE:-idp-mcp-bridge:dev}
+    networks: [bridgenet, bridgedb, thirdparty]
+    volumes: ['../../.local/platform/caller.pub:/etc/idp/gateway.pub:ro', '../../.local/platform/bridge-connections.yaml:/etc/idp/connections.yaml:ro',
+              '../../.local/platform/bridge-encryption.keys:/etc/idp/encryption.keys:ro', '../../.local/platform/bridge-prereg.secret:/etc/idp/secrets/thirdparty-pre:ro']
+    environment:
+      IDP_BRIDGE_CONFIG_FILE: /etc/idp/connections.yaml
+      # the gateway's signature over the caller, made for this connection's endpoint: IDP_BRIDGE_BASE_URL + /mcp/<id>, which is what the registry holds
+      IDP_BRIDGE_CALLER_KEYS_FILE: /etc/idp/gateway.pub
+      IDP_BRIDGE_BASE_URL: http://bridge:8680
+      IDP_BRIDGE_LISTEN: 0.0.0.0:8680
+      IDP_BRIDGE_PRIVATE_NETWORK: 'true'    # bridgenet is internal and holds only those that may call it
+      IDP_BRIDGE_API_LISTEN: 0.0.0.0:8681
+      IDP_BRIDGE_METRICS: 0.0.0.0:9680
+      IDP_BRIDGE_DATABASE_URL: postgres://idp_bridge_svc:${IDP_BRIDGE_DB_PASSWORD:?run deploy/compose/e2e.sh}@postgres:5432/idp_bridge?sslmode=disable
+      IDP_BRIDGE_ENCRYPTION_KEYS_FILE: /etc/idp/encryption.keys
+      IDP_BRIDGE_REDIRECT_URI: http://127.0.0.1:8560/oauth/callback   # the Workspace's callback page, as the member's browser reaches it
+      IDP_BRIDGE_OIDC_ISSUER: https://127.0.0.1:7443/realms/idp
+      IDP_BRIDGE_OIDC_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
+      IDP_BRIDGE_OIDC_ALLOW_HTTP: 'true'    # DEV: Keycloak over plain http on the compose network
+      IDP_BRIDGE_API_AUDIENCE: idp-mcp-bridge
+      IDP_BRIDGE_WORKSPACE_CLIENT: idp-workspace
+      IDP_BRIDGE_REVIEWER_ROLE: bridge-reviewer
+      # TESTS ONLY (deploy/compose/e2e.sh sets it): the third party is a container of this project at a private address on a port that is not 443,
+      # and the Workspace's public address is http (ADR-0001 D6); nothing else is exempt
+      IDP_BRIDGE_TEST_ORIGINS: ${IDP_BRIDGE_TEST_ORIGINS:-}
+    depends_on: [thirdparty]
+  # TEST ONLY (profile bridge-test, which deploy/compose/e2e.sh turns on): the third party of PATH O, an OAuth authorization server and a
+  # protected MCP server that records every request (deploy/compose/thirdparty_double.py). It is on `thirdparty` with the bridge, and on
+  # `edge` so that it can fetch the client metadata document from the Workspace (the address in the document is the Workspace's public
+  # one, which from here is http://workspace:8560) and so that e2e.sh can reach it on the loopback port.
+  thirdparty:
+    <<: *hardened
+    profiles: [bridge-test]
+    image: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
+    networks: [thirdparty, edge]
+    ports: ['127.0.0.1:8590:8590']
+    user: '65532:65532'
+    volumes: ['./thirdparty_double.py:/srv/thirdparty_double.py:ro']
+    environment:
+      PYTHONDONTWRITEBYTECODE: '1'
+      THIRDPARTY_BASE: http://thirdparty:8590
+      THIRDPARTY_CIMD_MAP: http://127.0.0.1:8560=http://workspace:8560
+      THIRDPARTY_PREREG_ID: ${IDP_THIRDPARTY_PREREG_ID:-}
+      THIRDPARTY_PREREG_SECRET: ${IDP_THIRDPARTY_PREREG_SECRET:-}
+      THIRDPARTY_PREREG_REDIRECT: http://127.0.0.1:8560/oauth/callback
+    command: [python, -I, /srv/thirdparty_double.py, '8590']
+
   # ---- idp-host ----
   fakemodel:
     <<: *hardened
@@ -310,7 +383,7 @@ services:
     <<: *hardened
     image: ${IDP_WORKSPACE_IMAGE:-idp-workspace:dev}
     command: [serve]
-    networks: [edge, upstream, data]
+    networks: [edge, upstream, data, bridgenet]   # bridgenet: the bridge's internal API (connected services, idp-workspace D30)
     ports: ['127.0.0.1:8560:8560']
     environment:
       IDP_DEV_MODE: 'true'   # only for the ephemeral app-token key; tokens come from Keycloak (JWKS)

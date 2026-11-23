@@ -246,3 +246,32 @@ spec:
               valueFrom: {secretKeyRef: {name: idp-web-database-owner, key: app-password}}
           resources: {limits: {cpu: 200m, memory: 128Mi}}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+# idp-mcp-bridge's service login (its RUNBOOK 5.2): the role the Deployment's URL names, a member of idp_bridge_app. The migration Job
+# (idp-mcp-bridge-migrate, from the bridge's own manifests) made the schema; there is no tenant to seed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kind-login
+  namespace: idp-mcp-bridge
+  labels: {app.kubernetes.io/component: kind-setup, idp-telos/phase: setup}
+spec:
+  backoffLimit: 12
+  template:
+    metadata:
+      labels: {app.kubernetes.io/component: migrate}   # the bridge's bridge-database NetworkPolicy lets it reach PostgreSQL
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10680, runAsGroup: 10680, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: login
+          image: idp-mcp-bridge
+          args: ["ensure-login", "idp_bridge_svc"]
+          env:
+            - name: IDP_BRIDGE_MIGRATION_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: idp-mcp-bridge-database-owner, key: owner-url}}
+            - name: IDP_BRIDGE_APP_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: idp-mcp-bridge-database-owner, key: app-password}}
+          resources: {limits: {cpu: 200m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}

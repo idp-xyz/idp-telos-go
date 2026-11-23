@@ -26,12 +26,18 @@
 #         idp-web refuses the address that no search result carried, the HOST stops web_open_url for bob's confirmation (its
 #         configuration asks, the release does not), the attacker's log stays empty, and the context items above the
 #         sensitivity ceiling are not given to a run that has web tools (idp-host D44; profile web-test)
+# PATH O: a third party's MCP server, reached with the member's own OAuth authorization through idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md
+#         section 4). The third party is a test container that is an authorization server and a protected MCP server together and records every
+#         request (deploy/compose/thirdparty_double.py); the browser is scripted. bob connects the service (the grant is sealed in the bridge's
+#         database), his run calls its tool through HOST -> gateway -> bridge and the third party gets bob's token and nothing of TELOS; alice, who
+#         has not connected, gets idp.host/authorization.required and the third party is not called; an expired token is refreshed once; a wrong iss
+#         stores nothing; bob disconnects and the third party sees the revocation; no secret the third party issued is anywhere it must not be
 # (RFC 8693, issued to the client idp-host), the gateway forwards the verified caller to idp-sandbox, which runs the code in an isolated
 # container in a workspace that belongs to bob. The gateway's invocation record names bob and the HOST.
 #
 #   bash deploy/compose/e2e.sh          build the component images from the side-by-side checkouts, run, tear down
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev, idp-host:dev, idp-host-fakemodel:dev, idp-workspace:dev, eer-runtime:dev,
-#                                       idp-mcp:dev, idp-sandbox:dev, idp-sandbox-egress:dev, idp-sandbox-office:dev, idp-web:dev)
+#                                       idp-mcp:dev, idp-sandbox:dev, idp-sandbox-egress:dev, idp-sandbox-office:dev, idp-web:dev, idp-mcp-bridge:dev)
 #   KEEP=1 ...                          leave the platform running
 #   MODEL=live ...                      the HOST's agent answers with a real OpenAI-compatible model on the Docker
 #                                       host (IDP_LIVE_MODEL_URL, default http://127.0.0.1:8080/v1; IDP_LIVE_MODEL,
@@ -47,13 +53,18 @@ cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 L=.local/platform
 ENVF=$L/compose.env
-C=(docker compose -f deploy/compose/platform.yaml --env-file "$ENVF" --profile tools --profile egress-test --profile web-test)
+C=(docker compose -f deploy/compose/platform.yaml --env-file "$ENVF" --profile tools --profile egress-test --profile web-test --profile bridge-test)
 # PATH L's origin is a container, at a private address: the egress proxy is told to accept those. TESTS ONLY.
 export IDP_EGRESS_ALLOW_PRIVATE=true
 EGRESS_ORIGIN=egress-origin
 # PATH M and N's two origins are containers too: idp-web is told to read those two addresses (host:port, exactly) and no others. TESTS ONLY.
 WEB_ORIGIN=web-origin WEB_ATTACKER=web-attacker
 export IDP_WEB_TEST_ORIGINS="$WEB_ORIGIN:80,$WEB_ATTACKER:80"
+# PATH O: the third party is a container too, at a private address on port 8590, and the Workspace's public address is http: the bridge is told to
+# reach those two origins (host:port, exactly) and no others, and so is the Workspace (the same two, in its configuration). TESTS ONLY.
+TP_BASE=http://thirdparty:8590 TP=http://127.0.0.1:8590
+export IDP_BRIDGE_TEST_ORIGINS="thirdparty:8590,127.0.0.1:8560"
+export THIRDPARTY_CONNECT=127.0.0.1:8590   # the scripted browser (bridge_check.py consent) reaches the third party by its published loopback port, with the Host of its address
 ISSUER=https://127.0.0.1:7443/realms/idp
 WS=http://127.0.0.1:8560 HOST=http://127.0.0.1:8450 CMI=http://127.0.0.1:8550 EER=http://127.0.0.1:18180
 mkdir -p "$L"
@@ -78,11 +89,12 @@ if [[ ! -f "$ENVF" ]] || ! grep -q EER_RUNTIME_APP_PASSWORD "$ENVF"; then
              EER_RUNTIME_OWNER_PASSWORD EER_RUNTIME_APP_PASSWORD EER_RUNTIME_READONLY_PASSWORD EER_INTELLIGENCE_OWNER_PASSWORD EER_INTELLIGENCE_APP_PASSWORD; do echo "$v=$(openssl rand -hex 16)"; done
     echo "IDP_HOST_CREDENTIAL_KEY=$(openssl rand -hex 32)"; } > "$ENVF"
 fi
-for v in IDP_MCP_DB_PASSWORD IDP_WEB_DB_PASSWORD IDP_MCP_ADMIN_SECRET IDP_FILES_S3_ACCESS_KEY IDP_FILES_S3_SECRET_KEY; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
+for v in IDP_BRIDGE_DB_PASSWORD IDP_THIRDPARTY_PREREG_SECRET IDP_MCP_DB_PASSWORD IDP_WEB_DB_PASSWORD IDP_MCP_ADMIN_SECRET IDP_FILES_S3_ACCESS_KEY IDP_FILES_S3_SECRET_KEY; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
+grep -q "^IDP_THIRDPARTY_PREREG_ID=" "$ENVF" || echo "IDP_THIRDPARTY_PREREG_ID=tp-preregistered-client" >> "$ENVF"
 grep -q "^IDP_FILES_S3_MASTER_KEY=" "$ENVF" || echo "IDP_FILES_S3_MASTER_KEY=$(openssl rand -base64 32)" >> "$ENVF"
 set -a; source "$ENVF"; set +a
 
-for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web; do
+for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge; do
   [[ -d "$repo/.git" ]] || { echo "BLOCKED: $repo is not checked out next to this repository" >&2; exit 2; }
 done
 if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
@@ -95,6 +107,7 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-sandbox/deploy/build.sh idp-sandbox:dev
   bash idp-sandbox/deploy/build-egress.sh idp-sandbox-egress:dev
   bash idp-web/deploy/build.sh idp-web:dev
+  bash idp-mcp-bridge/deploy/build.sh idp-mcp-bridge:dev
 fi
 # the sandbox's runtime images are pulled by the operator (here), never by the service
 bash tools/pull_image.sh public.ecr.aws/docker/library/python:3.12-slim public.ecr.aws/docker/library/alpine:3.22
@@ -105,7 +118,7 @@ if ! docker image inspect "$FILES_S3_IMG" >/dev/null 2>&1; then
 fi
 # the sandbox's office run image (idp-sandbox ADR-0001 D14) is built offline on that python image; OfficeCLI is pinned in its script
 [[ "${SKIP_BUILD:-0}" == 1 ]] || BASE=public.ecr.aws/docker/library/python:3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
-OWN=(idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev)
+OWN=(idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev idp-mcp-bridge:dev)
 for img in "${OWN[@]}" "$FILES_S3_IMG"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
 done
@@ -222,6 +235,12 @@ targets:
     endpoint: "http://cmi:8550"
     auth: exchange
     exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: idp-cmi}
+  connections:   # connected services (idp-workspace D30): the bridge's internal API; the member's token exchanged for the bridge's audience, which is IDP_BRIDGE_API_AUDIENCE
+    endpoint: "http://bridge:8681"
+    auth: exchange
+    exchange: {tokenUrl: "http://keycloak:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange.secret, audience: idp-mcp-bridge}
+    publicUrl: "http://127.0.0.1:8560"
+    testOrigins: ["127.0.0.1:8560", "thirdparty:8590"]   # TESTS ONLY: the public address is plain http, and so is the test third party's authorization page
 YAML
 python3 -c 'import json; print(json.load(open(".local/platform/clients.json"))["svc-eer"])' > "$L/svc-eer.secret"
 # idp-eer: Keycloak as its issuer; operator submits, bob approves as actor bob; its own workloads
@@ -264,7 +283,7 @@ cat > "$L/gateway-clients.yaml" <<'Y'
 clients:
   idp-host: {kind: platform, host: true}
   idp-probe: {kind: platform}
-hostOnlyTools: ["web__*"]
+hostOnlyTools: ["web__*", "thirdparty__*"]
 Y
 chmod 644 "$L/gateway-clients.yaml"
 # the sandbox's egress proxy (idp-sandbox D13, D21): the key the sandbox signs a run's credential with and the proxy verifies it
@@ -298,6 +317,32 @@ entries:
       - {url: "$WEB_SCAN", title: "Scanned receipt (PDF)", published: "2026-11-01", snippet: "A scan of a paper receipt"}
 YAML
 chmod 644 "$L/web-ref.key" "$L/web-tenants.yaml" "$L/web-fixture.yaml"
+# idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md): the connections it fronts, the key that seals the members' tokens, and the secret of the
+# preregistered client. `thirdparty` is a client metadata document client (the client_id is the address at which the Workspace hosts the
+# document, which the third party fetches); `thirdparty-pre` the preregistered one. The issuer is pinned: discovery refuses any other.
+TP_RESOURCE="$TP_BASE/mcp" TP_DOC="http://127.0.0.1:8560/oauth/client/thirdparty.json" TP_PRE_ID="$IDP_THIRDPARTY_PREREG_ID"
+cat > "$L/bridge-connections.yaml" <<YAML
+connections:
+  - id: thirdparty
+    title: Third party (test double)
+    endpoint: $TP_RESOURCE
+    authorization:
+      mode: oauth
+      issuer: $TP_BASE
+      client: {mode: cimd, document: $TP_DOC}
+      scopes: [echo.read]
+  - id: thirdparty-pre
+    title: Third party, preregistered client (test double)
+    endpoint: $TP_BASE/pre/mcp
+    authorization:
+      mode: oauth
+      issuer: $TP_BASE
+      client: {mode: preregistered, id: $TP_PRE_ID, secretFile: /etc/idp/secrets/thirdparty-pre}
+      scopes: [echo.read]
+YAML
+printf 'k1:%s\n' "$(openssl rand -base64 32)" > "$L/bridge-encryption.keys"
+printf '%s' "$IDP_THIRDPARTY_PREREG_SECRET" > "$L/bridge-prereg.secret"
+chmod 644 "$L/bridge-connections.yaml" "$L/bridge-encryption.keys" "$L/bridge-prereg.secret"
 chmod 644 "$L"/keycloak/idp-realm.json "$L/host.key" "$L/live-model.key" "$L/host.yaml" "$L/cmi-client.secret" "$L/exchange.secret" "$L/workspace.yaml" "$L/svc-eer.secret" "$L/eer.env"
 umask 077
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
@@ -315,7 +360,7 @@ for _ in $(seq 1 60); do
   s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" 2>/dev/null && break; sleep 0.5
 done
 s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" || { "${C[@]}" logs --tail 20 files-s3; echo "BLOCKED: the members' file store has no bucket" >&2; exit 2; }
-for db in idp_cmi idp_host idp_workspace idp_mcp idp_web eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
+for db in idp_cmi idp_host idp_workspace idp_mcp idp_web idp_bridge eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
 "${C[@]}" up -d keycloak eer-temporal
 for _ in $(seq 1 120); do "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" && break; sleep 1; done
 "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" || { "${C[@]}" logs --tail 30 keycloak; echo "BLOCKED: Keycloak did not come up" >&2; exit 2; }
@@ -350,9 +395,12 @@ field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 # idp-web's database: the daily quota and the numbers of the sources (idp-web ADR-0001 D28, D29); it does not start on an unmigrated schema
 "${C[@]}" run --rm -T web-admin migrate >/dev/null
 "${C[@]}" run --rm -T web-admin ensure-login idp_web_svc >/dev/null
+# idp-mcp-bridge's database: the migration Job's equivalent as the owner, then the app role the service logs in as (idp-mcp-bridge RUNBOOK 5.2)
+"${C[@]}" run --rm -T bridge-admin migrate >/dev/null
+"${C[@]}" run --rm -T bridge-admin ensure-login idp_bridge_svc >/dev/null
 got="$("${C[@]}" run --rm -T mcp-admin seed-tenant acme "$TENANT" | sed -n 's/^TENANT_ID=//p')"
 [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: mcp tenant $got != $TENANT" >&2; exit 2; }
-"${C[@]}" up -d mcp-registry sandbox egress-origin web web-origin web-attacker   # the sandbox brings its egress proxy with it
+"${C[@]}" up -d mcp-registry sandbox egress-origin web web-origin web-attacker thirdparty bridge   # the sandbox brings its egress proxy with it
 for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:8250/api/v1/health && break; sleep 0.5; done
 mcp_token() { "${C[@]}" run --rm -T mcp-admin dev-token "$TENANT" "$1" "$2" | tail -1; }
 MADMIN="$(mcp_token carol admin)"; MOPERATOR="$(mcp_token alice operator)"; MREVIEWER="$(mcp_token bob reviewer)"
@@ -1175,6 +1223,46 @@ run_input() { "${C[@]}" exec -T postgres psql -U postgres -d idp_host -tAc "SELE
 NIN="$(python3 -c "import json,sys; print(json.dumps({'web': json.loads(sys.argv[1]), 'control': json.loads(sys.argv[2])}))" "$(run_input "$NRUN")" "$(run_input "$CONTROL")" \
   | python3 -I deploy/compose/web_check.py n-input "$SECRET")" || exit 1
 echo "PASS: PATH N — a page told the model to send data to $WEB_ATTACKER: (a) $NAUD; (b) web_open_url waited for bob ($NEV) and he rejected it; (c) $NATT; (d) $NIN"
+fi
+
+# ---- PATH O: a third party's MCP server with the member's own OAuth authorization, through idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md section 4) ----
+# The steps are in deploy/compose/path_o.sh, which tests/kind/full.sh sources too (the header there says what it needs from the caller): the third party is a
+# container that is an authorization server and a protected MCP server and records every request (deploy/compose/thirdparty_double.py), the browser is
+# scripted. What is this acceptance's own is below: where the logs and the bridge's database are, and step O8 (the networks of compose).
+if [[ "$MODEL" == live ]]; then
+  for p in O; do echo "NOT_RUN: PATH $p uses the model double's scripted echo flow (MODEL=fake)"; done
+else
+REG=http://127.0.0.1:8250 BRIDGE_ENDPOINT=http://bridge:8680/mcp/thirdparty TP_PRE_ID="$IDP_THIRDPARTY_PREREG_ID"
+O_REQUIRED="log-bridge log-thirdparty log-workspace log-host log-mcp-gateway log-mcp-registry log-keycloak db-idp_bridge db-idp_workspace events-"
+o_diag() { "${C[@]}" logs --tail 30 bridge thirdparty mcp-registry mcp-gateway host host-worker workspace; }
+bridge_sql() { "${C[@]}" exec -T postgres psql -U postgres -d idp_bridge -tAc "$1"; }
+o_dump() { "${C[@]}" exec -T postgres pg_dump -U postgres -a -d "$1" 2>/dev/null; }
+o_collect() {
+  local svc db
+  for svc in $("${C[@]}" ps -a --services); do "${C[@]}" logs --no-color --no-log-prefix "$svc" > "$1/log-$svc.txt" 2>&1 || true; done
+  for db in idp_bridge idp_workspace idp_host idp_mcp; do o_dump "$db" > "$1/db-$db.sql"; done
+}
+source deploy/compose/path_o.sh
+
+# ---- O8: nothing but the gateway, the registry and the Workspace reaches the bridge's ports ----
+# bridgenet is internal and holds the bridge, the gateway, the registry, the Workspace and Keycloak (which the bridge calls); the bridge's other
+# networks are PostgreSQL's and the third party's. A container on any of the platform's other networks has no route to any of its addresses.
+BRIDGE_CID="$("${C[@]}" ps -q bridge)"
+PROJ="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$BRIDGE_CID")"
+O8PORTS="$(docker port "$BRIDGE_CID")"
+[[ -z "$O8PORTS" ]] || { echo "FAIL: PATH O8: the bridge publishes ports on the host: $O8PORTS" >&2; exit 1; }
+BRIDGE_IPS="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$v.IPAddress}} {{end}}' "$BRIDGE_CID")"
+O8N=0
+probe() { docker run --rm --network "$1" --entrypoint nc public.ecr.aws/docker/library/alpine:3.22 -z -w 2 "$2" "$3" >/dev/null 2>&1; }
+probe "${PROJ}_bridgenet" "$(docker inspect -f '{{(index .NetworkSettings.Networks "'"${PROJ}"'_bridgenet").IPAddress}}' "$BRIDGE_CID")" 8681 \
+  || { echo "FAIL: PATH O8: the probe cannot reach the bridge's API port from bridgenet, where it must: the test would prove nothing" >&2; exit 1; }
+for net in upstream edge data; do
+  for ip in $BRIDGE_IPS; do for port in 8680 8681 9680; do
+    if probe "${PROJ}_$net" "$ip" "$port"; then echo "FAIL: PATH O8: a container on $net reaches the bridge at $ip:$port" >&2; exit 1; fi
+    O8N=$((O8N + 1))
+  done; done
+done
+echo "PASS: PATH O8 — the bridge publishes no port on the host; a container on bridgenet reaches its API port (the test can see it), and containers on upstream, edge and data reach none of its $O8N address and port pairs (8680, 8681, 9680 on each of its three networks); the Workspace and the gateway reach it (O1, O2); the third party shares only the thirdparty network with it, which compose cannot narrow to the bridge's outbound side (tests/kind/full.sh's NetworkPolicies can, and test it)"
 fi
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----

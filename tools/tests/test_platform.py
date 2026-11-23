@@ -101,6 +101,14 @@ class PlatformTest(unittest.TestCase):
         for want in ("out of date", "two owners", "gamma is not a catalogued", "idp.telos.zeta is not registered", "no evidence"):
             self.assertIn(want, text)
 
+    def test_a_catalogued_component_that_the_bom_does_not_pin_is_a_problem(self):
+        p = self.platform()
+        bom, matrix = p.bom(docker=False), p.matrix()
+        self.assertEqual(p.check(bom, matrix), ([], []))
+        bom["components"] = [c for c in bom["components"] if c["name"] != "beta"]   # as a BOM made before the component was catalogued
+        problems, _ = p.check(bom, matrix)
+        self.assertTrue(any("beta is in the catalog but not in the BOM" in x for x in problems), problems)
+
     def test_missing_checkout_is_not_run(self):
         p = self.platform()
         bom, matrix = p.bom(docker=False), p.matrix()

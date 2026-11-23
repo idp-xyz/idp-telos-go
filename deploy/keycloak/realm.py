@@ -2,18 +2,22 @@
 """The development Keycloak realm of the whole platform (ADR-0001 T5). TEST DOUBLE: dev secrets only.
 
 Users: alice (ws-admin, cmi-admin, host-user), bob (ws-member, host-user; EER actor bob), operator (submits EER
-intents), hostadmin, hostapprover. User ids are fixed here and written to CLIENTS_FILE, because idp-eer
+intents), hostadmin, hostapprover, bridgeop (ws-member and bridge-reviewer: the operator who authorizes the reviewer account of a
+bridge connection, idp-mcp-bridge RUNBOOK 5.6). User ids are fixed here and written to CLIENTS_FILE, because idp-eer
 maps principals by (issuer, sub).
 Clients:
 - workspace-shell   the Workspace shell (public, authorization code + PKCE), aud idp-workspace
-- idp-workspace     the Workspace as token-exchange requester: a member's token -> aud idp-host / eer-runtime / idp-cmi (a member's own memory)
+- idp-workspace     the Workspace as token-exchange requester: a member's token -> aud idp-host / eer-runtime / idp-cmi (a member's own memory) /
+                    idp-mcp-bridge (the bridge's internal API: connected services, idp-workspace D30); the exchanged token keeps `roles` and
+                    `tenant_id` (the bridge reads the member, the tenant and the reviewer role from them)
 - svc-eer           idp-eer's projector as an inbox producer (client credentials): aud idp-workspace, ws-producer
 - eer-intelligence  idp-eer's Intelligence worker at the CMI (client credentials): aud idp-cmi, cmi-reader + cmi-writer
 - idp-host-svc      the HOST's own identity at the CMI (client credentials): aud idp-cmi, cmi-reader + cmi-writer (it writes conversation memory)
 - idp-host          the HOST as RFC 8693 token-exchange requester: a member's token (aud idp-host) -> a token for the idp-mcp
                     gateway (aud GATEWAY, azp = idp-host) or for the CMI (aud idp-cmi: the CMI then sees the member, so a
                     member's own memories are the ones retrieved)
-- GATEWAY, idp-cmi, eer-runtime audiences (bearer only; GATEWAY = the gateway's canonical MCP URI)
+- GATEWAY, idp-cmi, eer-runtime, idp-mcp-bridge audiences (bearer only; GATEWAY = the gateway's canonical MCP URI; idp-mcp-bridge is
+                    the client that stands for the bridge: its client id is IDP_BRIDGE_API_AUDIENCE)
 - idp-probe         ACCEPTANCE ONLY: a platform client that is not the HOST, exchanging a member's token for the gateway (PATH M2)
 - e2e-cli           the acceptance script (password grant), aud idp-workspace, idp-host, idp-probe, idp-cmi, eer-runtime
 
@@ -53,13 +57,14 @@ username = {"name": "preferred_username", "protocol": "openid-connect", "protoco
             "config": {"user.attribute": "username", "claim.name": "preferred_username", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "true"}}
 user_mappers = [tenant_attr, roles_map, username]
 
-users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "host-user", "cmi-reader"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"]}
+users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "host-user", "cmi-reader"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"],
+         "bridgeop": ["ws-member", "bridge-reviewer"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
 secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "idp-probe", "svc-eer", "eer-intelligence", "e2e-cli")}
 realm = {
     "realm": "idp", "enabled": True, "sslRequired": "none", "accessTokenLifespan": 600,
-    "roles": {"realm": [{"name": r} for r in ("ws-admin", "ws-member", "ws-producer", "host-user", "host-admin", "host-approver", "cmi-admin", "cmi-writer", "cmi-reader")]},
+    "roles": {"realm": [{"name": r} for r in ("ws-admin", "ws-member", "ws-producer", "host-user", "host-admin", "host-approver", "cmi-admin", "cmi-writer", "cmi-reader", "bridge-reviewer")]},
     "users": [{"id": ids[u], "username": u, "enabled": True, "emailVerified": True, "email": u + "@example.com", "firstName": u, "lastName": "User",
                "attributes": {"tenant_id": [tenant]}, "realmRoles": roles,
                "credentials": [{"type": "password", "value": passwords[u], "temporary": False}]} for u, roles in users.items()],
@@ -72,7 +77,7 @@ realm = {
         # then has a client session that idp-host may exchange again); idp-host keeps its own and renews a run's gateway
         # credential with it until the member signs out or the session reaches its limits.
         {"clientId": "idp-workspace", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-workspace"], "standardFlowEnabled": False,
-         "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true", "standard.token.exchange.enableRefreshRequestedTokenType": "SAME_SESSION"}, "protocolMappers": [audience("idp-host"), audience("eer-runtime"), audience("idp-cmi")] + user_mappers},
+         "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true", "standard.token.exchange.enableRefreshRequestedTokenType": "SAME_SESSION"}, "protocolMappers": [audience("idp-host"), audience("eer-runtime"), audience("idp-cmi"), audience("idp-mcp-bridge")] + user_mappers},
         {"clientId": "svc-eer", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["svc-eer"], "standardFlowEnabled": False,
          "serviceAccountsEnabled": True, "fullScopeAllowed": False,
          "protocolMappers": [audience("idp-workspace"), hardcoded("tenant_id", tenant), hardcoded("roles", json.dumps(["ws-producer"]), "JSON"), username]},
@@ -95,6 +100,7 @@ realm = {
         {"clientId": GATEWAY, "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "idp-cmi", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "eer-runtime", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
+        {"clientId": "idp-mcp-bridge", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "e2e-cli", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["e2e-cli"], "standardFlowEnabled": False,
          "directAccessGrantsEnabled": True, "fullScopeAllowed": True,
          "protocolMappers": [audience("idp-workspace"), audience("idp-host"), audience("idp-probe"), audience("idp-cmi"), audience("eer-runtime")] + user_mappers},
