@@ -8,13 +8,13 @@ WSL 里的 kind 集群（Calico）、整套平台在集群上的部署与验收�
 |---|---|
 | 集群 / 上下文 | `kind` / `kind-kind`，节点容器 `kind-control-plane`；kind v0.31，Kubernetes v1.35，Calico v3.30.3 |
 | 工具 | `~/.local/bin`：`kind`、`kubectl`、`crane`（无需 root） |
-| 命名空间 | `databases keycloak temporal idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web`，以及 `full.sh` 为 PATH L、M、N 加的测试源站（M4 也用 `web-origin`） `egress-origin`、`web-origin`、`web-attacker` |
+| 命名空间 | `databases keycloak temporal idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web idp-mcp-bridge`，以及 `full.sh` 为 PATH O 加的测试第三方 `thirdparty`，还有 `full.sh` 为 PATH L、M、N 加的测试源站（M4 也用 `web-origin`） `egress-origin`、`web-origin`、`web-attacker` |
 | 运行时类 | `gvisor`（runsc 20260126.0，kvm 平台）、`kata`（4.3.1，Go 运行时 + Cloud Hypervisor） |
-| 端口转发（full.sh） | Keycloak 17443（https）· Workspace 17560 · HOST 17450 · CMI 17550 · EER 17180 · idp-mcp 注册服务 17250 · 网关 17320 · 助手页 17561 · 沙箱 17570（PATH D 的未签名调用）· idp-web 17580（PATH M 的未签名调用） |
+| 端口转发（full.sh） | Keycloak 17443（https）· Workspace 17560 · HOST 17450 · CMI 17550 · EER 17180 · idp-mcp 注册服务 17250 · 网关 17320 · 助手页 17561 · 沙箱 17570（PATH D 的未签名调用）· idp-web 17580（PATH M 的未签名调用）· 测试第三方 17590（PATH O 的控制与授权页） |
 
 ```bash
 kubectl get nodes; docker start kind-control-plane            # 重启后恢复集群
-bash tests/kind/full.sh                                       # 整平台 PATH A–N；镜像已在时加 SKIP_BUILD=1；SANDBOX_RUNTIME_CLASS=gvisor|kata；MODEL=live；TEARDOWN=1
+bash tests/kind/full.sh                                       # 整平台 PATH A–O；镜像已在时加 SKIP_BUILD=1；另一个集群与主集群并存时加 KIND_CLUSTER=名字 KIND_BACKUP_TARGET=名字 KIND_BACKUP_PORT=端口（脚本会重建备份目标容器）；SANDBOX_RUNTIME_CLASS=gvisor|kata；MODEL=live；TEARDOWN=1
 LOAD_LOCAL_IMAGES=1 bash idp-sandbox/tests/kind/smoke.sh      # 沙箱的集群检查
 kind delete cluster --name kind; bash idp-sandbox/tests/kind/local-cluster.sh   # 删除 / 重建
 ```
@@ -57,9 +57,9 @@ bash idp-sandbox/tests/kind/local-cluster.sh
 | 沙箱的运行镜像 `python:3.12-slim`、`alpine:3.22` | `LOAD_LOCAL_IMAGES=1` 从本机的 ECR 镜像打短名并加载 |
 | 重建组件镜像 | 各仓库 `deploy/build.sh`；EER：`idp-eer/tools/development/runtime_image_offline.sh eer-runtime:dev`；`full.sh` 不带 `SKIP_BUILD` 时全部重建 |
 
-## 整平台（PATH A–N）
+## 整平台（PATH A–O）
 
-`SKIP_BUILD=1 bash tests/kind/full.sh`：先删平台的十四个命名空间再重建（每次都是全新的平台）；生成本次的 CA、realm、密钥到 `.local/kind-full`（已忽略）；用后台端口转发跑与 compose 版相同的验收，成功时每条路径一行 `PASS: PATH …`（还有 PostgreSQL TLS 与 pgvector 两行）。
+`SKIP_BUILD=1 bash tests/kind/full.sh`：先删平台的十七个命名空间再重建（每次都是全新的平台）；生成本次的 CA、realm、密钥到 `.local/kind-full`（已忽略）；用后台端口转发跑与 compose 版相同的验收，成功时每条路径一行 `PASS: PATH …`（还有 PostgreSQL TLS 与 pgvector 两行）。
 
 - **PATH A**：bob（Keycloak）→ Workspace 换令牌 → HOST 运行 → CMI 上下文包 → bob 的收件箱。
 - **PATH B**：operator 提交 T2 意图 → EER → bob 的收件箱 → 经 Workspace 批准 → EER 完成，审计里批准人是 bob。
@@ -70,6 +70,7 @@ bash idp-sandbox/tests/kind/local-cluster.sh
 - **PATH M**（compose 版也有，记录由同一个 `deploy/compose/web_check.py` 读）：bob 问 web-assistant 一个只有测试源站的文章答得出的问题 → HOST 的 agent 经网关搜索（idp-web，搜索服务是 fixture）、用搜索结果的 `ref` 读那篇文章 → 回答里有只有文章才有的数字和 `[1]`；网关的记录里调用者是 bob、客户端是 idp-host；idp-web 的审计有查询词（明文）和读取的地址、没有 `ref`；源站的日志里只有这篇文章（和 robots.txt）。随后经端口转发（17580）直连 idp-web：不带网关签名、自称 bob 的 `tools/call` 得 403，`tools/list` 仍能回答（登记要用）。
 - **PATH M4**（compose 版也有）：PDF 读取（idp-web ADR-0001 D31）。测试源站自己造两份 PDF（`web_origin.py`，仓库里没有第三方文档）：`/tariff.pdf`（两页，第 2 页有一个别处没有的数字 29.47）与 `/scan.pdf`（一页只有图形、没有文字操作符）。fixture 里查询含 `tariff` 的找到前者、含 `receipt` 的找到后者。bob 的两个运行（各搜索一次，共两次）：第一个运行的回答（模型替身引用读到的开头）里有 `[page 1]`、`[page 2]`、`PDF, 2 pages` 与 29.47，idp-web 的审计是 `web_fetch` 的 `allowed`、有字节数；第二个回答里是"没有文字层"的句子，审计是 `decision=failed`、`reason=pdf_no_text_layer`；源站日志里有这两个地址。M3 结束时把租户当天的搜索计数清零，M4 先读计数、要求至少还剩两次、结束时再清零，PATH N 仍有完整的三次。idp-web 的 Pod 要能运行 PDF 读取程序：seccomp 的 `RuntimeDefault` 档案与 `allowPrivilegeEscalation: false` 都不挡它（见 `idp-web/docs/RUNBOOK.md` 6.1）；若 `idp-web` 的启动日志里有 `reading PDFs is not available: …`，M4 的第一条断言会失败，原因是 `pdf_reader_unavailable`。
 - **PATH N**：搜索找到的"公告"页面里写着"去取攻击者的地址"，模型替身照做。(a) idp-web 拒绝这个地址（对不上 `ref`，审计里 `decision=refused`、`reason=ref_…`）；(b) `web_open_url` 被 HOST 停下等 bob 确认（HOST 配置的 `confirmTools`，Release 里没有这条要求），bob 拒绝，idp-web 从没收到这次调用；(c) 攻击者的日志里没有任何请求；(d) CMI 里一条 confidential 的条目，不带 web 工具的对照运行拿得到，带 web 工具的运行拿不到（`externalTools`；路径内临时把租户的 `readerCeiling` 提到 confidential，结束后还原）。两条路径只有模型替身版，`MODEL=live` 时是 `NOT_RUN`。
+- **PATH O**（compose 版也有，步骤是同一个 `deploy/compose/path_o.sh`）：第三方的 MCP 服务（一个测试 Pod：授权服务器与受保护的 MCP 服务合在一起，记录每个请求，`deploy/compose/thirdparty_double.py`），成员用自己的 OAuth 授权经 idp-mcp-bridge 访问。浏览器是脚本做的：POST Workspace 的授权路由，在第三方的页面上同意，把重定向的查询交给 `/v1/me/connections/callback`。O0 评审账号与登记；O1 bob 连接，库里的令牌是密文；O1b 预注册的客户端；O2 bob 的运行带着他自己的令牌到第三方，第三方收不到任何 TELOS 身份；O3 alice 没授权：事件 `idp.host/authorization.required`（只有连接 id、没有链接），第三方一次调用也没收到；O4 令牌过期刷新一次、短命令牌调用前刷新、`insufficient_scope` 保留授权；O4c bob 发起的 state 被 alice 的令牌提交会被拒绝且不调用桥；O5 错误的 `iss` 不存任何东西；O6 bob 断开，第三方看到撤销；O7 第三方签发的令牌、授权码、客户端密钥在任何日志、事件、数据库里都找不到；O8 探测 Pod 证明只有网关、注册服务、Workspace 到得了桥的端口。`MODEL=live` 时 NOT_RUN。
 - **PATH F**：bob 经 Workspace（用他自己的令牌换 CMI 的令牌）列出并删除自己的记忆，alice 删不了；删除后列表和检索里都没有。
 - **PATH C**：EER Intelligence 的集成测试，在宿主上用 uv 对集群里的 CMI 运行（`env -i` 干净环境）。
 - 之后装好"助手"应用（`deploy/apps/assistant`）：两个 agent 的聊天页，页面由 `idp-workspace` 命名空间里的静态服务提供（`deploy/kubernetes/full/assistant.yaml`）。
@@ -336,6 +337,37 @@ idp-web 若要用每日配额，要先给它建库（`idp-web migrate`、`ensure
 - **一次只服务一个请求。** 平台上多个成员同时用时要排队；实测有人同时使用时，每一步排队 9 到 31 秒。部署时给模型服务开多个并行槽位，或用能并发的服务。
 - **缓存是否有效，看 D54 的数字**：非攒批步上，复用的 token 应接近上一步的输入总量。如果复用值总是落在固定间隔上（Strata 的缺省是系统提示词结束处，以及每 16,384 token 一个检查点），说明回合边界的检查点没有对上。这时检查是否配了 `contextWindow` 和 `keepBudgetNotes`。
 - **Strata 的检查点**：`--prompt-cache`（缺省 6 个，每个约 118 MB 内存）、`--prompt-cache-every`（缺省 16384）。打开 D58、D59 之后，调小间隔几乎没有额外收益（预测），不必改。
+
+## 升级须知（2026-11-22 的 BOM）
+
+从 2026-11-20 的 BOM 升到 2026-11-22 的 BOM：**新增一个组件 idp-mcp-bridge（外联桥）**，成员用自己的 OAuth 授权访问第三方 MCP 服务（计划：`docs/adr/idp-mcp-bridge-oauth-plan.md`；桥自己的运维手册：`idp-mcp-bridge/docs/RUNBOOK.md`）。不开桥，其余组件的变化不改变现有行为。compose 上的配置在 `deploy/compose/platform.yaml` 与 `deploy/compose/e2e.sh` 里是同一组键，kind 上的在 `deploy/kubernetes/full` 与 `tests/kind/full.sh` 里。
+
+**升级顺序**（顺序错了，错在哪里都写在最后一栏）：
+1. idp-mcp：先注册服务，再网关。**没有新的迁移**（0009 是 2026-11-20 的）。
+2. idp-host：没有迁移、没有配置项；契约 `idp.telos.host` 仍是 1.11.0。
+3. 给桥建库与账号，跑它的迁移任务，建服务账号，再部署桥（下面第 1 到 4 条）。
+4. Keycloak 的改动（第 5 条）。**要在 Workspace 开"已连接的服务"之前做完。**
+5. Workspace：**先跑迁移 0007**（表 `connection_pending`），再滚动 Deployment；最后才在它的配置里写 `targets.connections`（没写就没有页面、没有路由）。契约升到 `idp.telos.workspace` 1.4.0（只有新增）。
+6. 在注册服务里登记连接、授权评审账号，给角色授工具，发新的 Release。
+
+| 组件 | 变了什么 | 怎么看出来 | 怎么处理 |
+|---|---|---|---|
+| idp-mcp（D51 a 的修订 15.1） | **指向桥地址（`IDP_BRIDGE_ENDPOINTS` 匹配）的外部上游，网关发签名的调用者断言**（受众是那个目标的端点，有效期 60 秒），不发别的身份；其他外部上游仍什么身份都不发。**网关没有 `IDP_GATEWAY_CALLER_KEY_FILE`（签名密钥）时，对桥的调用不发出**（`NOT_DELIVERED`），桥得不到身份就不该收到调用 | 成员的调用得到工具错误；网关审计里是 `NOT_DELIVERED`；桥的日志里没有这个调用 | 网关设 `IDP_GATEWAY_CALLER_KEY_FILE`（沙箱、idp-web 用的就是这把，不用另做一把）；公钥放进桥的 ConfigMap `idp-mcp-bridge-gateway-caller-keys`（键 `caller.pub`，可放多把，轮换时先加新的）。注册服务与网关**都**设 `IDP_BRIDGE_ENDPOINTS=<桥的地址>/mcp/`（同一个值）；桥地址上登记的服务器必须是 `external`，`identity` 留 `none`（桥的 README 与 RUNBOOK 里写的 `forward` 是错的，登记会被拒绝）。两边时钟差不要超过 30 秒 |
+| idp-mcp（15.2，平台验收发现） | 桥的每条连接是 `<桥的地址>/mcp/<连接 id>`，而登记与重新发现要求路径以 `/mcp` 结尾，所以连接登记不了（`endpoint must end in /mcp`）。现在桥地址上的端点免于**这一条**路径规则，别的检查（主机白名单、地址分类、不许有查询串）不变 | 登记桥的连接时 400 | 升到含 15.2 的 idp-mcp。注册服务的允许名单与私网名单（`IDP_ALLOWED_UPSTREAM_HOSTS`、`IDP_PRIVATE_UPSTREAM_HOSTS`）要列上桥的主机，与其他私网上游一样 |
+| idp-mcp 网关的配置 | **第三方的工具是 HOST 的**：确认、敏感级别上限、"不可信"标记都在 HOST 里，直连网关的客户端绕过它们。与 `web__*` 一样：只授给经 HOST 调用的角色，并写进客户端名单的 `hostOnlyTools`（平台配置里是 `["web__*", "thirdparty__*"]`） | 别的客户端看得到第三方的工具 | 每条连接（它的 id 就是工具名前缀）都加一项 `<连接 id>__*` |
+| idp-host（D61） | 工具结果里带桥的"需要授权"标记时，HOST 照常把它作为工具错误告诉模型，**另发一条事件 `idp.host/authorization.required {toolCallId, tool, connection}`**。只从网关标为外部的工具读，只带连接 id，**从不带链接**（"去授权"的链接由 Workspace 自己生成）；运行不暂停，成员授权后再问一次 | 运行的事件流里有这条事件 | 不需要处理，没有配置项。先升级 HOST，再让 Workspace 开页面（Workspace 才显示"去授权"按钮） |
+| idp-mcp-bridge（新组件，B1 到 B3） | 一个 MCP 2026-07-28 服务器，每条连接一个端点；第三方只收到这个成员自己的令牌和协议信封，收不到任何 TELOS 的身份（没有调用者断言、租户、成员、追踪头）。**它是平台里唯一出站到公网的组件**，自己一个命名空间 `idp-mcp-bridge`。**发布的 `connections.yaml` 没有连接，Pod 起不来**（哪些第三方会收到成员的 Agent 发出的内容，是运维的决定） | Pod 退出，状态码 2，日志写明原因 | 写连接文件（`idp-mcp-bridge/docs/RUNBOOK.md` 第 4 节）。平台自己的验收用的连接在 `tests/kind/full.sh`、`deploy/compose/e2e.sh` 里，只用于测试 |
+| idp-mcp-bridge 的数据库 | 成员的授权（令牌）在桥自己的库 `idp_bridge` 里（表 `grants`、`pending_states`、`client_registrations`），与其他组件一样分所有者与应用两个角色 | 服务在库的版本与它要的不一致时拒绝启动 | **建库**（DBA）；**所有者的 URL** 放进 Secret `idp-mcp-bridge-database-owner` 的 `owner-url`，**只有迁移任务 `idp-mcp-bridge-migrate` 挂它**；`kubectl apply -k` 之后等任务完成；**一次性**用同一个镜像跑 `idp-mcp-bridge ensure-login idp_bridge_svc`（密码在 `IDP_BRIDGE_APP_DB_PASSWORD`），再建 Secret `idp-mcp-bridge-database`（`service-url` 与签发库证书的 CA `ca.crt`）。之后的升级：先跑迁移任务（任务的模板建好后不能改，先删旧的），再滚动 Deployment。网络策略里数据库的出口、Keycloak 的出口已在桥的清单里，按你的命名空间与标签调整；**桥的清单里到 Keycloak 的出口写的是 8443（https 端口）：运维要改成自己 Keycloak 的端口**（本平台的 `deploy/kubernetes/full` 里是 7080，叠加层的 `keycloak-bridge` 加了一条）；PostgreSQL 与 Keycloak 一侧要放行 `idp-mcp-bridge` 命名空间的入口。网关与注册服务到桥 8680 的出口（idp-mcp 的清单，经 `idp-mcp/mcp-upstream` 标签的命名空间）、Workspace 到桥 8681 的出口（idp-workspace 的清单）已在各组件自己发布的清单里 |
+| idp-mcp-bridge（D35） | 成员重新授权时，桥在新授权存好之后向第三方撤销被替换的旧令牌（尽力而为，失败不影响新授权）；断开与 `revoke` 照旧撤销 | 第三方的记录里旧令牌被撤销 | 不需要处理 |
+| idp-mcp-bridge 的加密密钥 | 令牌、PKCE 验证码、客户端密钥在库里是 AES-256-GCM 的密文（附加数据是租户、成员、连接与密钥 id），**备份拿到的是密文，密钥在另一个 Secret 里：两者分开保管，丢了密钥则所有授权作废**（成员要重新授权） | — | Secret `idp-mcp-bridge-encryption-keys` 的 `keys`：每行 `<id>:<32 字节的 base64>`（`openssl rand -base64 32`），**第一行加密，所有行都能解**。**轮换**：1. 文件最前面加一行新密钥（旧的留着），更新 Secret，滚动重启；2. 用一次性的 Job 跑同一个镜像的 `reseal`（镜像是 scratch，不能 exec），把所有旧行改封到新密钥下，输出 `re-sealed N values under key <新 id>`；3. 这之后才把旧密钥从文件里删掉，再滚动重启 |
+| Keycloak | 桥要一个客户端代表它、Workspace 要能为成员换出以桥为受众的令牌、评审账号要一个角色（做法以 `deploy/keycloak/realm.py` 为例） | Workspace 的"已连接的服务"页面 502；桥拒绝 Workspace 的调用（401） | ① **一个客户端 `idp-mcp-bridge`（bearer-only）**，它的 client id 就是桥的 `IDP_BRIDGE_API_AUDIENCE`；② **Workspace 的令牌交换客户端（`IDP_BRIDGE_WORKSPACE_CLIENT`，平台里是 `idp-workspace`）加一个指向它的受众映射**，并且换出的令牌**保留 `roles` 与 `tenant_id`**（那个客户端上已有的用户角色映射、租户属性映射；桥从令牌取成员、租户与评审角色，不取别处）；③ **评审角色**（realm 角色，名字 = `IDP_BRIDGE_REVIEWER_ROLE`，没有缺省，不设就没有人能）给负责目录的运维，他还要是 Workspace 的成员（`ws-member` 或 `ws-admin`）才用得上它的页面；④ 桥的 `IDP_BRIDGE_OIDC_ISSUER`、`IDP_BRIDGE_OIDC_JWKS_URL`（缺省 `<issuer>/protocol/openid-connect/certs`，必须 https；集群内只有 http 时设 `IDP_BRIDGE_OIDC_ALLOW_HTTP=true`，启动日志会警告） |
+| idp-workspace（D30，契约 1.4.0，迁移 0007） | 新增"已连接的服务"：成员在壳的页面给自己连接第三方服务（每个服务一次，在对方的页面上用 OAuth 授权，令牌由桥保管，Workspace 与智能体都看不到）；**OAuth 回调落在 Workspace 自己的 `/oauth/callback`**，只有这位成员自己发起的、没用过、10 分钟内的授权才会交给桥；`/oauth/client/<id>.json` 公开托管 CIMD 客户端元数据文档；对话里工具因没授权失败时显示"需要先连接 <服务>"。迁移 0007 建 `connection_pending`（只有 state 的哈希）。契约 `idp.telos.workspace` 1.4.0 只有新增，`idp.telos.host`、`idp.telos.mcp`、`idp.telos.cmi` 不变 | `/v1/me` 的 `connections` 是 true；页面 | 配置 `targets.connections`：`endpoint`（桥的 **8681** 端口）、`auth: exchange`、`exchange.audience`（= 桥的 `IDP_BRIDGE_API_AUDIENCE`）、`exchange.clientId`（= 桥的 `IDP_BRIDGE_WORKSPACE_CLIENT`）、`publicUrl`（Workspace 的公网地址，只有协议与主机，https；桥的 `IDP_BRIDGE_REDIRECT_URI` = `<publicUrl>/oauth/callback`，两边必须逐字一致）。**授权服务器上登记的重定向地址（预注册客户端）或客户端元数据文档里的 `redirect_uris` 就是它。** Workspace 发布的出口策略已有到桥 8681 的一条（只放桥的 API 端口，不放 MCP 端口）。`testOrigins` 只给验收，**部署里不要设**（桥的 `IDP_BRIDGE_TEST_ORIGINS` 同样永远不要设） |
+| 连接与评审账号 | 很多第三方连列出工具都要令牌，网关的登记、评审、漂移探测没有成员：每条连接要有一个**运维授权的评审账号**（第三方那里专门为此建的账号，权限是能列出工具的最小），只用于 `tools/list`，从不用于成员的调用 | 登记后 `discover` 得到 502 | 有评审角色的运维在 Workspace 的"已连接的服务"里对这条连接点"授权评审账号"，**用那个专门的账号**登录并同意；然后在注册服务里 `POST /api/v1/servers`（`class: external`，端点逐字等于桥的 `check-config` 列出的受众）、`discover`、读目录、`approve`（带评审过的目录摘要）、授工具给 `host-user` 一类经 HOST 调用的角色、发 Release。做法见 `deploy/compose/bridge_setup.py` 与验收的 O0 |
+| 成员离开租户 | **没有自动触发。** 身份提供方不会通知桥，桥也不扫描；管理员撤销某个成员的授权也只有这条命令 | 离职成员的授权还在库里，令牌在第三方那边还有效 | **离职流程里调用 `idp-mcp-bridge revoke --tenant T --member M [--connection C]`**（逐条向授权服务器撤销，再删除）；`revoke --connection C` 清一条被撤下的连接的所有授权。用一次性的 Job 跑（同一个镜像，同样的数据库、密钥与连接文件设置） |
+| 平台（镜像与发布） | 新的镜像 `ghcr.io/idp-xyz/idp-mcp-bridge:<提交>`，和其他组件的镜像一起由 `platform.yml` 在验收通过后发布、签名、附 SBOM | 工作流汇总里多一行 | **第一次发布之后，把 `idp-mcp-bridge` 这个 ghcr 包设为公开，只需一次**（新包缺省是私有的，集群拉不到）。BOM 里多了 `idp-mcp-bridge` 一项；`checkout_components.py` 因此也克隆它 |
+
+**已知缺口**（验收发现）：
+- **compose 版的网络隔离比 kind 粗**：compose 不能按对端限制，第三方（测试容器）与桥共用一个网络；kind 里 NetworkPolicy 的验收（O8）才是"只有网关、注册服务与 Workspace 到得了桥的端口"的证明。
 
 ## 故障排查
 
