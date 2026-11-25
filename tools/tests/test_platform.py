@@ -101,6 +101,24 @@ class PlatformTest(unittest.TestCase):
         for want in ("out of date", "two owners", "gamma is not a catalogued", "idp.telos.zeta is not registered", "no evidence"):
             self.assertIn(want, text)
 
+    def test_a_platform_image_is_recorded_in_the_bom_with_its_source_tree(self):
+        write(self.root / "catalog/images.yaml", "images:\n  - {name: demo-image, image: demo-image, path: deploy/images/demo}\n")
+        write(self.root / "deploy/images/demo/Dockerfile", "FROM scratch\n")
+        run = lambda *a: subprocess.run(["git", "-C", str(self.root), *a], check=True, capture_output=True)
+        run("init", "-q", "-b", "main")
+        run("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+        run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
+        bom = tp.Platform(self.root).bom(docker=False)
+        (entry,) = bom["images"]
+        self.assertEqual(entry["name"], "demo-image")
+        self.assertEqual(entry["tree"], run("rev-parse", "HEAD:deploy/images/demo").stdout.decode().strip())
+        self.assertTrue(entry["clean"])
+        # a BOM without the image is stale: check says so
+        stale = dict(bom, images=[])
+        matrix = tp.Platform(self.root).matrix()
+        problems, _ = tp.Platform(self.root).check(stale, matrix, allow_missing=["alpha", "beta"])
+        self.assertTrue(any("demo-image" in x and "not in the BOM" in x for x in problems), problems)
+
     def test_a_catalogued_component_that_the_bom_does_not_pin_is_a_problem(self):
         p = self.platform()
         bom, matrix = p.bom(docker=False), p.matrix()

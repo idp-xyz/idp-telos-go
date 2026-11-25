@@ -58,13 +58,18 @@ jobs:
         with:
           python-version-file: idp-eer/.python-version
       - run: pip install --disable-pip-version-check 'PyYAML==6.0.3'
+      - name: The embedding model (pinned revision; deploy/images/embedding/build.sh fetches what is missing from Hugging Face and checks every file against model.sha256)
+        uses: actions/cache@v4
+        with:
+          path: .local/embedding-model
+          key: embedding-model-${{ hashFiles('deploy/images/embedding/MODEL_REVISION', 'deploy/images/embedding/model.sha256') }}
       - name: Platform acceptance
         env:
           EER_TEMPORAL_IMAGE: ghcr.io/idp-xyz/mirror:docker.io__temporalio__temporal__1.10.0
         run: |
           set -o pipefail
           bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
-          for p in A B C D E F G H I J0 J K L M N O0 O1 O1b O2 O3 O4 O4c O5 O6 O7 O8 O9 O10b O10c O10d M6a M6b M6c M6d M6e M6f M6g M6h P0a P0b P0c P0d P0e P0f P0g; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
+          for p in A B C D E F G H I J0 J K L M N O0 O1 O1b O2 O3 O4 O4c O5 O6 O7 O8 O9 O10b O10c O10d M6a M6b M6c M6d M6e M6f M6g M6h P0a P0b P0c P0d P0e P0f P0g P1a P1b P1c P1d P1e; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
       - name: Image vulnerabilities in our own images (trivy, HIGH and CRITICAL with a fix fail the build)
         run: |
           bash deploy/images/pg-backup/build.sh idp-pg-backup:dev

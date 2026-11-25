@@ -56,6 +56,32 @@ spec:
           resources: {limits: {cpu: 200m, memory: 128Mi}}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
 ---
+# the HNSW indexes for the embedding's 1024 dimensions (idp-cmi ADR-0001 D38; pgvector is in this PostgreSQL); idempotent, CONCURRENTLY, with the owner's connection
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kind-vector-index
+  namespace: idp-cmi
+  labels: {app.kubernetes.io/component: kind-setup, idp-telos/phase: setup}
+spec:
+  backoffLimit: 12
+  template:
+    metadata:
+      labels: {app.kubernetes.io/component: migrate}   # the migrate NetworkPolicy lets it reach PostgreSQL
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: vector-index
+          image: idp-cmi
+          command: ["/usr/local/bin/idp-cmi", "vector-index", "1024"]
+          env:
+            - name: IDP_MIGRATION_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: idp-cmi-db, key: owner-url}}
+          resources: {limits: {cpu: 500m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
 apiVersion: batch/v1
 kind: Job
 metadata:

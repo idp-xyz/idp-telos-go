@@ -34,6 +34,8 @@ resources:
   - ../../../idp-web/deploy/kubernetes
   - ../../../idp-mcp-bridge/deploy/kubernetes
   - ../../../idp-browser/deploy/kubernetes
+  - embedding.yaml
+  - embedding-query.yaml   # the second instance, for query embeddings (idp-cmi D59: embedding.query below)
   - fakemodel.yaml
   - assistant.yaml
   - setup-jobs.yaml
@@ -50,6 +52,7 @@ images:
   - {name: registry.example.com/idp/idp-mcp-bridge, newName: idp-mcp-bridge, newTag: dev}
   - {name: registry.example.com/idp/idp-browser, newName: idp-browser, newTag: dev}
   - {name: registry.example.com/idp/idp-browser-proxy, newName: idp-browser-proxy, newTag: dev}
+  - {name: idp-embedding, newName: idp-embedding, newTag: dev}
   - {name: idp-cmi, newTag: dev}         # the setup Jobs name the images directly
   - {name: idp-host, newTag: dev}
   - {name: idp-workspace, newTag: dev}
@@ -82,7 +85,22 @@ patches:
     patch: |-
       - op: replace
         path: /data
-        value: {cmi.yaml: ""}
+        value:
+          # the embedding section: idp-cmi's recommended settings for Qwen3-Embedding-0.6B (ADR-0001 section 17, D37); the key is the Secret mounted below
+          cmi.yaml: |
+            embedding:
+              baseUrl: http://idp-embedding.idp-embedding.svc.cluster.local:8700/v1
+              model: qwen3-embedding-0.6b
+              apiKeyFile: /etc/idp/embedding/api-key
+              queryPrefix: "Instruct: Given a user question, retrieve the passages that answer it\nQuery: "
+              floor: 0.40
+              memoryFloor: 0.20
+              lexicalBlend: 0.05
+              timeout: 30s
+              query:   # embedding.query (idp-cmi D59): its own endpoint for the questions; its key is its own setting (the same Secret here)
+                baseUrl: http://idp-embedding-query.idp-embedding.svc.cluster.local:8700/v1
+                apiKeyFile: /etc/idp/embedding/api-key
+                timeout: 30s
   - target: {kind: Deployment, name: idp-cmi}
     patch: &http-probes |-
       - {op: replace, path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme, value: HTTP}
@@ -92,6 +110,8 @@ patches:
       # added, never replaced: idp-cmi's own emptyDir "scratch" (/var/cache/idp-cmi, 512Mi, IDP_CMI_TEMP_DIR) must survive for the downloads of originals
       - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: originals, mountPath: /etc/idp/originals, readOnly: true}}
       - {op: add, path: /spec/template/spec/volumes/-, value: {name: originals, secret: {secretName: idp-cmi-originals}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: embedding-key, mountPath: /etc/idp/embedding, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: embedding-key, secret: {secretName: idp-embedding-key}}}
   # ================= idp-host: Keycloak tokens, the model double, context from the CMI, delegation to the idp-mcp gateway =================
   - target: {kind: ConfigMap, name: idp-host-env}
     patch: |-

@@ -13,11 +13,10 @@ OUT="${OUT:-published-images.json}"
 IMAGES=("idp-cmi:dev idp-cmi idp-cmi" "idp-host:dev idp-host idp-host" "idp-workspace:dev idp-workspace idp-workspace" "eer-runtime:dev idp-eer eer-runtime" "idp-mcp:dev idp-mcp idp-mcp" "idp-sandbox:dev idp-sandbox idp-sandbox" "idp-web:dev idp-web idp-web" "idp-mcp-bridge:dev idp-mcp-bridge idp-mcp-bridge" "idp-browser:dev idp-browser idp-browser" "idp-browser-proxy:dev idp-browser idp-browser-proxy")
 commit_of() { python3 -I -c 'import sys,yaml; print(next(c["commit"] for c in yaml.safe_load(open("releases/platform-bom.yaml"))["components"] if c["name"]==sys.argv[1]))' "$1"; }
 entries=()
-for row in "${IMAGES[@]}"; do
-  read -r local component repo <<<"$row"
-  commit="$(commit_of "$component")"
-  [[ "$(git -C "$component" rev-parse HEAD)" == "$commit" ]] || { echo "FAIL: $component is not at the BOM's commit $commit" >&2; exit 1; }
-  ref="$REGISTRY/$repo:$commit"
+# publish LOCAL-IMAGE REPOSITORY TAG: pushed (signed, SBOM attested) unless that tag is already there; sets ref and digest
+publish() {
+  local local="$1" repo="$2" tag="$3"
+  ref="$REGISTRY/$repo:$tag"
   if docker buildx imagetools inspect "$ref" >/dev/null 2>&1; then
     digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
     echo "KEPT: $ref@$digest (published before)"
@@ -31,7 +30,20 @@ for row in "${IMAGES[@]}"; do
     cosign attest --yes --type spdxjson --predicate "sbom-$repo.spdx.json" "$REGISTRY/$repo@$digest" >/dev/null
     echo "PUBLISHED: $ref@$digest (signed, SBOM attested)"
   fi
+}
+for row in "${IMAGES[@]}"; do
+  read -r local component repo <<<"$row"
+  commit="$(commit_of "$component")"
+  [[ "$(git -C "$component" rev-parse HEAD)" == "$commit" ]] || { echo "FAIL: $component is not at the BOM's commit $commit" >&2; exit 1; }
+  publish "$local" "$repo" "$commit"
   entries+=("{\"component\":\"$component\",\"commit\":\"$commit\",\"reference\":\"$ref\",\"digest\":\"$digest\"}")
 done
+# the images this repository builds itself (catalog/images.yaml, deploy/images/*): the tag is the git tree of their directory, which the BOM records
+while read -r name path tree; do
+  [[ -n "$name" ]] || continue
+  [[ "$(git rev-parse "HEAD:$path")" == "$tree" ]] || { echo "FAIL: $path is not at the BOM's tree $tree" >&2; exit 1; }
+  publish "$name:dev" "$name" "$tree"
+  entries+=("{\"component\":\"$name\",\"commit\":\"$tree\",\"reference\":\"$ref\",\"digest\":\"$digest\"}")
+done < <(python3 -I -c 'import yaml; [print(i["name"], i["path"], i.get("tree", "")) for i in yaml.safe_load(open("releases/platform-bom.yaml")).get("images", [])]')
 (IFS=,; echo "[${entries[*]}]") | python3 -m json.tool > "$OUT"
 echo "OK: $OUT"

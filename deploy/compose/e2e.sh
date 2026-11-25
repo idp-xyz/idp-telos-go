@@ -62,7 +62,7 @@ cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 L=.local/platform
 ENVF=$L/compose.env
-C=(docker compose -f deploy/compose/platform.yaml --env-file "$ENVF" --profile tools --profile egress-test --profile web-test --profile bridge-test)
+C=(docker compose -f deploy/compose/platform.yaml --env-file "$ENVF" --profile tools --profile egress-test --profile web-test --profile bridge-test --profile embedding-query)
 # PATH L's origin is a container, at a private address: the egress proxy is told to accept those. TESTS ONLY.
 export IDP_EGRESS_ALLOW_PRIVATE=true
 EGRESS_ORIGIN=egress-origin
@@ -152,6 +152,8 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   BROWSER_CHROMIUM="${CHROMIUM_IMAGE:-}"; [[ -n "$BROWSER_CHROMIUM" ]] || ! docker image inspect chromium-base:159 >/dev/null 2>&1 || BROWSER_CHROMIUM=chromium-base:159
   built="$(CHROMIUM_IMAGE="$BROWSER_CHROMIUM" bash idp-browser/deploy/build.sh idp-browser)"; echo "$built"
   docker tag "$(echo "$built" | sed -n 's/^OK: \([^ ]*\) .*/\1/p')" idp-browser:dev; docker tag "$(echo "$built" | sed -n 's/.* \(idp-browser-proxy:[^ ]*\) .*/\1/p')" idp-browser-proxy:dev
+  # the embedding service: text-embeddings-inference with the Qwen3-Embedding-0.6B weights at a pinned revision, checked against a committed list of hashes
+  bash deploy/images/embedding/build.sh idp-embedding:dev
 fi
 # the sandbox's runtime images are pulled by the operator (here), never by the service
 bash tools/pull_image.sh ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22
@@ -162,7 +164,7 @@ if ! docker image inspect "$FILES_S3_IMG" >/dev/null 2>&1; then
 fi
 # the sandbox's office run image (idp-sandbox ADR-0001 D14) is built offline on that python image; OfficeCLI is pinned in its script
 [[ "${SKIP_BUILD:-0}" == 1 ]] || BASE=ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
-OWN=(idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev)
+OWN=(idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-embedding:dev)
 for img in "${OWN[@]}" "$FILES_S3_IMG"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
 done
@@ -442,6 +444,25 @@ for _ in $(seq 1 60); do
 done
 s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" || { "${C[@]}" logs --tail 20 files-s3; echo "BLOCKED: the members' file store has no bucket" >&2; exit 2; }
 printf '%s' "$IDP_KB_S3_ACCESS_KEY" > "$L/kb-s3.access"; printf '%s' "$IDP_KB_S3_SECRET_KEY" > "$L/kb-s3.secret"; chmod 644 "$L/kb-s3.access" "$L/kb-s3.secret"
+# the embedding service (knowledge-base plan KB2): its API key (the CMI's embedding section names the same file) and idp-cmi's recommended settings for
+# Qwen3-Embedding-0.6B (ADR-0001 section 17, D37): the instruction prefix of the evaluation, floor 0.40, memory floor 0.20, lexical blend 0.05
+openssl rand -hex 24 | tr -d '\n' > "$L/embedding.key"; chmod 644 "$L/embedding.key"
+cat > "$L/cmi.yaml" <<'YAML'
+embedding:
+  baseUrl: http://embedding:8700/v1
+  model: qwen3-embedding-0.6b
+  apiKeyFile: /etc/idp/embedding.key
+  queryPrefix: "Instruct: Given a user question, retrieve the passages that answer it\nQuery: "
+  floor: 0.40
+  memoryFloor: 0.20
+  lexicalBlend: 0.05
+  timeout: 30s
+  query:   # the second instance, for query embeddings only (idp-cmi D59): its own key setting (not inherited; the same file here)
+    baseUrl: http://embedding-query:8700/v1
+    apiKeyFile: /etc/idp/embedding.key
+    timeout: 30s
+YAML
+chmod 644 "$L/cmi.yaml"
 "${C[@]}" up -d knowledge-s3
 kbs3() { printf 'user = "%s:%s"\n' "$IDP_KB_S3_ACCESS_KEY" "$IDP_KB_S3_SECRET_KEY" | curl -sS --noproxy '*' --config - --aws-sigv4 aws:amz:us-east-1:s3 "$@"; }
 for _ in $(seq 1 60); do
@@ -457,6 +478,7 @@ for c in cmi host workspace; do
   "${C[@]}" run --rm -T $c-admin migrate >/dev/null
 done
 "${C[@]}" run --rm -T cmi-admin ensure-login idp_cmi_svc
+"${C[@]}" run --rm -T cmi-admin vector-index 1024 >/dev/null   # HNSW indexes for the embedding's 1024 dimensions (ADR-0001 D38; pgvector is in this PostgreSQL)
 "${C[@]}" run --rm -T host-admin ensure-login idp_host_svc
 "${C[@]}" run --rm -T workspace-admin ensure-login idp_ws_svc
 # idp-eer: its roles (deploy/postgres/bootstrap-runtime-roles.sql), schema and pilot Actors and Plans
@@ -503,7 +525,7 @@ for _ in $(seq 1 60); do "${C[@]}" logs --no-log-prefix web 2>&1 | grep -q '"msg
 python3 -I deploy/compose/mcp_setup.py http://127.0.0.1:8250 "$GW_ID" "$MADMIN" "$MOPERATOR" "$MREVIEWER" host-user http://sandbox:8570/mcp http://web:8580/mcp >/dev/null \
   || { "${C[@]}" logs --tail 30 mcp-registry mcp-gateway sandbox web; echo "BLOCKED: the idp-mcp setup failed" >&2; exit 2; }
 
-"${C[@]}" up -d cmi host host-worker workspace eer-api eer-worker eer-projector
+"${C[@]}" up -d embedding embedding-query cmi host host-worker workspace eer-api eer-worker eer-projector
 for url in "$CMI/healthz" "$HOST/healthz" "$WS/healthz" "$EER/health/ready" http://127.0.0.1:18181/health/ready http://127.0.0.1:18182/health/ready; do
   for _ in $(seq 1 120); do curl -sf --noproxy '*' -o /dev/null "$url" && break; sleep 0.5; done
   curl -sf --noproxy '*' -o /dev/null "$url" || { "${C[@]}" logs --tail 20; echo "BLOCKED: $url" >&2; exit 2; }
@@ -1406,6 +1428,24 @@ ALICE="$(user_token alice)"; BOB="$(user_token bob)"; CAROL="$(user_token carol)
 BOB_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['bob'])")"
 p0_s3_keys() { kbs3 -f "http://127.0.0.1:19510/knowledge-originals?list-type=2&max-keys=1000" | grep -o '<Key>[^<]*</Key>' | sed 's#</\?Key>##g'; }
 source deploy/compose/path_p0.sh
+
+# ---- PATH P1: embeddings and semantic retrieval (KB2); the steps are in deploy/compose/path_p1.sh, which tests/kind/full.sh sources too. The embedding service runs for every path above;
+# P1 stops it, uploads, and starts it again ----
+p1_embedding_stop() { "${C[@]}" stop embedding >/dev/null; }
+p1_embedding_start() {
+  "${C[@]}" start embedding >/dev/null
+  for _ in $(seq 1 600); do [[ "$(docker inspect -f '{{.State.Health.Status}}' "$("${C[@]}" ps -q embedding)" 2>/dev/null)" == healthy ]] && return 0; sleep 2; done
+  "${C[@]}" logs --tail 20 embedding; echo "FAIL: PATH P1: the embedding service did not become healthy" >&2; exit 1
+}
+p1_metrics() { curl -s --noproxy '*' http://127.0.0.1:19564/metrics; }   # the CMI's Prometheus text
+p1_query_stop() { "${C[@]}" stop embedding-query >/dev/null; }
+p1_query_start() {
+  "${C[@]}" start embedding-query >/dev/null
+  for _ in $(seq 1 600); do [[ "$(docker inspect -f '{{.State.Health.Status}}' "$("${C[@]}" ps -q embedding-query)" 2>/dev/null)" == healthy ]] && return 0; sleep 2; done
+  "${C[@]}" logs --tail 20 embedding-query; echo "FAIL: PATH P1: the query embedding service did not become healthy" >&2; exit 1
+}
+p1_sql() { "${C[@]}" exec -T postgres psql -U postgres -d idp_cmi -Atc "$1"; }
+source deploy/compose/path_p1.sh
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then

@@ -42,6 +42,8 @@ class Platform:
         self.components = load_yaml(self.root / "catalog/components.yaml")["components"]
         self.integrations = load_yaml(self.root / "catalog/integrations.yaml")["integrations"]
         self.ownership = load_yaml(self.root / "catalog/ownership.yaml")["ownership"]
+        images = self.root / "catalog/images.yaml"   # the images this repository builds itself (deploy/images/*)
+        self.images = load_yaml(images)["images"] if images.exists() else []
 
     def checkout(self, name):
         path = self.root / name
@@ -93,7 +95,24 @@ class Platform:
                     entry["extra_images"] = extra
             components.append(entry)
         contracts = {ns: n["version"] for ns, n in sorted(self.registry["namespaces"].items()) if n.get("status") == "PUBLISHED"}
-        return {"platform": "idp-telos", "release": "0.1.0-dev", "contracts": contracts, "components": components}
+        out = {"platform": "idp-telos", "release": "0.1.0-dev", "contracts": contracts, "components": components}
+        if self.images:
+            out["images"] = [self.platform_image(i, docker) for i in self.images]
+        return out
+
+    def platform_image(self, i, docker):
+        """An image built from this repository: its source is the git tree of its directory (the tag it is published under), clean or not."""
+        entry = {"name": i["name"], "path": i["path"]}
+        try:
+            entry["tree"] = self.git(self.root, "rev-parse", f"HEAD:{i['path']}")
+            entry["clean"] = self.git(self.root, "status", "--porcelain", "--untracked-files=no", "--", i["path"]) == ""
+        except subprocess.CalledProcessError:
+            entry["status"] = "NOT_RUN (not a git checkout)"
+        if docker:
+            digest = self.image_digest(i["image"] + ":dev")
+            if digest:
+                entry["image"] = {"reference": i["image"] + ":dev", "id": digest}
+        return entry
 
     @staticmethod
     def image_digest(ref):
@@ -200,6 +219,10 @@ class Platform:
         for c in self.components:  # a component of the catalog that the BOM does not pin would be released without a commit
             if c["name"] not in in_bom:
                 problems.append(f"platform-bom.yaml: {c['name']} is in the catalog but not in the BOM (run tools/platform.py bom)")
+        in_images = {entry["name"] for entry in bom_doc.get("images", [])}
+        for i in self.images:   # an image this repository builds, which the BOM does not record, would be published without a source
+            if i["name"] not in in_images:
+                problems.append(f"platform-bom.yaml: the image {i['name']} is in catalog/images.yaml but not in the BOM (run tools/platform.py bom)")
         for entry in bom_doc.get("components", []):
             repo = self.checkout(entry["name"])
             if repo is None:

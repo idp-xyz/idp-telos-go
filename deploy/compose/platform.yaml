@@ -36,6 +36,7 @@ networks:
   bridgenet: {internal: true}   # the bridge's ports: the gateway, the registry, the Workspace (and Keycloak, which the bridge calls) and nothing else
   bridgedb: {internal: true}    # the bridge's database: PostgreSQL and the bridge
   browsernet: {internal: true}  # idp-browser's renderer, its egress proxy and idp-web: the renderer has no other way out than the proxy
+  embednet: {internal: true}    # idp-embedding and idp-cmi, nothing else: the embedding service is reached by the CMI only and reaches nothing
   thirdparty: {}                # the bridge and the third party (TEST ONLY: a container; production reaches public https addresses)
 
 volumes:
@@ -110,10 +111,11 @@ services:
     <<: *hardened
     image: ${IDP_CMI_IMAGE:-idp-cmi:dev}
     command: [serve]
-    networks: [edge, upstream, data]
-    ports: ['127.0.0.1:8550:8550']
+    networks: [edge, upstream, data, embednet]
+    ports: ['127.0.0.1:8550:8550', '127.0.0.1:19564:9564']   # 9564: Prometheus metrics (P1 reads the embedding counters there)
     environment:
       <<: *oidc
+      IDP_METRICS_LISTEN: 0.0.0.0:9564
       IDP_DATABASE_URL: postgres://idp_cmi_svc:${IDP_CMI_DB_PASSWORD}@postgres:5432/idp_cmi?sslmode=disable
       IDP_CMI_LISTEN: 0.0.0.0:8550
       IDP_CMI_ISSUER: https://127.0.0.1:7443/realms/idp
@@ -124,10 +126,40 @@ services:
       IDP_CMI_ORIGINALS_BUCKET: knowledge-originals
       IDP_CMI_ORIGINALS_ACCESS_KEY_FILE: /etc/idp/kb-s3.access
       IDP_CMI_ORIGINALS_SECRET_KEY_FILE: /etc/idp/kb-s3.secret
+      IDP_CMI_CONFIG: /etc/idp/cmi.yaml   # the embedding section (e2e.sh writes it: idp-cmi's recommended settings for Qwen3-Embedding-0.6B, ADR-0001 D37)
       IDP_CMI_TEMP_DIR: /var/cache/idp-cmi   # downloads of originals are verified through a file here: the root is read-only (idp-cmi deploy/compose.yaml)
     tmpfs: ['/var/cache/idp-cmi:size=512m,mode=1777']
-    volumes: ['../../.local/platform/kb-s3.access:/etc/idp/kb-s3.access:ro', '../../.local/platform/kb-s3.secret:/etc/idp/kb-s3.secret:ro']
-    depends_on: [knowledge-s3]
+    volumes: ['../../.local/platform/kb-s3.access:/etc/idp/kb-s3.access:ro', '../../.local/platform/kb-s3.secret:/etc/idp/kb-s3.secret:ro',
+              '../../.local/platform/cmi.yaml:/etc/idp/cmi.yaml:ro', '../../.local/platform/embedding.key:/etc/idp/embedding.key:ro']
+    depends_on: [knowledge-s3]   # not on `embedding`: the CMI answers without it (lexical) and embeds what is pending when it returns (D58)
+
+  # the embedding service (knowledge-base plan KB2): text-embeddings-inference with Qwen3-Embedding-0.6B at a pinned revision in the image (deploy/images/embedding).
+  # Only the CMI shares a network with it (embednet is internal); the API key is a file; the image runs as 10700 with a read-only root and needs no network.
+  embedding:
+    <<: *hardened
+    image: ${IDP_EMBEDDING_IMAGE:-idp-embedding:dev}
+    networks: [embednet]
+    tmpfs: ['/tmp:rw,size=64m']
+    volumes: ['../../.local/platform/embedding.key:/run/secrets/embedding/api-key:ro']
+    environment: {IDP_EMBEDDING_THREADS: '${IDP_EMBEDDING_THREADS:-4}', IDP_EMBEDDING_MAX_BATCH_TOKENS: '2048'}   # 2048 tokens per batch: warm-up peak 3.3 GiB instead of 5.8 at 4096, same ingest rate (measured)
+    cpus: ${IDP_EMBEDDING_CPUS:-4}
+    mem_limit: ${IDP_EMBEDDING_MEMORY:-4g}
+    healthcheck: {test: ['CMD', 'curl', '-sf', 'http://127.0.0.1:8700/health'], interval: 3s, timeout: 3s, retries: 60}
+
+  # the second instance of the same image, for the CMI's query embeddings (idp-cmi `embedding.query`): a query that arrives behind a 64-input ingest request on one instance waits for all
+  # 64 (measured: 247 s; docs/adr/knowledge-base-plan.md section 10). Same key file, same model; it has its own CPUs, so a query is answered in about 0.3 s during an ingest.
+  # profile embedding-query: deploy/compose/e2e.sh always turns it on (the CMI's embedding.query points at it, idp-cmi D59).
+  embedding-query:
+    <<: *hardened
+    image: ${IDP_EMBEDDING_IMAGE:-idp-embedding:dev}
+    profiles: [embedding-query]
+    networks: [embednet]
+    tmpfs: ['/tmp:rw,size=64m']
+    volumes: ['../../.local/platform/embedding.key:/run/secrets/embedding/api-key:ro']
+    environment: {IDP_EMBEDDING_THREADS: '${IDP_EMBEDDING_QUERY_THREADS:-2}', IDP_EMBEDDING_MAX_BATCH_TOKENS: '1024', IDP_EMBEDDING_MAX_CLIENT_BATCH: '8'}   # questions only: warm-up 14 s and peak 2.6 GiB (measured); a text over 1024 tokens is refused and that question is answered from words alone
+    cpus: ${IDP_EMBEDDING_QUERY_CPUS:-2}
+    mem_limit: ${IDP_EMBEDDING_QUERY_MEMORY:-3g}
+    healthcheck: {test: ['CMD', 'curl', '-sf', 'http://127.0.0.1:8700/health'], interval: 3s, timeout: 3s, retries: 60}
 
   # ---- idp-mcp (registry, gateway) and idp-sandbox (P4) ----
   mcp-admin:

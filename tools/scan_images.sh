@@ -22,7 +22,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TRIVY="${TRIVY_IMAGE:-ghcr.io/idp-xyz/mirror:ghcr.io__aquasecurity__trivy__0.76.2}"
 CACHE="${TRIVY_CACHE:-$PWD/.local/trivy-cache}"; mkdir -p "$CACHE"; chmod 777 "$CACHE"
-OWN=(idp-cmi:dev idp-host:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-pg-backup:dev idp-postgres-ha:17-dev)
+OWN=(idp-cmi:dev idp-host:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-embedding:dev idp-pg-backup:dev idp-postgres-ha:17-dev)
 THIRD=(ghcr.io/idp-xyz/mirror:docker.io__pgvector__pgvector__0.8.7-pg17 ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2 ghcr.io/idp-xyz/mirror:docker.io__temporalio__temporal__1.10.0 ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__cloudnative-pg__1.30.1
        ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud__v0.16.0 ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud-sidecar__v0.16.0
        ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-controller__v1.21.3 ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-webhook__v1.21.3 ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-cainjector__v1.21.3

@@ -76,7 +76,7 @@ WEB_URL=http://idp-web.idp-web.svc.cluster.local:8580/mcp   # as shipped in idp-
 # PATH O: the bridge, the third party it talks to (tests/kind/thirdparty.yaml) and the connection's endpoint at the bridge, as registered at the gateway
 BRIDGE_ENDPOINT=http://idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local:8680/mcp/thirdparty
 TP_BASE=http://thirdparty.thirdparty.svc.cluster.local:8590 TP=http://127.0.0.1:17590
-NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web idp-mcp-bridge thirdparty bridge-probe web-origin web-attacker web-render-origin web-canary idp-browser egress-origin databases keycloak temporal)
+NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web idp-mcp-bridge thirdparty bridge-probe web-origin web-attacker web-render-origin web-canary idp-browser idp-embedding egress-origin databases keycloak temporal)
 EGRESS_ORIGIN=origin.egress-origin.svc.cluster.local   # PATH L: the one host bob's tenant may reach (tests/kind/egress-origin.yaml)
 # PATH M and N: the page server and the "attacker" (tests/kind/web-origin.yaml), each in a namespace of its own, on the Service port 80
 WEB_ORIGIN=origin.web-origin.svc.cluster.local WEB_ATTACKER=attacker.web-attacker.svc.cluster.local
@@ -107,7 +107,7 @@ fi
 diagnose() {
   echo "== diagnostics" >&2
   kubectl get pods -A 2>&1 | grep -E 'idp-|databases|keycloak|temporal' | grep -vE 'Running +[0-9]+ .*|Completed' >&2 || true
-  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge idp-browser thirdparty web-origin web-attacker web-render-origin web-canary keycloak temporal; do
+  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge idp-browser thirdparty web-origin web-attacker web-render-origin web-canary idp-embedding keycloak temporal; do
     for p in $(kubectl -n "$ns" get pods --no-headers 2>/dev/null | awk '$3!="Running" && $3!="Completed" {print $1}'); do
       echo "-- $ns/$p" >&2; kubectl -n "$ns" describe pod "$p" 2>&1 | tail -8 >&2; kubectl -n "$ns" logs "$p" --all-containers --tail=15 2>&1 >&2 || true
     done
@@ -140,6 +140,7 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   built="$(CHROMIUM_IMAGE="$BROWSER_CHROMIUM" bash idp-browser/deploy/build.sh idp-browser)"; echo "$built"
   docker tag "$(echo "$built" | sed -n 's/^OK: \([^ ]*\) .*/\1/p')" idp-browser:dev; docker tag "$(echo "$built" | sed -n 's/.* \(idp-browser-proxy:[^ ]*\) .*/\1/p')" idp-browser-proxy:dev
   bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
+  bash deploy/images/embedding/build.sh idp-embedding:dev   # Qwen3-Embedding-0.6B at a pinned revision in the image (EMBEDDING_BASE / EMBEDDING_MODEL_DIR: see its build.sh)
 fi
 # load an image into the cluster; a Docker with the containerd image store saves all platforms and kind's import fails
 # then, so save the one platform the nodes run
@@ -166,7 +167,7 @@ ensure_image() { # ensure_image IMAGE [NODE-NAME]
   load_image "$want"
 }
 log "loading images into $CLUSTER"
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-pg-backup:dev; do
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-embedding:dev idp-pg-backup:dev; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing (run without SKIP_BUILD)" >&2; exit 2; }
   load_image "$img"
 done
@@ -545,6 +546,10 @@ dbsecret idp-cmi idp-cmi-db idp_cmi x idp_cmi_svc "$CMI_DB"
 KB_AK="kb$(openssl rand -hex 8)"; KB_SK="$(openssl rand -hex 16)"
 S3_BUCKET=knowledge-originals S3_ACCESS_KEY="$KB_AK" S3_SECRET_KEY="$KB_SK" bash tests/kind/s3-target.sh "$KB_NAME" "$BACKUP_GW" "$KB_PORT"
 mksecret idp-cmi idp-cmi-originals --from-literal=access="$KB_AK" --from-literal=secret="$KB_SK"
+# the embedding service's API key: the service (idp-embedding) and the CMI (embedding.apiKeyFile) hold the same key, each in its own namespace
+EMB_KEY="$(openssl rand -hex 24)"
+mksecret idp-embedding idp-embedding-key --from-literal=api-key="$EMB_KEY"
+mksecret idp-cmi idp-embedding-key --from-literal=api-key="$EMB_KEY"
 dbsecret idp-host idp-host-db idp_host x idp_host_svc "$HOST_DB"
 dbsecret idp-workspace idp-workspace-db idp_workspace x idp_ws_svc "$WS_DB"
 dbsecret idp-mcp idp-mcp-registry-db idp_mcp x idp_mcp_svc "$MCP_DB"
@@ -1556,6 +1561,16 @@ BOB_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids
 [[ -n "$BOB_ID" ]] || BOB_ID="$(python3 -c "import base64,json,sys; t=sys.argv[1].split('.')[1]; print(json.loads(base64.urlsafe_b64decode(t+'='*(-len(t)%4)))['sub'])" "$BOB")"
 p0_s3_keys() { printf 'user = "%s:%s"\n' "$KB_AK" "$KB_SK" | curl -sS --noproxy '*' --config - --aws-sigv4 aws:amz:us-east-1:s3 "http://$BACKUP_GW:$KB_PORT/knowledge-originals?list-type=2&max-keys=1000" | grep -o '<Key>[^<]*</Key>' | sed 's#</\?Key>##g'; }
 source deploy/compose/path_p0.sh
+
+# ---- PATH P1: embeddings and semantic retrieval (KB2); the steps are in deploy/compose/path_p1.sh, which deploy/compose/e2e.sh sources too. The embedding service runs for every
+# path above; P1 stops it (scale to 0: its pod is gone, the CMI's embedding calls are refused), uploads, and starts it again ----
+p1_embedding_stop() { kubectl -n idp-embedding scale deploy/idp-embedding --replicas=0 >/dev/null; kubectl -n idp-embedding wait --for=delete pod -l app.kubernetes.io/name=idp-embedding --timeout=120s >/dev/null; }
+p1_embedding_start() { kubectl -n idp-embedding scale deploy/idp-embedding --replicas=1 >/dev/null; kubectl -n idp-embedding rollout status deploy/idp-embedding --timeout=600s >/dev/null || { kubectl -n idp-embedding describe pod | tail -12 >&2; echo "FAIL: PATH P1: the embedding service did not become ready" >&2; exit 1; }; }
+p1_metrics() { local p; for p in $(kubectl -n idp-cmi get pod -l app.kubernetes.io/component=cmi -o jsonpath='{.items[*].metadata.name}'); do kubectl get --raw "/api/v1/namespaces/idp-cmi/pods/$p:9565/proxy/metrics"; done; }   # both replicas
+p1_query_stop() { kubectl -n idp-embedding scale deploy/idp-embedding-query --replicas=0 >/dev/null; kubectl -n idp-embedding wait --for=delete pod -l app.kubernetes.io/name=idp-embedding-query --timeout=120s >/dev/null; }
+p1_query_start() { kubectl -n idp-embedding scale deploy/idp-embedding-query --replicas=1 >/dev/null; kubectl -n idp-embedding rollout status deploy/idp-embedding-query --timeout=600s >/dev/null || { kubectl -n idp-embedding describe pod | tail -12 >&2; echo "FAIL: PATH P1: the query embedding service did not become ready" >&2; exit 1; }; }
+p1_sql() { kubectl -n databases exec -c postgres "$(pgtarget)" -- psql -U postgres -d idp_cmi -Atc "$1"; }
+source deploy/compose/path_p1.sh
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then

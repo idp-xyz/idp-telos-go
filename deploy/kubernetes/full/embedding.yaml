@@ -1,0 +1,108 @@
+# The embedding service of the platform (knowledge-base plan KB2; image deploy/images/embedding): text-embeddings-inference with Qwen3-Embedding-0.6B at a pinned
+# revision in the image. DEV and reference. Its own namespace, restricted, default-deny both ways: only idp-cmi (its pods) reaches port 8700, the observability
+# namespace reaches 9700, and the pod reaches nothing (not even DNS: the weights are in the image, nothing is fetched). The API key is the Secret
+# idp-embedding-key (the key `api-key`), which tests/kind/full.sh creates here and in idp-cmi (the CMI's embedding.apiKeyFile).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: idp-embedding
+  labels: {pod-security.kubernetes.io/enforce: restricted, pod-security.kubernetes.io/enforce-version: latest}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idp-embedding
+  namespace: idp-embedding
+  labels: {app.kubernetes.io/name: idp-embedding, app.kubernetes.io/component: embedding}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: idp-embedding}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: idp-embedding, app.kubernetes.io/component: embedding}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10700, runAsGroup: 10700, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: embedding
+          image: idp-embedding
+          env:
+            - {name: IDP_EMBEDDING_THREADS, value: "4"}      # follows the CPU limit below
+            - {name: IDP_EMBEDDING_MAX_BATCH_TOKENS, value: "2048"}   # warm-up peak 3.3 GiB (5.8 at 4096) for the same ingest rate: measured, RUNBOOK
+          ports:
+            - {name: api, containerPort: 8700}
+            - {name: metrics, containerPort: 9700}
+          startupProbe:                                       # the model warms up for a minute or more on a few CPUs
+            httpGet: {path: /health, port: api}
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: {path: /health, port: api}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: api}
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests: {cpu: "2", memory: 3Gi}
+            limits: {cpu: "4", memory: 4Gi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: key, mountPath: /run/secrets/embedding, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: key, secret: {secretName: idp-embedding-key}}
+        - {name: tmp, emptyDir: {medium: Memory, sizeLimit: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: idp-embedding
+  namespace: idp-embedding
+spec:
+  selector: {app.kubernetes.io/name: idp-embedding}
+  ports: [{name: api, port: 8700, targetPort: api}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: idp-embedding
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: embedding-ingress
+  namespace: idp-embedding
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: embedding}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:   # the CMI, and nothing else
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-cmi}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: cmi}}
+      ports: [{protocol: TCP, port: 8700}]
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}
+      ports: [{protocol: TCP, port: 9700}]
+---
+# idp-cmi -> the embedding service: its pods, port 8700, and nothing else of that namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cmi-embedding
+  namespace: idp-cmi
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: cmi}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-embedding}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: embedding}}
+      ports: [{protocol: TCP, port: 8700}]

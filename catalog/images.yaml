@@ -1,0 +1,14 @@
+# Images that the PLATFORM builds itself from this repository (not a component's: components are repositories, catalog/components.yaml). The BOM records each
+# one's source tree (the git tree hash of `path`, which is also the tag it is published under) and the id of the image the acceptance ran. Third-party content
+# in them is listed with its license and where that was checked; the base images themselves are the mirror's (releases/mirror-images.yaml).
+images:
+  - name: idp-embedding
+    image: idp-embedding
+    path: deploy/images/embedding
+    note: The embedding service of the knowledge base (plan KB2). text-embeddings-inference (CPU) with Qwen3-Embedding-0.6B at a pinned revision in the image; no download at runtime, no network, non-root, read-only root.
+    base: ghcr.io/idp-xyz/mirror:ghcr.io__huggingface__text-embeddings-inference__cpu-1.9.4
+    model: {repository: Qwen/Qwen3-Embedding-0.6B, revision: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3, hashes: deploy/images/embedding/model.sha256}
+    licenses:
+      - {what: text-embeddings-inference cpu-1.9.4 (the base image and its router binary), license: Apache-2.0, checked: "the base image's label org.opencontainers.image.licenses, 2026-11-25"}
+      - {what: Qwen/Qwen3-Embedding-0.6B (the weights and tokenizer files), license: Apache-2.0, checked: "the model card at the pinned revision (license: apache-2.0), 2026-11-25"}
+      - {what: Debian 12 packages of the base image, license: "their own (dpkg's copyright files in the image)", checked: "not changed by this image"}
