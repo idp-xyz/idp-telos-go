@@ -122,6 +122,21 @@ spec:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-eer}}
       ports: [{protocol: TCP, port: 7233}]
 
+# idp-cmi -> the knowledge originals' RustFS: a container on the host's side (tests/kind/s3-target.sh), at the address full.sh puts in for 203.0.113.40, port 19510; nothing else
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cmi-originals
+  namespace: idp-cmi
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: cmi}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 203.0.113.40/32}
+      ports: [{protocol: TCP, port: 19510}]
+
 # Keycloak: keys (JWKS) and tokens, from every component that verifies or fetches tokens
 ---
 apiVersion: networking.k8s.io/v1

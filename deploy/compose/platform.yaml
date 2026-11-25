@@ -41,6 +41,7 @@ networks:
 volumes:
   pgdata: {}
   filesdata: {}
+  knowledgedata: {}
 
 services:
   postgres:
@@ -64,6 +65,20 @@ services:
       RUSTFS_CONSOLE_ENABLE: 'false'
       RUSTFS_SSE_S3_MASTER_KEY: ${IDP_FILES_S3_MASTER_KEY:?run deploy/compose/e2e.sh}
     volumes: [filesdata:/data]
+
+  # knowledge-base originals (idp-cmi): a RustFS of their own, not the members' files and not the
+  # database backups. The loopback port is for e2e.sh to create the bucket.
+  knowledge-s3:
+    image: ${IDP_KB_S3_IMAGE:-docker.io/rustfs/rustfs:1.0.4-glibc}
+    networks: [data, edge]
+    ports: ['127.0.0.1:19510:9000']
+    environment:
+      RUSTFS_ACCESS_KEY: ${IDP_KB_S3_ACCESS_KEY:?run deploy/compose/e2e.sh}
+      RUSTFS_SECRET_KEY: ${IDP_KB_S3_SECRET_KEY:?run deploy/compose/e2e.sh}
+      RUSTFS_REGION: us-east-1
+      RUSTFS_CONSOLE_ENABLE: 'false'
+      RUSTFS_SSE_S3_MASTER_KEY: ${IDP_KB_S3_MASTER_KEY:?run deploy/compose/e2e.sh}
+    volumes: [knowledgedata:/data]
 
   keycloak:
     image: ${IDP_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.2}
@@ -105,6 +120,14 @@ services:
       IDP_CMI_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
       IDP_CMI_ALLOW_INSECURE_JWKS: 'true'   # DEV: Keycloak over plain http on the compose network; production serves the keys over https (idp-cmi D42)
       IDP_CMI_AUDIENCE: idp-cmi
+      IDP_CMI_ORIGINALS_ENDPOINT: http://knowledge-s3:9000
+      IDP_CMI_ORIGINALS_BUCKET: knowledge-originals
+      IDP_CMI_ORIGINALS_ACCESS_KEY_FILE: /etc/idp/kb-s3.access
+      IDP_CMI_ORIGINALS_SECRET_KEY_FILE: /etc/idp/kb-s3.secret
+      IDP_CMI_TEMP_DIR: /var/cache/idp-cmi   # downloads of originals are verified through a file here: the root is read-only (idp-cmi deploy/compose.yaml)
+    tmpfs: ['/var/cache/idp-cmi:size=512m,mode=1777']
+    volumes: ['../../.local/platform/kb-s3.access:/etc/idp/kb-s3.access:ro', '../../.local/platform/kb-s3.secret:/etc/idp/kb-s3.secret:ro']
+    depends_on: [knowledge-s3]
 
   # ---- idp-mcp (registry, gateway) and idp-sandbox (P4) ----
   mcp-admin:

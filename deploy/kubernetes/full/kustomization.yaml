@@ -72,6 +72,12 @@ patches:
           IDP_CMI_ALLOW_INSECURE_JWKS: "true"   # DEV: Keycloak over plain http in the cluster; production serves the keys over https (idp-cmi D42)
           IDP_LOG_LEVEL: "info"
           IDP_METRICS_LISTEN: "0.0.0.0:9565"
+          # the knowledge originals (idp-cmi D47 to D58): a RustFS of its own on the host's side of the cluster network (tests/kind/s3-target.sh, port 19510; the
+          # address is the one full.sh puts in for 203.0.113.40), the keys from the Secret idp-cmi-originals mounted below
+          IDP_CMI_ORIGINALS_ENDPOINT: "http://203.0.113.40:19510"
+          IDP_CMI_ORIGINALS_BUCKET: "knowledge-originals"
+          IDP_CMI_ORIGINALS_ACCESS_KEY_FILE: "/etc/idp/originals/access"
+          IDP_CMI_ORIGINALS_SECRET_KEY_FILE: "/etc/idp/originals/secret"
   - target: {kind: ConfigMap, name: idp-cmi-config}
     patch: |-
       - op: replace
@@ -81,6 +87,11 @@ patches:
     patch: &http-probes |-
       - {op: replace, path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme, value: HTTP}
       - {op: replace, path: /spec/template/spec/containers/0/livenessProbe/httpGet/scheme, value: HTTP}
+  - target: {kind: Deployment, name: idp-cmi}
+    patch: |-
+      # added, never replaced: idp-cmi's own emptyDir "scratch" (/var/cache/idp-cmi, 512Mi, IDP_CMI_TEMP_DIR) must survive for the downloads of originals
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: originals, mountPath: /etc/idp/originals, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: originals, secret: {secretName: idp-cmi-originals}}}
   # ================= idp-host: Keycloak tokens, the model double, context from the CMI, delegation to the idp-mcp gateway =================
   - target: {kind: ConfigMap, name: idp-host-env}
     patch: |-

@@ -50,6 +50,7 @@
 #   KIND_CLUSTER=kind ...               the cluster (default kind; kubectl context kind-$KIND_CLUSTER)
 #   KIND_BACKUP_TARGET=NAME KIND_BACKUP_PORT=N ...   the backup target container and its port (default idp-kind-backup-target, 19000): the script
 #                                       recreates the container, so a cluster that runs beside another one on this host names its own
+#   KIND_KB_S3_NAME=NAME KIND_KB_S3_PORT=N ...   the knowledge originals' RustFS container and its port (default idp-kind-knowledge-originals, 19510), likewise
 #   TEARDOWN=1 ...                      delete the platform's namespaces at the end (default: leave it running)
 #   MODEL=live ...                      the HOST's agents answer with a real OpenAI-compatible model on this host
 #                                       (IDP_LIVE_MODEL_URL, default http://127.0.0.1:8080/v1; IDP_LIVE_MODEL, default the
@@ -233,6 +234,8 @@ PG=$(rnd) CMI_DB=$(rnd) HOST_DB=$(rnd) WS_DB=$(rnd) MCP_DB=$(rnd) WEB_DB=$(rnd) 
 PGH=postgresql.databases.svc.cluster.local:5432
 # the backup target is a container on this host (tests/kind/s3-target.sh, which recreates it): a second cluster on the same host names its own
 BACKUP_NAME="${KIND_BACKUP_TARGET:-idp-kind-backup-target}" BACKUP_PORT="${KIND_BACKUP_PORT:-19000}"
+# the knowledge originals' RustFS (idp-cmi D47 to D58) is another such container; a second cluster on the same host names its own and takes its own port
+KB_NAME="${KIND_KB_S3_NAME:-idp-kind-knowledge-originals}" KB_PORT="${KIND_KB_S3_PORT:-19510}"
 
 # ---------------------------------------------------------------- render
 log "render"
@@ -387,7 +390,7 @@ fi
 if go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build "$L/overlay" > "$L/platform.yaml" 2>"$L/kustomize.err"; then :; else
   kubectl kustomize "$L/overlay" > "$L/platform.yaml" || { cat "$L/kustomize.err" >&2; echo "BLOCKED: kustomize" >&2; exit 2; }
 fi
-sed -i "s#203.0.113.40#$BACKUP_GW#g" "$L/platform.yaml"
+sed -i "s#203.0.113.40#$BACKUP_GW#g; s#19510#$KB_PORT#g" "$L/platform.yaml"
 if [[ "$MODEL" == live ]]; then
   # the HOST's provider is the host's model through the forwarder, and the HOST's namespace may reach that address
   python3 - "$L/platform.yaml" "$MODEL_BASE" "$KIND_GW" "$LIVE_MODEL" <<'PY'
@@ -539,6 +542,9 @@ dbsecret() { # dbsecret NAMESPACE SECRET DATABASE OWNER-LOGIN SERVICE-LOGIN APP-
   mksecret "$1" "$2" --from-literal=owner-url="postgres://postgres:$PG@$PGH/$3?sslmode=verify-full" \
     --from-literal=service-url="postgres://$5:$6@$PGH/$3?sslmode=verify-full" --from-literal=app-password="$6"; }
 dbsecret idp-cmi idp-cmi-db idp_cmi x idp_cmi_svc "$CMI_DB"
+KB_AK="kb$(openssl rand -hex 8)"; KB_SK="$(openssl rand -hex 16)"
+S3_BUCKET=knowledge-originals S3_ACCESS_KEY="$KB_AK" S3_SECRET_KEY="$KB_SK" bash tests/kind/s3-target.sh "$KB_NAME" "$BACKUP_GW" "$KB_PORT"
+mksecret idp-cmi idp-cmi-originals --from-literal=access="$KB_AK" --from-literal=secret="$KB_SK"
 dbsecret idp-host idp-host-db idp_host x idp_host_svc "$HOST_DB"
 dbsecret idp-workspace idp-workspace-db idp_workspace x idp_ws_svc "$WS_DB"
 dbsecret idp-mcp idp-mcp-registry-db idp_mcp x idp_mcp_svc "$MCP_DB"
@@ -1542,6 +1548,14 @@ kubectl -n idp-workspace delete pod probe --wait=false >/dev/null; kubectl -n id
 [[ -z "$O8BAD" ]] || { echo "FAIL: PATH O8: the bridge's ports are reached as the policies do not say:$O8BAD" >&2; exit 1; }
 echo "PASS: PATH O8 — probe pods against the bridge's pod ($O8): as the Workspace only the API port 8681 is reached, as the gateway only the MCP port 8680, and a pod in a namespace with no policy reaches none of 8680, 8681 and 9680 (the bridge's ingress policy admits the gateway and the registry to 8680, the Workspace to 8681, observability to 9680); the Workspace and the gateway reach it as they must (O1, O2)"
 fi
+
+# ---- PATH P0: the knowledge bases of the knowledge-base plan (KB1; idp-cmi D47 to D58), through CMI's API with real tokens; the steps are in deploy/compose/path_p0.sh, which
+# deploy/compose/e2e.sh sources too. It runs after every path that uses bob's memory: the last check erases bob as a subject (his memory goes too) ----
+ALICE="$(user_token alice)"; BOB="$(user_token bob)"; CAROL="$(user_token carol)"
+BOB_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['bob'])" 2>/dev/null || true)"
+[[ -n "$BOB_ID" ]] || BOB_ID="$(python3 -c "import base64,json,sys; t=sys.argv[1].split('.')[1]; print(json.loads(base64.urlsafe_b64decode(t+'='*(-len(t)%4)))['sub'])" "$BOB")"
+p0_s3_keys() { printf 'user = "%s:%s"\n' "$KB_AK" "$KB_SK" | curl -sS --noproxy '*' --config - --aws-sigv4 aws:amz:us-east-1:s3 "http://$BACKUP_GW:$KB_PORT/knowledge-originals?list-type=2&max-keys=1000" | grep -o '<Key>[^<]*</Key>' | sed 's#</\?Key>##g'; }
+source deploy/compose/path_p0.sh
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then

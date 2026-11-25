@@ -11,9 +11,9 @@ ownership:
   - data: Goal, Task, Plan, Execution, Checkpoint, Retry, Approval, Evidence
     owner: idp-eer
     not: CMI memory (checkpoints are never written to CMI)
-  - data: ContextPackage, MemoryRecord, KnowledgeDocument, Source, erasure
+  - data: ContextPackage, MemoryRecord, KnowledgeDocument, KnowledgeBase (enterprise, unit and personal), the originals of knowledge documents (objects in the CMI's own store, keys in its database), Source, erasure
     owner: idp-cmi
-    not: the real-time business fact
+    not: the real-time business fact, and the members' files (idp-workspace; a RustFS of their own) and the database backups (another bucket, another instance)
   - data: MCP server / tool registry, connection policy, invocation audit
     owner: idp-mcp
     not: business APIs' contracts

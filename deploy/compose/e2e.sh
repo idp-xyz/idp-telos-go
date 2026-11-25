@@ -128,9 +128,10 @@ if [[ ! -f "$ENVF" ]] || ! grep -q EER_RUNTIME_APP_PASSWORD "$ENVF"; then
              EER_RUNTIME_OWNER_PASSWORD EER_RUNTIME_APP_PASSWORD EER_RUNTIME_READONLY_PASSWORD EER_INTELLIGENCE_OWNER_PASSWORD EER_INTELLIGENCE_APP_PASSWORD; do echo "$v=$(openssl rand -hex 16)"; done
     echo "IDP_HOST_CREDENTIAL_KEY=$(openssl rand -hex 32)"; } > "$ENVF"
 fi
-for v in IDP_BRIDGE_DB_PASSWORD IDP_THIRDPARTY_PREREG_SECRET IDP_MCP_DB_PASSWORD IDP_WEB_DB_PASSWORD IDP_MCP_ADMIN_SECRET IDP_FILES_S3_ACCESS_KEY IDP_FILES_S3_SECRET_KEY; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
+for v in IDP_BRIDGE_DB_PASSWORD IDP_THIRDPARTY_PREREG_SECRET IDP_MCP_DB_PASSWORD IDP_WEB_DB_PASSWORD IDP_MCP_ADMIN_SECRET IDP_FILES_S3_ACCESS_KEY IDP_FILES_S3_SECRET_KEY IDP_KB_S3_ACCESS_KEY IDP_KB_S3_SECRET_KEY; do grep -q "^$v=" "$ENVF" || echo "$v=$(openssl rand -hex 16)" >> "$ENVF"; done
 grep -q "^IDP_THIRDPARTY_PREREG_ID=" "$ENVF" || echo "IDP_THIRDPARTY_PREREG_ID=tp-preregistered-client" >> "$ENVF"
 grep -q "^IDP_FILES_S3_MASTER_KEY=" "$ENVF" || echo "IDP_FILES_S3_MASTER_KEY=$(openssl rand -base64 32)" >> "$ENVF"
+grep -q "^IDP_KB_S3_MASTER_KEY=" "$ENVF" || echo "IDP_KB_S3_MASTER_KEY=$(openssl rand -base64 32)" >> "$ENVF"
 set -a; source "$ENVF"; set +a
 
 for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge idp-browser; do
@@ -440,6 +441,14 @@ for _ in $(seq 1 60); do
   s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" 2>/dev/null && break; sleep 0.5
 done
 s3 -f -o /dev/null "http://127.0.0.1:19500/member-files?list-type=2&max-keys=1" || { "${C[@]}" logs --tail 20 files-s3; echo "BLOCKED: the members' file store has no bucket" >&2; exit 2; }
+printf '%s' "$IDP_KB_S3_ACCESS_KEY" > "$L/kb-s3.access"; printf '%s' "$IDP_KB_S3_SECRET_KEY" > "$L/kb-s3.secret"; chmod 644 "$L/kb-s3.access" "$L/kb-s3.secret"
+"${C[@]}" up -d knowledge-s3
+kbs3() { printf 'user = "%s:%s"\n' "$IDP_KB_S3_ACCESS_KEY" "$IDP_KB_S3_SECRET_KEY" | curl -sS --noproxy '*' --config - --aws-sigv4 aws:amz:us-east-1:s3 "$@"; }
+for _ in $(seq 1 60); do
+  kbs3 -f -X PUT -o /dev/null http://127.0.0.1:19510/knowledge-originals 2>/dev/null || true
+  kbs3 -f -o /dev/null "http://127.0.0.1:19510/knowledge-originals?list-type=2&max-keys=1" 2>/dev/null && break; sleep 0.5
+done
+kbs3 -f -o /dev/null "http://127.0.0.1:19510/knowledge-originals?list-type=2&max-keys=1" || { "${C[@]}" logs --tail 20 knowledge-s3; echo "BLOCKED: the knowledge original store has no bucket" >&2; exit 2; }
 for db in idp_cmi idp_host idp_workspace idp_mcp idp_web idp_bridge eer; do "${C[@]}" exec -T postgres psql -U postgres -q -c "CREATE DATABASE $db" >/dev/null; done
 "${C[@]}" up -d keycloak eer-temporal
 for _ in $(seq 1 120); do "${KC[@]}" -o /dev/null "$ISSUER/.well-known/openid-configuration" && break; sleep 1; done
@@ -1390,6 +1399,13 @@ for net in upstream edge data; do
 done
 echo "PASS: PATH O8 — the bridge publishes no port on the host; a container on bridgenet reaches its API port (the test can see it), and containers on upstream, edge and data reach none of its $O8N address and port pairs (8680, 8681, 9680 on each of its three networks); the Workspace and the gateway reach it (O1, O2); the third party shares only the thirdparty network with it, which compose cannot narrow to the bridge's outbound side (tests/kind/full.sh's NetworkPolicies can, and test it)"
 fi
+
+# ---- PATH P0: the knowledge bases of the knowledge-base plan (KB1; idp-cmi D47 to D58), through CMI's API with real tokens; the steps are in deploy/compose/path_p0.sh, which
+# tests/kind/full.sh sources too. It runs after every path that uses bob's memory: the last check erases bob as a subject (his memory goes too) ----
+ALICE="$(user_token alice)"; BOB="$(user_token bob)"; CAROL="$(user_token carol)"
+BOB_ID="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['bob'])")"
+p0_s3_keys() { kbs3 -f "http://127.0.0.1:19510/knowledge-originals?list-type=2&max-keys=1000" | grep -o '<Key>[^<]*</Key>' | sed 's#</\?Key>##g'; }
+source deploy/compose/path_p0.sh
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 if ! command -v uv >/dev/null; then

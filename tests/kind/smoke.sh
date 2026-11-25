@@ -38,6 +38,12 @@ fi
 
 log "render"
 go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build deploy/kubernetes/kind 2>/dev/null > "$OUT/platform.yaml"
+KIND_GW="$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1)"
+[[ -n "$KIND_GW" ]] || { echo "BLOCKED: no IPv4 gateway on the kind network" >&2; exit 2; }
+KB_NAME="${KIND_KB_S3_NAME:-idp-kind-knowledge-originals}"
+KB_AK="kb$(openssl rand -hex 8)"; KB_SK="$(openssl rand -hex 16)"
+S3_BUCKET=knowledge-originals S3_ACCESS_KEY="$KB_AK" S3_SECRET_KEY="$KB_SK" bash tests/kind/s3-target.sh "$KB_NAME" "$KIND_GW" 19510
+sed -i "s#203.0.113.40#$KIND_GW#g" "$OUT/platform.yaml"
 python3 - "$OUT/platform.yaml" "$OUT" <<'PY'
 import sys, yaml
 docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
@@ -53,6 +59,7 @@ PG="$(openssl rand -hex 16)"; DEV="$(openssl rand -hex 32)"
 kubectl -n databases create secret generic postgres-owner --from-literal=password="$PG" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 devtoken() { docker run --rm -e IDP_DEV_MODE=true -e IDP_DEV_SECRET="$DEV" --entrypoint "/usr/local/bin/$1" "$1:dev" dev-token "$TENANT" "${@:2}"; }
 for c in idp-cmi idp-host idp-workspace; do kubectl apply -f "$c/deploy/kubernetes/secrets.example.yaml" >/dev/null; done
+kubectl -n idp-cmi create secret generic idp-cmi-originals --from-literal=access="$KB_AK" --from-literal=secret="$KB_SK" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 for spec in idp-cmi:idp_cmi:idp_cmi_svc idp-host:idp_host:idp_host_svc idp-workspace:idp_workspace:idp_ws_svc; do
   IFS=: read -r c db login <<<"$spec"
   APP="$(openssl rand -hex 16)"

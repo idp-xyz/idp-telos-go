@@ -334,7 +334,9 @@ if CMI in schemas:
         ('cmi_package_with_lag', CMI, 'ContextPackage', 0, S(projectionLag=12.5)),
         # 1.4.0 (D28)
         ('cmi_package_without_omitted', CMI, 'ContextPackage', 0, U('omitted')),
-        ('cmi_package_omitted', CMI, 'ContextPackage', 0, S(omitted={'budget': 3, 'flagged': 1, 'candidate': 0, 'disputed': 0, 'forbidden': 0, 'lowSimilarity': 2})),
+        ('cmi_package_omitted', CMI, 'ContextPackage', 0, S(omitted={'budget': 3, 'flagged': 1, 'candidate': 0, 'disputed': 0, 'forbidden': 0, 'lowSimilarity': 2})),        # 1.5.0 (D47-D58)
+        ('cmi_document_knowledge_fields', CMI, 'KnowledgeDocument', 0, S(knowledgeBase='sales', validFrom='2026-12-01T00:00:00Z', docType='policy', owner='carol', reviewDue='2027-01-01T00:00:00Z')),
+        ('cmi_document_with_original', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 1234, 'sha256': 'sha256:' + 'ab' * 32})),
     ]
     NEGATIVE += [
         ('cmi_package_wrong_schema_version', CMI, 'ContextPackage', 0, S(schemaVersion='idp.cmi.package/v2')),
@@ -367,7 +369,10 @@ if CMI in schemas:
         # 1.4.0 (D28)
         ('cmi_omitted_negative', CMI, 'ContextPackage', 0, S(omitted={'budget': -1, 'flagged': 0, 'candidate': 0, 'disputed': 0, 'forbidden': 0, 'lowSimilarity': 0})),
         ('cmi_omitted_missing_reason', CMI, 'ContextPackage', 0, S(omitted={'budget': 1})),
-        ('cmi_omitted_unknown_reason', CMI, 'ContextPackage', 0, S(omitted={'budget': 0, 'flagged': 0, 'candidate': 0, 'disputed': 0, 'forbidden': 0, 'lowSimilarity': 0, 'acl': 1})),
+        ('cmi_omitted_unknown_reason', CMI, 'ContextPackage', 0, S(omitted={'budget': 0, 'flagged': 0, 'candidate': 0, 'disputed': 0, 'forbidden': 0, 'lowSimilarity': 0, 'acl': 1})),        # 1.5.0 (D47-D58)
+        ('cmi_document_bad_knowledge_base_name', CMI, 'KnowledgeDocument', 0, S(knowledgeBase='Sales Team')),
+        ('cmi_document_original_without_digest', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 1234})),
+        ('cmi_document_original_zero_bytes', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 0, 'sha256': 'sha256:' + 'ab' * 32})),
     ]
 
 #    idp.telos.workspace: mirrors idp-workspace's TestContractRejectsWhatTheWorkspaceRejects

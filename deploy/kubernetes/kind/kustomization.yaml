@@ -26,7 +26,9 @@ patches:
     patch: |-
       - op: replace
         path: /data
-        value: {IDP_CMI_LISTEN: "0.0.0.0:8550", IDP_CMI_CONFIG: "/etc/idp/config/cmi.yaml", IDP_DEV_MODE: "true", IDP_DEV_ALLOW_REMOTE: "true", IDP_DEV_SECRET_FILE: "/etc/idp/tls/dev-secret", IDP_LOG_LEVEL: "info", IDP_METRICS_LISTEN: "0.0.0.0:9565"}
+        value: {IDP_CMI_LISTEN: "0.0.0.0:8550", IDP_CMI_CONFIG: "/etc/idp/config/cmi.yaml", IDP_DEV_MODE: "true", IDP_DEV_ALLOW_REMOTE: "true", IDP_DEV_SECRET_FILE: "/etc/idp/tls/dev-secret", IDP_LOG_LEVEL: "info", IDP_METRICS_LISTEN: "0.0.0.0:9565",
+                IDP_CMI_ORIGINALS_ENDPOINT: "http://203.0.113.40:19510", IDP_CMI_ORIGINALS_BUCKET: "knowledge-originals",
+                IDP_CMI_ORIGINALS_ACCESS_KEY_FILE: "/etc/idp/originals/access", IDP_CMI_ORIGINALS_SECRET_KEY_FILE: "/etc/idp/originals/secret"}
   - target: {kind: ConfigMap, name: idp-cmi-config}
     patch: |-
       - op: replace
@@ -36,6 +38,14 @@ patches:
     patch: &http-probes |-
       - {op: replace, path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme, value: HTTP}
       - {op: replace, path: /spec/template/spec/containers/0/livenessProbe/httpGet/scheme, value: HTTP}
+  - target: {kind: Deployment, name: idp-cmi}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: originals, mountPath: /etc/idp/originals, readOnly: true}
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value: {name: originals, secret: {secretName: idp-cmi-originals}}
   # ---- idp-host: development tokens, plain HTTP, the model double, context from the CMI ----
   - target: {kind: ConfigMap, name: idp-host-env}
     patch: |-

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The development Keycloak realm of the whole platform (ADR-0001 T5). TEST DOUBLE: dev secrets only.
 
-Users: alice (ws-admin, cmi-admin, host-user), bob (ws-member, host-user; EER actor bob), operator (submits EER
+Users: alice (ws-admin, cmi-admin, host-user), bob (ws-member, host-user; EER actor bob), carol (ws-member, host-user, cmi-reader: bob's colleague, PATH P0), operator (submits EER
 intents), hostadmin, hostapprover, bridgeop (ws-member and bridge-reviewer: the operator who authorizes the reviewer account of a
 bridge connection, idp-mcp-bridge RUNBOOK 5.6). User ids are fixed here and written to CLIENTS_FILE, because idp-eer
 maps principals by (issuer, sub).
@@ -64,7 +64,7 @@ username = {"name": "preferred_username", "protocol": "openid-connect", "protoco
             "config": {"user.attribute": "username", "claim.name": "preferred_username", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "true"}}
 user_mappers = [tenant_attr, roles_map, username]
 
-users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "host-user", "cmi-reader"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"],
+users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "host-user", "cmi-reader"], "carol": ["ws-member", "host-user", "cmi-reader"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"],
          "bridgeop": ["ws-member", "bridge-reviewer"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
