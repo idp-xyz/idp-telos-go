@@ -12,6 +12,7 @@ IDP TELOS 的 Go 实现。本仓库是平台仓库（仓库工程架构中的 id
 | `idp-sandbox/` | Agent 执行沙箱：MCP 服务器，放在 idp-mcp 网关后面作为上游，让 Agent 在无网络、只读根、无特权、资源受限的一次性容器里运行 Python / Shell，文件保存在有大小上限的内存工作区。工具 `sandbox_create` / `_run` / `_write_file` / `_read_file` / `_list_files` / `_delete`。M1 完成并实测（14 个真实容器的逃逸 / 滥用用例，经真实网关的端到端）；容器共享内核、需要引擎套接字、网关不转发调用者身份等限制见其 ADR §5；设计见其 `docs/adr/ADR-0001-sandbox-design.md` | [idp-xyz/idp-sandbox](https://github.com/idp-xyz/idp-sandbox) |
 | `idp-web/` | Agent 联网：MCP 服务器，放在 idp-mcp 网关后面作为上游，让 Agent 搜索网页、读取网页正文。工具 `web_search` / `web_fetch` / `web_open_url`；`web_fetch` 只读搜索结果里出现过的地址（签名的 `ref`），`web_open_url` 读成员给的地址（租户文件里默认关，确认由 HOST 强制）；地址检查与 SSRF 防护、正文提取、租户名单、限流、审计（查询词明文）。设计见平台的 `docs/adr/ADR-0003-web-search-and-fetch.md` 与其 `docs/adr/ADR-0001-web-design.md`；compose 与 Kubernetes（kind）上都已接入（PATH M、N；清单在 `idp-web/deploy/kubernetes`） | [idp-xyz/idp-web](https://github.com/idp-xyz/idp-web) |
 | `idp-mcp-bridge/` | 外联桥：MCP 服务器，放在 idp-mcp 网关后面，每条连接一个端点，替成员调用第三方 MCP 服务；成员各自用 OAuth（授权码 + PKCE、客户端元数据文档或预注册客户端）授权一次，令牌密封在桥自己的 PostgreSQL 里，第三方只收到这个成员自己的令牌、收不到任何 TELOS 身份。计划见 `docs/adr/idp-mcp-bridge-oauth-plan.md`；设计见其 `docs/adr/ADR-0001-bridge-design.md` | [idp-xyz/idp-mcp-bridge](https://github.com/idp-xyz/idp-mcp-bridge) |
+| `idp-browser/` | 渲染读取（浏览器能力计划第 1 层）：渲染器（headless Chromium，POST /render，只收 idp-web 签名的请求）与它唯一的出口——只拨公共地址的出口代理（每次渲染有自己的凭据与预算：300 个请求、20 MiB）；idp-web 把需要脚本的页面和租户的 `alwaysRender` 主机交给它读一次，渲染结果仍走 idp-web 的提取、引用与审计。不存任何数据；两个镜像 `idp-browser`、`idp-browser-proxy`；隔离：gVisor（RuntimeClass）下 Chromium 关自己的沙箱，否则用 Chromium 自己的。计划见 `docs/adr/browser-capability-plan.md`。PATH M6（compose 与 kind 同一份 `deploy/compose/path_m6.sh`） | [idp-xyz/idp-browser](https://github.com/idp-xyz/idp-browser) |
 | `idp-contracts/` | `idp.telos.*` 契约登记：`idp.telos.mcp` 1.1.0、`idp.telos.host` 1.7.0、`idp.telos.cmi` 1.4.0、`idp.telos.workspace` 1.1.0（各由其生产者产出并由测试钉住）；四条规则见其 README | 本仓库 |
 | `catalog/` | 组件目录、允许的跨系统调用及其证据、状态权威归属 | 本仓库 |
 | `releases/` | 平台发布清单 `platform-bom.yaml`（组件提交、镜像、契约版本）与兼容性矩阵 `compatibility-matrix.yaml`，由 `tools/platform.py` 生成与校验 | 本仓库 |
@@ -32,6 +33,7 @@ git clone https://github.com/idp-xyz/idp-workspace.git
 git clone https://github.com/idp-xyz/idp-sandbox.git
 git clone https://github.com/idp-xyz/idp-web.git
 git clone https://github.com/idp-xyz/idp-mcp-bridge.git
+git clone https://github.com/idp-xyz/idp-browser.git
 ```
 
 契约校验器默认在 `idp-contracts/` 的上级目录（即本仓库根目录）里寻找并排克隆的生产者仓库；若它们放在别处，用 `--producer-root` 指定。
@@ -45,7 +47,7 @@ git clone https://github.com/idp-xyz/idp-mcp-bridge.git
 ```sh
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py check    # 目录、发布清单、兼容性矩阵
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py bom      # 组件移动后重新生成发布清单（matrix 同理）
-bash deploy/compose/e2e.sh                                                     # 构建各组件镜像，跑 PATH A 到 N 验收（KEEP=1 保留运行；MODEL=live 用本机真实模型）
+bash deploy/compose/e2e.sh                                                     # 构建各组件镜像，跑 PATH A 到 N（含 M6：渲染读取）与 O 验收（KEEP=1 保留运行；MODEL=live 用本机真实模型）
 uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py          # 渲染各组件（七个）的 Kubernetes 清单，核对每条集成两端的 NetworkPolicy
 bash tests/kind/smoke.sh                                                       # 在 kind 集群上按组件清单部署并跑 PATH A（CI: kind.yml）
 bash tests/kind/full.sh                                                        # 整平台上 kind：八个组件的清单 + Keycloak（https 发行者）、PostgreSQL、Temporal，全部命名空间默认拒绝（需要 Calico 等强制执行 NetworkPolicy 的集群），经 port-forward 跑 PATH A、B、D、E、I、L、F、G、H、M、N、O、C（M、N 是联网检索与页面注入，用 idp-web 的清单加测试源站；O 是第三方 MCP 服务与成员各自的 OAuth 授权，用桥的清单加测试第三方，并用探测 Pod 验证网络策略），再装好"助手"应用，浏览器里可从登录、提问、跑代码到审批完整体验（SKIP_BUILD=1 用已有镜像；MODEL=live 用本机真实模型；TEARDOWN=1 结束时删除）

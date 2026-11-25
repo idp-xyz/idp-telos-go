@@ -33,6 +33,7 @@ resources:
   - ../../../idp-sandbox/deploy/kubernetes-egress   # deploy/kubernetes plus the egress proxy
   - ../../../idp-web/deploy/kubernetes
   - ../../../idp-mcp-bridge/deploy/kubernetes
+  - ../../../idp-browser/deploy/kubernetes
   - fakemodel.yaml
   - assistant.yaml
   - setup-jobs.yaml
@@ -47,6 +48,8 @@ images:
   - {name: registry.example.com/idp/idp-sandbox-egress, newName: idp-sandbox-egress, newTag: dev}
   - {name: registry.example.com/idp/idp-web, newName: idp-web, newTag: dev}
   - {name: registry.example.com/idp/idp-mcp-bridge, newName: idp-mcp-bridge, newTag: dev}
+  - {name: registry.example.com/idp/idp-browser, newName: idp-browser, newTag: dev}
+  - {name: registry.example.com/idp/idp-browser-proxy, newName: idp-browser-proxy, newTag: dev}
   - {name: idp-cmi, newTag: dev}         # the setup Jobs name the images directly
   - {name: idp-host, newTag: dev}
   - {name: idp-workspace, newTag: dev}

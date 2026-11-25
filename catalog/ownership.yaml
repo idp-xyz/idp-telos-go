@@ -26,6 +26,9 @@ ownership:
   - data: Web tool daily quota counts (per tenant, UTC day and kind) and the numbers [n] of the sources a caller was shown (hashes of the caller and of the address)
     owner: idp-web
     not: the query, the address, the page, the caller's subject (never stored there), and the audit (a log line)
+  - data: "Render audit of the egress proxy (per render, the address asked for, allow or deny and the reason; a log line) and the renderer's metrics"
+    owner: idp-browser
+    not: "the page (a render's DOM goes to idp-web and is never kept), the caller, the query and anything of the member (the renderer does not know them); the budgets are in memory"
   - data: A member's grants for third-party services (the access and refresh tokens, sealed, per tenant, member and connection), the reviewer account's grant of a connection, the authorizations under way (state as its SHA-256, sealed PKCE verifier) and the clients registered dynamically
     owner: idp-mcp-bridge
     not: "the Workspace's record of who started a connection (connection_pending, hashes of state, never a token or a code), the gateway's invocation record, and every identity and credential of the platform (a third party is never given one)"

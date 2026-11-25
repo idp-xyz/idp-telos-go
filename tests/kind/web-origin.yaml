@@ -48,6 +48,10 @@ spec:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-web}}
           podSelector: {matchLabels: {app.kubernetes.io/component: web}}
       ports: [{protocol: TCP, port: 8080}]
+    - from:   # PATH M6: idp-browser's proxy fetches the pages the renderer is sent to (the test pages are served here)
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-browser}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: proxy}}
+      ports: [{protocol: TCP, port: 8080}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -77,7 +81,12 @@ spec:
           image: python:3.12-slim          # on the nodes already: it is what the sandbox runs
           imagePullPolicy: IfNotPresent
           # the name the bulletin gives the reader for the attacker: the Service's, which resolves from idp-web's namespace
-          env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}, {name: WEB_ATTACKER_HOST, value: attacker.web-attacker.svc.cluster.local}]
+          # WEB_SSRF_TARGETS: the internal addresses of this cluster that PATH M6's SSRF page asks for besides the fixed ones: a canary behind a name (tests/kind/browser-origin.yaml)
+          # and real services (Keycloak, the CMI, the idp-mcp gateway), by their cluster names
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+            - {name: WEB_ATTACKER_HOST, value: attacker.web-attacker.svc.cluster.local}
+            - {name: WEB_SSRF_TARGETS, value: "http://canary.web-canary.svc.cluster.local:80/c1,http://canary.web-canary.svc.cluster.local:8080/c2,http://keycloak.keycloak.svc.cluster.local:7080/k1,http://idp-cmi.idp-cmi.svc.cluster.local:8550/healthz,http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/healthz"}
           command: [python, -I, /srv/web_origin.py, origin, "8080"]
           ports: [{containerPort: 8080}]
           volumeMounts: [{name: script, mountPath: /srv, readOnly: true}]

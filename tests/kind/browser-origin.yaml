@@ -1,0 +1,165 @@
+# TEST ONLY, added by tests/kind/full.sh to the overlay it renders (PATH M6, idp-browser): the second page server, whose host the test tenant lists in alwaysRender
+# (namespace web-render-origin: the PDF of M6 f must go to the PDF reader and not to the renderer), and a canary (namespace web-canary): it records every request, answers
+# "ok" and has the names that the SSRF page of M6 c asks for (the Service `canary`, ports 80 and 8080); it must never be asked for anything. Both run the script of the
+# compose acceptance, deploy/compose/web_origin.py (full.sh puts it in the ConfigMap web-origin-script of each namespace). Each namespace is as closed as the platform's:
+# restricted, default-deny, in from named pods only, nothing goes out. The two policies in idp-browser and idp-web are the ones that let the proxy and idp-web reach them
+# (their private addresses are what the shipped egress rules rightly exclude); the canary is reachable by the PROXY on purpose, so that its not being asked is the proxy's
+# address rule and not a policy that happens to drop the packet.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web-render-origin
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web-canary
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: web-render-origin}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: web-canary}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: origin, namespace: web-render-origin}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: origin}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-web}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: web}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-browser}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: proxy}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: canary, namespace: web-canary}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: canary}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-browser}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: proxy}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: origin, namespace: web-render-origin}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: origin}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: origin}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: origin
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
+          command: [python, -I, /srv/web_origin.py, origin, "8080"]
+          ports: [{containerPort: 8080}]
+          volumeMounts: [{name: script, mountPath: /srv, readOnly: true}]
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 2}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      volumes: [{name: script, configMap: {name: web-origin-script}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: canary, namespace: web-canary}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: canary}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: canary}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: canary
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
+          command: [python, -I, /srv/web_origin.py, attacker, "8080"]
+          ports: [{containerPort: 8080}]
+          volumeMounts: [{name: script, mountPath: /srv, readOnly: true}]
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 2}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      volumes: [{name: script, configMap: {name: web-origin-script}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: origin, namespace: web-render-origin}
+spec:
+  selector: {app.kubernetes.io/name: origin}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: canary, namespace: web-canary}
+spec:
+  selector: {app.kubernetes.io/name: canary}
+  ports: [{name: p80, port: 80, targetPort: 8080}, {name: p8080, port: 8080, targetPort: 8080}]
+---
+# idp-browser's proxy may reach the three test servers (private addresses), on the port they listen on and no other
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: proxy-test-origins, namespace: idp-browser}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: proxy}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: web-origin}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: origin}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: web-render-origin}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: origin}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: web-canary}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: canary}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+# idp-web reads the second origin directly (the PDF of M6 f, and the plain read before any render)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: idp-web-render-origin, namespace: idp-web}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: web}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: web-render-origin}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: origin}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+# idp-web may reach the renderer (idp-web's own manifests have this rule from the commit that follows 35a82fb; until then the overlay carries it: the same peer and port)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: web-renderer-overlay, namespace: idp-web}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: web}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-browser}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: renderer}}
+      ports: [{protocol: TCP, port: 8590}]

@@ -35,6 +35,7 @@ networks:
   data: {internal: true}
   bridgenet: {internal: true}   # the bridge's ports: the gateway, the registry, the Workspace (and Keycloak, which the bridge calls) and nothing else
   bridgedb: {internal: true}    # the bridge's database: PostgreSQL and the bridge
+  browsernet: {internal: true}  # idp-browser's renderer, its egress proxy and idp-web: the renderer has no other way out than the proxy
   thirdparty: {}                # the bridge and the third party (TEST ONLY: a container; production reaches public https addresses)
 
 volumes:
@@ -224,15 +225,19 @@ services:
   web:
     <<: *hardened
     image: ${IDP_WEB_IMAGE:-idp-web:dev}
-    networks: [upstream, edge, data]   # data: the database of the daily quota and the source numbers (idp-web D28, D29)
-    volumes: ['../../.local/platform/caller.pub:/etc/idp/gateway.pub:ro', '../../.local/platform/web-ref.key:/etc/idp/ref.key:ro',
+    networks: [upstream, edge, data, browsernet]   # browsernet: the renderer (idp-browser), for pages whose text is made by script (idp-web D33)   # data: the database of the daily quota and the source numbers (idp-web D28, D29)
+    volumes: ['../../.local/platform/web-render.key:/etc/idp/render.key:ro', '../../.local/platform/caller.pub:/etc/idp/gateway.pub:ro', '../../.local/platform/web-ref.key:/etc/idp/ref.key:ro',
               '../../.local/platform/web-tenants.yaml:/etc/idp/tenants.yaml:ro', '../../.local/platform/web-fixture.yaml:/etc/idp/fixture.yaml:ro']
     environment:
       IDP_WEB_LISTEN: 0.0.0.0:8580
+      IDP_WEB_METRICS: 0.0.0.0:9580   # PATH M6 reads idp_web_renders_total from the internal network
       IDP_WEB_PRIVATE_NETWORK: 'true'
       IDP_WEB_CALLER_KEYS_FILE: /etc/idp/gateway.pub
       IDP_WEB_CALLER_AUDIENCE: http://web:8580/mcp
       IDP_WEB_PROVIDER: fixture
+      # the renderer: idp-web signs each request (ES256, audience = this URL exactly) and the renderer takes only idp-web's signature (idp-web D33, idp-browser D8)
+      IDP_WEB_RENDER_URL: http://browser:8590/render
+      IDP_WEB_RENDER_KEY_FILE: /etc/idp/render.key
       IDP_WEB_FIXTURE_FILE: /etc/idp/fixture.yaml
       IDP_WEB_REF_KEY_FILE: /etc/idp/ref.key
       IDP_WEB_TENANTS_FILE: /etc/idp/tenants.yaml
@@ -260,7 +265,8 @@ services:
     image: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
     networks: [edge]
     user: '65532:65532'
-    environment: {PYTHONDONTWRITEBYTECODE: '1'}
+    # WEB_SSRF_TARGETS: internal addresses of this deployment that the SSRF page of PATH M6 asks for besides the fixed ones: a canary behind a name, and real services
+    environment: {PYTHONDONTWRITEBYTECODE: '1', WEB_SSRF_TARGETS: 'http://canary:80/c1,http://canary:8080/c2,http://keycloak:7080/k1,http://cmi:8550/healthz,http://mcp-gateway:3320/healthz'}
     volumes: ['./web_origin.py:/srv/web_origin.py:ro']
     command: [python, -I, /srv/web_origin.py, origin]
   web-attacker:
@@ -334,6 +340,59 @@ services:
       THIRDPARTY_PREREG_SECRET: ${IDP_THIRDPARTY_PREREG_SECRET:-}
       THIRDPARTY_PREREG_REDIRECT: ${IDP_THIRDPARTY_PREREG_REDIRECT:-http://127.0.0.1:8560/oauth/callback}
     command: [python, -I, /srv/thirdparty_double.py, '8590']
+
+  # idp-browser (platform plan browser-capability-plan.md, layer 1): the renderer (headless Chromium) and its public-only egress proxy, as deploy/smoke-real.sh of that
+  # repository wires them. The renderer is on browsernet ONLY (internal): it reaches the proxy and idp-web reaches it, nothing else does. The proxy is on browsernet and on
+  # edge, which has the internet and the test origins; it refuses every address that is not public (the test origins and nothing else are exempt: TESTS ONLY).
+  # Isolation: gVisor when the Docker host has the runtime runsc (IDP_BROWSER_RUNTIME=runsc, which e2e.sh sets; then Chromium runs with --no-sandbox and says why), else
+  # Chromium's own sandbox, which needs the seccomp profile open (the container is otherwise as closed: read-only, no capabilities, an unprivileged user, memory-limited).
+  browser:
+    image: ${IDP_BROWSER_IMAGE:-idp-browser:dev}
+    networks: [browsernet]
+    read_only: true
+    cap_drop: [ALL]
+    user: '10600:10600'
+    runtime: ${IDP_BROWSER_RUNTIME:-runc}
+    security_opt: ['${IDP_BROWSER_SECCOMP:-seccomp=unconfined}']
+    mem_limit: 4g
+    tmpfs: ['/profile:rw,uid=10600,gid=10600,size=2g', '/tmp:rw,exec,mode=1777,size=256m']
+    volumes: ['../../.local/platform/web-render.pub:/etc/idp/caller.pub:ro', '../../.local/platform/browser-admin.key:/etc/idp/admin.key:ro']
+    environment:
+      IDP_BROWSER_LISTEN: 0.0.0.0:8590
+      IDP_BROWSER_METRICS: 0.0.0.0:9590
+      IDP_BROWSER_PRIVATE_NETWORK: 'true'
+      IDP_BROWSER_CALLER_KEYS_FILE: /etc/idp/caller.pub
+      IDP_BROWSER_CALLER_AUDIENCE: http://browser:8590/render
+      IDP_BROWSER_PROXY: browser-proxy:3128
+      IDP_BROWSER_PROXY_ADMIN: http://browser-proxy:3129
+      IDP_BROWSER_PROXY_ADMIN_KEY_FILE: /etc/idp/admin.key
+      IDP_BROWSER_NO_SANDBOX: ${IDP_BROWSER_NO_SANDBOX:-false}
+      IDP_BROWSER_ISOLATED_BY: ${IDP_BROWSER_ISOLATED_BY:-}
+      IDP_BROWSER_TEST_ORIGINS: ${IDP_BROWSER_TEST_ORIGINS:-}   # TESTS ONLY (deploy/compose/e2e.sh): the test origins, which are containers at private addresses
+    depends_on: [browser-proxy]
+  browser-proxy:
+    <<: *hardened
+    image: ${IDP_BROWSER_PROXY_IMAGE:-idp-browser-proxy:dev}
+    networks: [browsernet, edge]
+    user: '10601:10601'
+    volumes: ['../../.local/platform/browser-admin.key:/etc/idp/admin.key:ro']
+    environment:
+      IDP_BROWSER_PROXY_LISTEN: 0.0.0.0:3128
+      IDP_BROWSER_PROXY_ADMIN_LISTEN: 0.0.0.0:3129
+      IDP_BROWSER_PROXY_METRICS: 0.0.0.0:9591
+      IDP_BROWSER_PRIVATE_NETWORK: 'true'
+      IDP_BROWSER_PROXY_ADMIN_KEY_FILE: /etc/idp/admin.key
+      IDP_BROWSER_TEST_ORIGINS: ${IDP_BROWSER_TEST_ORIGINS:-}   # TESTS ONLY, the same list as the renderer's
+  # TEST ONLY (profile web-test): a second page server, whose host the test tenant lists in alwaysRender (PATH M6 f), and a canary: it records every request, answers
+  # "ok" and has the names the SSRF page asks for (PATH M6 c); it must never be asked for anything. It is on edge, where the proxy can resolve its names to a private address
+  web-render-origin:
+    <<: *web-test-origin
+    command: [python, -I, /srv/web_origin.py, origin]
+  web-canary:
+    <<: *web-test-origin
+    networks:
+      edge: {aliases: [canary]}
+    command: [python, -I, /srv/web_origin.py, attacker]
 
   # ---- idp-host ----
   fakemodel:

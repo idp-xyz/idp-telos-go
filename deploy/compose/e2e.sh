@@ -39,6 +39,8 @@
 #   SKIP_BUILD=1 ...                    use the images already built (idp-cmi:dev, idp-host:dev, idp-host-fakemodel:dev, idp-workspace:dev, eer-runtime:dev,
 #                                       idp-mcp:dev, idp-sandbox:dev, idp-sandbox-egress:dev, idp-sandbox-office:dev, idp-web:dev, idp-mcp-bridge:dev)
 #   KEEP=1 ...                          leave the platform running
+#   PATH M6 (idp-browser: pages whose text is made by script, read after rendering) needs the Chromium base image: chromium-base:159 in the Docker daemon is used
+#   if it is there (CHROMIUM_IMAGE=<image> names another), else idp-browser's Dockerfile pulls the platform's mirror copy (releases/mirror-images.yaml)
 #   GITHUB_CALLBACK=script|workspace   with GITHUB=live: who receives GitHub's redirect (default script: a listener of github_live.sh on 127.0.0.1:8561)
 #   GITHUB=live ...                     R1 (plan idp-mcp-bridge-oauth-plan.md section 5): a connection `github` to GitHub's hosted MCP server
 #                                       (https://api.githubcopilot.com/mcp/readonly) is added to the bridge, with the GitHub App whose Client ID and
@@ -66,7 +68,17 @@ export IDP_EGRESS_ALLOW_PRIVATE=true
 EGRESS_ORIGIN=egress-origin
 # PATH M and N's two origins are containers too: idp-web is told to read those two addresses (host:port, exactly) and no others. TESTS ONLY.
 WEB_ORIGIN=web-origin WEB_ATTACKER=web-attacker
-export IDP_WEB_TEST_ORIGINS="$WEB_ORIGIN:80,$WEB_ATTACKER:80"
+# PATH M6: web-render-origin is a second page server, whose host the test tenant lists in alwaysRender; the renderer and its proxy are told the same two origins
+WEB_RENDER_ORIGIN=web-render-origin
+export IDP_WEB_TEST_ORIGINS="$WEB_ORIGIN:80,$WEB_ATTACKER:80,$WEB_RENDER_ORIGIN:80"
+export IDP_BROWSER_TEST_ORIGINS="$WEB_ORIGIN:80,$WEB_RENDER_ORIGIN:80"
+# isolation of the renderer: gVisor if this Docker has the runtime runsc (Chromium then runs with --no-sandbox, on the statement that the runtime is the sandbox), else
+# Chromium's own sandbox, which needs the seccomp profile open; M6 says which ran
+if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"runsc"'; then
+  export IDP_BROWSER_RUNTIME=runsc IDP_BROWSER_NO_SANDBOX=true IDP_BROWSER_ISOLATED_BY=gvisor IDP_BROWSER_SECCOMP=seccomp=default BROWSER_ISOLATION="gVisor (runtime runsc), Chromium --no-sandbox"
+else
+  export IDP_BROWSER_RUNTIME=runc IDP_BROWSER_SECCOMP=seccomp=unconfined BROWSER_ISOLATION="Chromium's own sandbox (no runsc on this Docker host; seccomp open, read-only, no capabilities, user 10600, 4 GiB)"
+fi
 # PATH O: the third party is a container too, at a private address on port 8590, and the Workspace's public address is http: the bridge is told to
 # reach those two origins (host:port, exactly) and no others, and so is the Workspace (the same two, in its configuration). TESTS ONLY.
 TP_BASE=http://thirdparty:8590 TP=http://127.0.0.1:8590
@@ -121,7 +133,7 @@ grep -q "^IDP_THIRDPARTY_PREREG_ID=" "$ENVF" || echo "IDP_THIRDPARTY_PREREG_ID=t
 grep -q "^IDP_FILES_S3_MASTER_KEY=" "$ENVF" || echo "IDP_FILES_S3_MASTER_KEY=$(openssl rand -base64 32)" >> "$ENVF"
 set -a; source "$ENVF"; set +a
 
-for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge; do
+for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge idp-browser; do
   [[ -d "$repo/.git" ]] || { echo "BLOCKED: $repo is not checked out next to this repository" >&2; exit 2; }
 done
 if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
@@ -135,6 +147,10 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-sandbox/deploy/build-egress.sh idp-sandbox-egress:dev
   bash idp-web/deploy/build.sh idp-web:dev
   bash idp-mcp-bridge/deploy/build.sh idp-mcp-bridge:dev
+  # idp-browser: two images (the renderer with Chromium, the proxy); deploy/build.sh tags them with the commit, the platform runs them as :dev
+  BROWSER_CHROMIUM="${CHROMIUM_IMAGE:-}"; [[ -n "$BROWSER_CHROMIUM" ]] || ! docker image inspect chromium-base:159 >/dev/null 2>&1 || BROWSER_CHROMIUM=chromium-base:159
+  built="$(CHROMIUM_IMAGE="$BROWSER_CHROMIUM" bash idp-browser/deploy/build.sh idp-browser)"; echo "$built"
+  docker tag "$(echo "$built" | sed -n 's/^OK: \([^ ]*\) .*/\1/p')" idp-browser:dev; docker tag "$(echo "$built" | sed -n 's/.* \(idp-browser-proxy:[^ ]*\) .*/\1/p')" idp-browser-proxy:dev
 fi
 # the sandbox's runtime images are pulled by the operator (here), never by the service
 bash tools/pull_image.sh public.ecr.aws/docker/library/python:3.12-slim public.ecr.aws/docker/library/alpine:3.22
@@ -145,7 +161,7 @@ if ! docker image inspect "$FILES_S3_IMG" >/dev/null 2>&1; then
 fi
 # the sandbox's office run image (idp-sandbox ADR-0001 D14) is built offline on that python image; OfficeCLI is pinned in its script
 [[ "${SKIP_BUILD:-0}" == 1 ]] || BASE=public.ecr.aws/docker/library/python:3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
-OWN=(idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev idp-mcp-bridge:dev)
+OWN=(idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev)
 for img in "${OWN[@]}" "$FILES_S3_IMG"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
 done
@@ -327,7 +343,8 @@ chmod 644 "$L/egress.key" "$L/egress-tenants.yaml"
 head -c 48 /dev/urandom | base64 -w0 > "$L/web-ref.key"
 # dailySearches: 3 is the daily quota PATH M3 uses up (PATH M searches once, M3 the other two and is refused the next; M3 then
 # zeroes the count so that PATH N has its own searches)
-printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true, dailySearches: 3}\n' "$TENANT" > "$L/web-tenants.yaml"
+# alwaysRender: the host of the second page server is read by the renderer whatever it serves (PATH M6 f: but a PDF is never sent to it)
+printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true, dailySearches: 3, alwaysRender: [%s]}\n' "$TENANT" "$WEB_RENDER_ORIGIN" > "$L/web-tenants.yaml"
 WEB_ARTICLE="http://$WEB_ORIGIN/article.html" WEB_BULLETIN="http://$WEB_ORIGIN/bulletin.html" WEB_COLLECT="http://$WEB_ATTACKER/collect?d=CONTEXT"
 WEB_TARIFF="http://$WEB_ORIGIN/tariff.pdf" WEB_SCAN="http://$WEB_ORIGIN/scan.pdf"   # PATH M4: built by web_origin.py
 cat > "$L/web-fixture.yaml" <<YAML
@@ -344,8 +361,16 @@ entries:
   - match: receipt
     results:
       - {url: "$WEB_SCAN", title: "Scanned receipt (PDF)", published: "2026-11-01", snippet: "A scan of a paper receipt"}
+$(for k in m6js2:js.html?next=1 m6js3:js.html?g=1 m6js:js.html m6delayed:delayed.html m6ssrf:ssrf.html m6storm:storm.html m6deniedjs:denied-js.html m6denied:denied.html m6plain:article.html?plain=1; do printf '  - match: %s\n    results:\n      - {url: "http://%s/%s", title: "M6 page %s", published: "2026-11-01", snippet: "a page of PATH M6"}\n' "${k%%:*}" "$WEB_ORIGIN" "${k#*:}" "${k%%:*}"; done)
+  - match: m6pdf
+    results:
+      - {url: "http://$WEB_RENDER_ORIGIN/tariff.pdf", title: "M6 PDF on a host that is always rendered", published: "2026-11-01", snippet: "a PDF"}
 YAML
 chmod 644 "$L/web-ref.key" "$L/web-tenants.yaml" "$L/web-fixture.yaml"
+# idp-browser's keys: idp-web's P-256 key (the renderer takes only requests signed with it; it has the public half) and the key the renderer and its proxy share (at least 32 bytes)
+openssl ecparam -name prime256v1 -genkey -noout -out "$L/web-render.key" 2>/dev/null; openssl ec -in "$L/web-render.key" -pubout -out "$L/web-render.pub" 2>/dev/null
+openssl rand -hex 32 > "$L/browser-admin.key"
+chmod 644 "$L/web-render.key" "$L/web-render.pub" "$L/browser-admin.key"
 # idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md): the connections it fronts, the key that seals the members' tokens, and the secret of the
 # preregistered client. `thirdparty` is a client metadata document client (the client_id is the address at which the Workspace hosts the
 # document, which the third party fetches); `thirdparty-pre` the preregistered one. The issuer is pinned: discovery refuses any other.
@@ -455,7 +480,7 @@ field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 "${C[@]}" run --rm -T bridge-admin ensure-login idp_bridge_svc >/dev/null
 got="$("${C[@]}" run --rm -T mcp-admin seed-tenant acme "$TENANT" | sed -n 's/^TENANT_ID=//p')"
 [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: mcp tenant $got != $TENANT" >&2; exit 2; }
-"${C[@]}" up -d mcp-registry sandbox egress-origin web web-origin web-attacker thirdparty bridge   # the sandbox brings its egress proxy with it
+"${C[@]}" up -d mcp-registry sandbox egress-origin web web-origin web-attacker web-render-origin web-canary browser browser-proxy thirdparty bridge   # the sandbox brings its egress proxy with it
 for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:8250/api/v1/health && break; sleep 0.5; done
 mcp_token() { "${C[@]}" run --rm -T mcp-admin dev-token "$TENANT" "$1" "$2" | tail -1; }
 MADMIN="$(mcp_token carol admin)"; MOPERATOR="$(mcp_token alice operator)"; MREVIEWER="$(mcp_token bob reviewer)"
@@ -1278,6 +1303,29 @@ run_input() { "${C[@]}" exec -T postgres psql -U postgres -d idp_host -tAc "SELE
 NIN="$(python3 -c "import json,sys; print(json.dumps({'web': json.loads(sys.argv[1]), 'control': json.loads(sys.argv[2])}))" "$(run_input "$NRUN")" "$(run_input "$CONTROL")" \
   | python3 -I deploy/compose/web_check.py n-input "$SECRET")" || exit 1
 echo "PASS: PATH N — a page told the model to send data to $WEB_ATTACKER: (a) $NAUD; (b) web_open_url waited for bob ($NEV) and he rejected it; (c) $NATT; (d) $NIN"
+
+# ---- PATH M6: pages whose text is made by script, read after rendering (idp-browser; the steps are in deploy/compose/path_m6.sh, which tests/kind/full.sh sources too) ----
+M6_ISOLATION="$BROWSER_ISOLATION"
+M6_SSRF_TARGETS="169.254.169.254:80 10.255.255.1:80 192.168.0.1:80 172.16.0.1:80 127.0.0.1:8560 ::1:8560 localhost:7080 canary:80 canary:8080 keycloak:7080 cmi:8550 mcp-gateway:3320"
+M6_WEB_METRICS=http://web:9580/metrics
+m6_web_log() { "${C[@]}" logs --no-color --no-log-prefix web 2>/dev/null; }
+m6_proxy_log() { "${C[@]}" logs --no-color --no-log-prefix browser-proxy 2>/dev/null; }
+m6_renderer_log() { "${C[@]}" logs --no-color --no-log-prefix browser 2>/dev/null; }
+m6_canary_log() { "${C[@]}" logs --no-color --no-log-prefix web-canary 2>/dev/null; }
+m6_render_origin_log() { "${C[@]}" logs --no-color --no-log-prefix web-render-origin 2>/dev/null; }
+m6_get() { docker run --rm --network idp-telos-platform_browsernet --entrypoint python "${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}" -c 'import sys,urllib.request; r=urllib.request.urlopen(sys.argv[1], timeout=10); sys.stdout.write(r.read().decode())' "$1"; }
+m6_quota_reset() { "${C[@]}" exec -T postgres psql -U postgres -d idp_web -qc "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null; }
+m6_renderer_stop() { "${C[@]}" stop browser >/dev/null; }
+m6_renderer_start() { "${C[@]}" start browser >/dev/null; for _ in $(seq 1 60); do m6_get http://browser:9590/readyz >/dev/null 2>&1 && return 0; sleep 1; done; echo "FAIL: PATH M6: the renderer did not become ready again" >&2; exit 1; }
+source deploy/compose/path_m6.sh
+# the renderer's network: nothing reaches its port but idp-web (the containers of the other networks have no route to it), and it reaches the proxy and no way out of the platform
+BROWSER_CID="$("${C[@]}" ps -q browser)"; BROWSER_IP="$(docker inspect -f '{{(index .NetworkSettings.Networks "idp-telos-platform_browsernet").IPAddress}}' "$BROWSER_CID")"
+m6_nc() { docker run --rm --network "$1" --entrypoint nc public.ecr.aws/docker/library/alpine:3.22 -z -w 2 "$2" "$3" >/dev/null 2>&1; }
+m6_nc idp-telos-platform_browsernet "$BROWSER_IP" 8590 || { echo "FAIL: PATH M6h: the probe cannot reach the renderer from browsernet, where idp-web is: the test would prove nothing" >&2; exit 1; }
+for net in upstream edge data; do m6_nc "idp-telos-platform_$net" "$BROWSER_IP" 8590 && { echo "FAIL: PATH M6h: a container on $net reaches the renderer's port" >&2; exit 1; }; done
+m6_nc "container:$BROWSER_CID" browser-proxy 3128 || { echo "FAIL: PATH M6h: the renderer cannot reach the proxy" >&2; exit 1; }
+for t in 1.1.1.1:443 8.8.8.8:53 169.254.169.254:80 93.184.216.34:80; do m6_nc "container:$BROWSER_CID" "${t%:*}" "${t#*:}" && { echo "FAIL: PATH M6h: the renderer's network reaches $t without the proxy" >&2; exit 1; }; done
+echo "PASS: PATH M6h — the renderer is on browsernet only: a container on upstream, edge or data has no route to its port 8590 (the probe on browsernet, where idp-web is, reaches it), and from inside its own network namespace the proxy answers and 1.1.1.1:443, 8.8.8.8:53, 169.254.169.254:80 and a public web address do not (the compose limit: it shares browsernet with idp-web, which kind's NetworkPolicy narrows to the proxy alone)"
 fi
 
 # ---- PATH O: a third party's MCP server with the member's own OAuth authorization, through idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md section 4) ----

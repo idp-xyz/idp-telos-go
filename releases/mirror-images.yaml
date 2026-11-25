@@ -57,6 +57,12 @@ images:
     tag: "3.22"
     target: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22
     aliases: [docker.io/library/alpine:3.22]
+  # idp-browser's Chromium: chromedp's headless-shell, Chromium 159.0.8154.13, the base of the renderer image (idp-browser deploy/Dockerfile names this copy).
+  # Docker Hub was not reachable when the entry was made (502): the digest was looked up through docker.m.daocloud.io and docker.1ms.run, which agree
+  - source: docker.io/chromedp/headless-shell@sha256:381353d3530ab9d579d2fe8b9c0f4519c995617f5a71daf6bb649e2d12005bd9
+    tag: "159.0.8154.13"
+    target: ghcr.io/idp-xyz/mirror:docker.io__chromedp__headless-shell__159.0.8154.13
+    resolvedVia: mirrors
   # kind smoke test
   - source: public.ecr.aws/docker/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
     tag: "1.37"

@@ -102,3 +102,11 @@ integrations:
     contract: null  # the bridge's own internal API; what the Workspace answers members follows idp.telos.workspace 1.4.0
     auth: [exchange (RFC 8693): the member's token exchanged for the bridge's audience (IDP_BRIDGE_API_AUDIENCE) by the Workspace's client (azp), which the bridge verifies against Keycloak's keys; the member and the tenant come from that token and from nothing else]
     evidence: [idp-workspace ADR-0001 D30 (go test ./tests/integration), idp-mcp-bridge ADR-0001 D16, D21 to D32, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH O: connect, refresh, a wrong iss, disconnect; a state started by bob and presented with alice's token is refused and the bridge is not called)]
+  - id: web-browser-render
+    port: 8590   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
+    from: idp-web
+    to: idp-browser
+    interface: POST /render {url, timeoutMs, maxBytes} (the page's rendered DOM); the request carries idp-web's ES256 caller assertion, audience the render URL exactly (idp-web D33, idp-browser D8)
+    contract: null  # idp-browser's own API
+    auth: [the caller assertion signed with idp-web's key (IDP_WEB_RENDER_KEY_FILE), which the renderer verifies against idp-web's public key (IDP_BROWSER_CALLER_KEYS_FILE); only idp-web is admitted by the NetworkPolicy]
+    evidence: [idp-browser ADR-0001 D3, D8, idp-web ADR-0001 D33, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH M6: a page whose text exists only after script is read and cited as rendered; the SSRF page's every forbidden request is refused at the proxy; a storm ends within the budgets; an access-denied page and a PDF are not rendered; with the renderer stopped a script page gives needs_script), platform plan browser-capability-plan.md]

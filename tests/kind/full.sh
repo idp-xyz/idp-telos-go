@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The WHOLE platform on a kind cluster (docs/adr/ADR-0001-platform-integration.md): idp-cmi, idp-host, idp-workspace,
-# idp-eer, idp-mcp, idp-sandbox, idp-web and idp-mcp-bridge from their own Kubernetes manifests, composed by deploy/kubernetes/full with an
+# idp-eer, idp-mcp, idp-sandbox, idp-web, idp-mcp-bridge and idp-browser from their own Kubernetes manifests, composed by deploy/kubernetes/full with an
 # in-cluster PostgreSQL, Keycloak (https issuer, a per-run CA), Temporal and the HOST's model double; every namespace
 # default-deny (the cluster must enforce NetworkPolicies, e.g. Calico). Then the paths of deploy/compose/e2e.sh,
 # with the same assertions, through kubectl port-forwards on high local ports:
@@ -24,6 +24,12 @@
 #           search provider, the tenants file that enables the run's tenant, IDP_WEB_TEST_ORIGINS, two test origins in their own
 #           namespaces and the one test NetworkPolicy that lets idp-web reach them: tests/kind/web-origin.yaml. Neither path
 #           has a live-model variant: with MODEL=live they are NOT_RUN)
+#   PATH M6 pages whose text is made by script, read after rendering by idp-browser (plan browser-capability-plan.md, layer 1): the steps are
+#           deploy/compose/path_m6.sh, shared with deploy/compose/e2e.sh (a JS-only page, a delayed one, an SSRF page that asks the proxy for every forbidden
+#           address, a request storm, an access-denied page, a PDF on an alwaysRender host that the renderer is not asked for, the renderer stopped); M6h is
+#           this script's own: probe pods stand where the NetworkPolicies look (only idp-web reaches the renderer, the renderer reaches only its proxy, the
+#           proxy no cluster pod). The renderer runs under RuntimeClass gvisor when the cluster has it (tests/kind/gvisor-node.sh), else Chromium's own
+#           sandbox (say so in the PASS lines); a second page server and a canary: tests/kind/browser-origin.yaml; with MODEL=live it is NOT_RUN with M and N
 #   PATH O  a third party's MCP server with the member's own OAuth authorization, through idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md section 4):
 #           the steps are deploy/compose/path_o.sh, shared with deploy/compose/e2e.sh (bob connects, his run reaches the third party with his token and
 #           nothing of TELOS, alice is told to authorize, an expired token is refreshed, a wrong iss stores nothing, bob disconnects, no secret is in
@@ -69,10 +75,12 @@ WEB_URL=http://idp-web.idp-web.svc.cluster.local:8580/mcp   # as shipped in idp-
 # PATH O: the bridge, the third party it talks to (tests/kind/thirdparty.yaml) and the connection's endpoint at the bridge, as registered at the gateway
 BRIDGE_ENDPOINT=http://idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local:8680/mcp/thirdparty
 TP_BASE=http://thirdparty.thirdparty.svc.cluster.local:8590 TP=http://127.0.0.1:17590
-NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web idp-mcp-bridge thirdparty bridge-probe web-origin web-attacker egress-origin databases keycloak temporal)
+NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web idp-mcp-bridge thirdparty bridge-probe web-origin web-attacker web-render-origin web-canary idp-browser egress-origin databases keycloak temporal)
 EGRESS_ORIGIN=origin.egress-origin.svc.cluster.local   # PATH L: the one host bob's tenant may reach (tests/kind/egress-origin.yaml)
 # PATH M and N: the page server and the "attacker" (tests/kind/web-origin.yaml), each in a namespace of its own, on the Service port 80
 WEB_ORIGIN=origin.web-origin.svc.cluster.local WEB_ATTACKER=attacker.web-attacker.svc.cluster.local
+# PATH M6: a second page server (a host the test tenant lists in alwaysRender) and a canary behind the names the SSRF page asks for (tests/kind/browser-origin.yaml)
+WEB_RENDER_ORIGIN=origin.web-render-origin.svc.cluster.local
 log() { echo "== $*"; }
 mkdir -p "$L"
 PFPIDS=()
@@ -81,7 +89,7 @@ PFPIDS=()
 pf() { # pf NAMESPACE SERVICE LOCAL:REMOTE
   ( while true; do kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null 2>&1 || true; sleep 1; done ) & PFPIDS+=($!)
 }
-for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge; do
+for repo in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge idp-browser; do
   [[ -d "$repo/.git" ]] || { echo "BLOCKED: $repo is not checked out next to this repository" >&2; exit 2; }
 done
 for tool in kubectl kind docker openssl python3 curl; do command -v "$tool" >/dev/null || { echo "BLOCKED: $tool not found" >&2; exit 2; }; done
@@ -98,7 +106,7 @@ fi
 diagnose() {
   echo "== diagnostics" >&2
   kubectl get pods -A 2>&1 | grep -E 'idp-|databases|keycloak|temporal' | grep -vE 'Running +[0-9]+ .*|Completed' >&2 || true
-  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge thirdparty web-origin web-attacker keycloak temporal; do
+  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge idp-browser thirdparty web-origin web-attacker web-render-origin web-canary keycloak temporal; do
     for p in $(kubectl -n "$ns" get pods --no-headers 2>/dev/null | awk '$3!="Running" && $3!="Completed" {print $1}'); do
       echo "-- $ns/$p" >&2; kubectl -n "$ns" describe pod "$p" 2>&1 | tail -8 >&2; kubectl -n "$ns" logs "$p" --all-containers --tail=15 2>&1 >&2 || true
     done
@@ -126,6 +134,10 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   bash idp-sandbox/deploy/build-egress.sh idp-sandbox-egress:dev
   bash idp-web/deploy/build.sh idp-web:dev
   bash idp-mcp-bridge/deploy/build.sh idp-mcp-bridge:dev
+  # idp-browser: two images (the renderer with Chromium, the proxy); deploy/build.sh tags them with the commit, the platform runs them as :dev
+  BROWSER_CHROMIUM="${CHROMIUM_IMAGE:-}"; [[ -n "$BROWSER_CHROMIUM" ]] || ! docker image inspect chromium-base:159 >/dev/null 2>&1 || BROWSER_CHROMIUM=chromium-base:159
+  built="$(CHROMIUM_IMAGE="$BROWSER_CHROMIUM" bash idp-browser/deploy/build.sh idp-browser)"; echo "$built"
+  docker tag "$(echo "$built" | sed -n 's/^OK: \([^ ]*\) .*/\1/p')" idp-browser:dev; docker tag "$(echo "$built" | sed -n 's/.* \(idp-browser-proxy:[^ ]*\) .*/\1/p')" idp-browser-proxy:dev
   bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
 fi
 # load an image into the cluster; a Docker with the containerd image store saves all platforms and kind's import fails
@@ -153,7 +165,7 @@ ensure_image() { # ensure_image IMAGE [NODE-NAME]
   load_image "$want"
 }
 log "loading images into $CLUSTER"
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-pg-backup:dev; do
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-pg-backup:dev; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing (run without SKIP_BUILD)" >&2; exit 2; }
   load_image "$img"
 done
@@ -238,6 +250,30 @@ cp tests/kind/egress-origin.yaml "$L/overlay/egress-origin.yaml"
 # per run, idp-web-fixture); the two test origins, exempt from the address rules by exactly host:port (idp-web D14); and the test origins
 # and the one NetworkPolicy that lets idp-web reach their private addresses (tests/kind/web-origin.yaml).
 cp tests/kind/web-origin.yaml "$L/overlay/web-origin.yaml"
+# PATH M6: idp-browser as shipped plus what the acceptance needs, all of it here: the second page server and the canary with the policies that let the proxy and idp-web
+# reach their private addresses (tests/kind/browser-origin.yaml), the test origins named at the renderer and its proxy and at idp-web (exact host:port), the render
+# settings of idp-web, and the isolation: RuntimeClass gvisor as shipped when the cluster has it (tests/kind/gvisor-node.sh installs it in a throwaway cluster), else
+# Chromium's own sandbox (no runtimeClass, --no-sandbox off, the seccomp profile open for it); M6 says which ran
+cp tests/kind/browser-origin.yaml "$L/overlay/browser-origin.yaml"
+BROWSER_TEST_ORIGINS="$WEB_ORIGIN:80,$WEB_RENDER_ORIGIN:80"
+RENDER_URL=http://idp-browser.idp-browser.svc.cluster.local:8590/render   # as shipped (IDP_BROWSER_CALLER_AUDIENCE): the audience of idp-web's signature
+if kubectl get runtimeclass gvisor >/dev/null 2>&1; then
+  BROWSER_ISOLATION="gVisor (RuntimeClass gvisor, runsc), Chromium --no-sandbox"
+  printf '' > "$L/overlay/browser-isolation.yaml"
+else
+  BROWSER_ISOLATION="Chromium's own sandbox (the cluster has no RuntimeClass gvisor: no runtimeClassName, IDP_BROWSER_NO_SANDBOX false, seccomp Unconfined on the renderer pod and its namespace's Pod Security level privileged; production: gVisor or Kata)"
+  cat > "$L/overlay/browser-isolation.yaml" <<YAML
+  - target: {kind: Deployment, name: idp-browser, namespace: idp-browser}
+    patch: |-
+      - {op: remove, path: /spec/template/spec/runtimeClassName}
+      - {op: replace, path: /spec/template/spec/securityContext/seccompProfile, value: {type: Unconfined}}
+      - {op: replace, path: /spec/template/spec/containers/0/env/5/value, value: "false"}
+      - {op: replace, path: /spec/template/spec/containers/0/env/6/value, value: ""}
+  - target: {kind: Namespace, name: idp-browser}
+    patch: |-
+      - {op: replace, path: /metadata/labels/pod-security.kubernetes.io~1enforce, value: privileged}   # Unconfined is outside the restricted profile: this fallback is not production
+YAML
+fi
 # PATH O: the bridge as shipped plus what the acceptance needs, all of it here and none of it in the bridge's manifests: the connections (the test
 # third party's addresses: `thirdparty` is a client metadata document client whose document the Workspace hosts at its public address, `thirdparty-pre` a
 # preregistered one; the issuer is pinned), IDP_BRIDGE_TEST_ORIGINS (exactly the third party's host:port and the Workspace's plain-http public address: the
@@ -273,7 +309,7 @@ connections:
 YAML
 # dailySearches: 3 is the daily quota PATH M3 uses up (PATH M searches once, M3 the other two and is refused the next; M3 then zeroes the
 # count so that PATH N has its own searches)
-printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true, dailySearches: 3}\n' "$TENANT" > "$L/overlay/web-tenants.yaml"
+printf 'default: {enabled: false}\ntenants:\n  %s: {enabled: true, openUrl: true, dailySearches: 3, alwaysRender: [%s]}\n' "$TENANT" "$WEB_RENDER_ORIGIN" > "$L/overlay/web-tenants.yaml"
 cat > "$L/overlay/tenants.yaml" <<EOF
 default:
   hosts: []
@@ -292,6 +328,7 @@ resources:
   - ../../../deploy/kubernetes/full
   - egress-origin.yaml
   - web-origin.yaml
+  - browser-origin.yaml
   - thirdparty.yaml
 configMapGenerator:
   - name: idp-sandbox-egress-tenants
@@ -315,9 +352,19 @@ patches:
     patch: |-
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_WEB_PROVIDER, value: fixture}}
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_WEB_FIXTURE_FILE, value: /etc/idp/fixture/fixture.yaml}}
-      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_WEB_TEST_ORIGINS, value: "$WEB_ORIGIN:80,$WEB_ATTACKER:80"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_WEB_TEST_ORIGINS, value: "$WEB_ORIGIN:80,$WEB_ATTACKER:80,$WEB_RENDER_ORIGIN:80"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_WEB_RENDER_URL, value: "$RENDER_URL"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_WEB_RENDER_KEY_FILE, value: /etc/idp/render/render.key}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: render-key, mountPath: /etc/idp/render, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: render-key, secret: {secretName: idp-web-render-key}}}
       - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: fixture, mountPath: /etc/idp/fixture, readOnly: true}}
       - {op: add, path: /spec/template/spec/volumes/-, value: {name: fixture, configMap: {name: idp-web-fixture}}}
+  - target: {kind: Deployment, name: idp-browser, namespace: idp-browser}
+    patch: |-
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BROWSER_TEST_ORIGINS, value: "$BROWSER_TEST_ORIGINS"}}
+  - target: {kind: Deployment, name: idp-browser-proxy, namespace: idp-browser}
+    patch: |-
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_BROWSER_TEST_ORIGINS, value: "$BROWSER_TEST_ORIGINS"}}
   - target: {kind: Deployment, name: idp-sandbox-egress, namespace: idp-sandbox}
     patch: |-
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_EGRESS_ALLOW_PRIVATE, value: "true"}}
@@ -329,6 +376,7 @@ patches:
       - {op: replace, path: /spec/egress/2/to/0/ipBlock/cidr, value: "$BACKUP_GW/32"}
       - {op: replace, path: /spec/egress/2/ports/0/port, value: $BACKUP_PORT}
 EOF
+cat "$L/overlay/browser-isolation.yaml" >> "$L/overlay/kustomization.yaml"
 if [[ -n "${SANDBOX_RUNTIME_CLASS:-}" ]]; then   # e.g. gvisor (idp-sandbox/tests/kind/gvisor.sh installs it): the sandbox's run Pods use it
   cat >> "$L/overlay/kustomization.yaml" <<YAML
   - target: {kind: Deployment, name: idp-sandbox, namespace: idp-sandbox}
@@ -339,6 +387,7 @@ fi
 if go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build "$L/overlay" > "$L/platform.yaml" 2>"$L/kustomize.err"; then :; else
   kubectl kustomize "$L/overlay" > "$L/platform.yaml" || { cat "$L/kustomize.err" >&2; echo "BLOCKED: kustomize" >&2; exit 2; }
 fi
+sed -i "s#203.0.113.40#$BACKUP_GW#g" "$L/platform.yaml"
 if [[ "$MODEL" == live ]]; then
   # the HOST's provider is the host's model through the forwarder, and the HOST's namespace may reach that address
   python3 - "$L/platform.yaml" "$MODEL_BASE" "$KIND_GW" "$LIVE_MODEL" <<'PY'
@@ -536,9 +585,18 @@ entries:
   - match: receipt
     results:
       - {url: "$WEB_SCAN", title: "Scanned receipt (PDF)", published: "2026-11-01", snippet: "A scan of a paper receipt"}
+$(for k in m6js2:js.html?next=1 m6js3:js.html?g=1 m6js:js.html m6delayed:delayed.html m6ssrf:ssrf.html m6storm:storm.html m6deniedjs:denied-js.html m6denied:denied.html m6plain:article.html?plain=1; do printf '  - match: %s\n    results:\n      - {url: "http://%s/%s", title: "M6 page %s", published: "2026-11-01", snippet: "a page of PATH M6"}\n' "${k%%:*}" "$WEB_ORIGIN" "${k#*:}" "${k%%:*}"; done)
+  - match: m6pdf
+    results:
+      - {url: "http://$WEB_RENDER_ORIGIN/tariff.pdf", title: "M6 PDF on a host that is always rendered", published: "2026-11-01", snippet: "a PDF"}
 YAML
 kubectl -n idp-web create configmap idp-web-fixture --from-file=fixture.yaml="$L/web-fixture.yaml" >/dev/null
-for ns_ in web-origin web-attacker; do kubectl -n "$ns_" create configmap web-origin-script --from-file=web_origin.py=deploy/compose/web_origin.py >/dev/null; done
+# idp-browser: idp-web's P-256 key (the renderer takes only requests signed with it and has the public half) and the key the renderer and its proxy share
+openssl ecparam -name prime256v1 -genkey -noout -out "$L/web-render.key" 2>/dev/null; openssl ec -in "$L/web-render.key" -pubout -out "$L/web-render.pub" 2>/dev/null
+mksecret idp-web idp-web-render-key --from-file=render.key="$L/web-render.key"
+kubectl -n idp-browser create configmap idp-browser-caller-keys --from-file=caller.pub="$L/web-render.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+mksecret idp-browser idp-browser-proxy-admin-key --from-literal=admin.key="$(openssl rand -hex 32)"
+for ns_ in web-origin web-attacker web-render-origin web-canary; do kubectl -n "$ns_" create configmap web-origin-script --from-file=web_origin.py=deploy/compose/web_origin.py >/dev/null; done
 # idp-sandbox: the key its service signs a run's egress credential with and its proxy verifies it with (D21)
 mksecret idp-sandbox idp-sandbox-egress-key --from-literal=egress.key="$(openssl rand -hex 32)"
 # idp-host: its key, the model/CMI credentials, the delegation client secret (the HOST's own identity at the CMI is its Keycloak service account)
@@ -587,7 +645,7 @@ kubectl -n idp-mcp-bridge rollout restart deploy/idp-mcp-bridge >/dev/null   # n
 for ns in idp-cmi idp-host idp-workspace idp-eer; do
   for d in $(kubectl -n "$ns" get deploy -o name); do kubectl -n "$ns" rollout status "$d" --timeout=300s >/dev/null || { echo "BLOCKED: $ns/$d" >&2; exit 2; }; done
 done
-for d in idp-mcp/idp-mcp-registry idp-sandbox/idp-sandbox idp-sandbox/idp-sandbox-egress egress-origin/origin idp-web/idp-web idp-mcp-bridge/idp-mcp-bridge thirdparty/thirdparty web-origin/origin web-attacker/attacker idp-host/fakemodel temporal/temporal; do kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=300s >/dev/null; done
+for d in idp-mcp/idp-mcp-registry idp-sandbox/idp-sandbox idp-sandbox/idp-sandbox-egress egress-origin/origin idp-web/idp-web idp-mcp-bridge/idp-mcp-bridge thirdparty/thirdparty web-origin/origin web-attacker/attacker web-render-origin/origin web-canary/canary idp-browser/idp-browser idp-browser/idp-browser-proxy idp-host/fakemodel temporal/temporal; do kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=300s >/dev/null; done
 
 pf idp-workspace idp-workspace 17560:8560; pf idp-host idp-host 17450:8450; pf idp-cmi idp-cmi 17550:8550
 pf idp-eer eer-api 17180:8080; pf idp-mcp idp-mcp-registry 17250:8250
@@ -1306,6 +1364,80 @@ run_input() { kubectl -n databases exec -c postgres $(pgtarget) -- psql -U postg
 NIN="$(python3 -c "import json,sys; print(json.dumps({'web': json.loads(sys.argv[1]), 'control': json.loads(sys.argv[2])}))" "$(run_input "$NRUN")" "$(run_input "$CONTROL")" \
   | python3 -I deploy/compose/web_check.py n-input "$SECRET")" || exit 1
 echo "PASS: PATH N — a page told the model to send data to $WEB_ATTACKER: (a) $NAUD; (b) web_open_url waited for bob ($NEV) and he rejected it; (c) $NATT; (d) $NIN"
+
+# ---- PATH M6: pages whose text is made by script, read after rendering (idp-browser; the steps are in deploy/compose/path_m6.sh, shared with the compose acceptance) ----
+M6_ISOLATION="$BROWSER_ISOLATION"
+M6_SSRF_TARGETS="169.254.169.254:80 10.255.255.1:80 192.168.0.1:80 172.16.0.1:80 127.0.0.1:8560 ::1:8560 localhost:7080 canary.web-canary.svc.cluster.local:80 canary.web-canary.svc.cluster.local:8080 keycloak.keycloak.svc.cluster.local:7080 idp-cmi.idp-cmi.svc.cluster.local:8550 idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220"
+M6_WEB_METRICS=metrics
+m6_web_log() { web_log idp-web idp-web; }
+m6_proxy_log() { web_log idp-browser idp-browser-proxy; }
+m6_renderer_log() { kubectl -n idp-browser logs -l app.kubernetes.io/component=renderer --tail=-1 --max-log-requests=10 2>/dev/null; }
+m6_canary_log() { web_log web-canary canary; }
+m6_render_origin_log() { web_log web-render-origin origin; }
+m6_get() { kubectl get --raw "/api/v1/namespaces/idp-web/pods/$(kubectl -n idp-web get pod -l app.kubernetes.io/component=web -o jsonpath='{.items[0].metadata.name}'):9580/proxy/metrics"; }
+m6_quota_reset() { web_sql "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null; }
+# "the renderer stopped": its pods are up and ready but nothing listens on the render port (IDP_BROWSER_LISTEN moved), so the connection from idp-web is refused. Scaling the
+# Deployment to zero is NOT the same under these policies: a Service with no endpoints is not DNAT-ed, the packet to the ClusterIP matches no egress rule (the policy names the
+# renderer's pods) and is dropped, so idp-web waits for its whole budget and the audit says render_timeout (seen on this cluster, 20 s), not render_unreachable.
+m6_renderer_stop() { kubectl -n idp-browser set env deploy/idp-browser IDP_BROWSER_LISTEN=0.0.0.0:8591 >/dev/null; kubectl -n idp-browser rollout status deploy/idp-browser --timeout=300s >/dev/null; }
+m6_renderer_start() { kubectl -n idp-browser set env deploy/idp-browser IDP_BROWSER_LISTEN=0.0.0.0:8590 >/dev/null; kubectl -n idp-browser rollout status deploy/idp-browser --timeout=300s >/dev/null || { echo "FAIL: PATH M6: the renderer did not become ready again" >&2; exit 1; }; }
+source deploy/compose/path_m6.sh
+
+# a pod that only sleeps, as restricted as the namespaces it stands in (PATH M6h, PATH O8)
+probe_pod() { # probe_pod NAMESPACE LABEL-YAML: a python pod that only sleeps, as restricted as the namespaces it stands in
+  kubectl apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Pod
+metadata: {name: probe, namespace: $1, labels: {$2}}
+spec:
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: python:3.12-slim
+      imagePullPolicy: IfNotPresent
+      command: [python, -c, "import time; time.sleep(1200)"]
+      resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 100m, memory: 64Mi}}   # idp-browser's namespace has a quota that demands them
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+YAML
+}
+# PATH M6h (the O8 kind of check): the policies decide, so probe pods stand where the policies look. Renderer's port 8590: only a pod labelled as idp-web in idp-web's namespace reaches it
+# (not the gateway's label, not a pod in a namespace with no policy at all), and its ops port 9590 only from the observability namespace. The renderer reaches the proxy's 3128 and 3129
+# and nothing else (a pod labelled as the renderer: no canary, no idp-web, no Keycloak, no public address, not even the proxy's own ops port); the proxy reaches no cluster pod
+# (idp-web, the renderer, Keycloak) and, if this cluster has a way out, the public internet.
+for ns_ in observability bridge-probe; do kubectl create ns "$ns_" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; kubectl label ns "$ns_" pod-security.kubernetes.io/enforce=restricted --overwrite >/dev/null; done
+probe_pod idp-web 'app.kubernetes.io/component: web'; probe_pod idp-mcp 'app.kubernetes.io/component: gateway'; probe_pod observability 'app: probe'; probe_pod bridge-probe 'app: probe'
+probe_pod idp-browser 'app.kubernetes.io/component: renderer'
+for ns_ in idp-web idp-mcp observability bridge-probe idp-browser; do kubectl -n "$ns_" wait --for=condition=Ready pod/probe --timeout=180s >/dev/null; done
+RIP="$(kubectl -n idp-browser get pod -l app.kubernetes.io/component=renderer -o jsonpath='{.items[0].status.podIP}')"
+PIP="$(kubectl -n idp-browser get pod -l app.kubernetes.io/component=proxy -o jsonpath='{.items[0].status.podIP}')"
+WIP="$(kubectl -n idp-web get pod -l app.kubernetes.io/component=web -o jsonpath='{.items[0].status.podIP}')"
+KIP="$(kubectl -n keycloak get pod -o jsonpath='{.items[0].status.podIP}')"
+CIP="$(kubectl -n web-canary get pod -o jsonpath='{.items[0].status.podIP}')"
+reaches_ip() { kubectl -n "$1" exec probe -- python -c "import socket,sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), 3).close()" "$2" "$3" >/dev/null 2>&1; }
+M6H="" ; M6HBAD=""
+m6expect() { # m6expect NAMESPACE IP PORT yes|no WHAT
+  local got=no; reaches_ip "$1" "$2" "$3" && got=yes
+  [[ "$got" == "$4" ]] || M6HBAD+=" $5 (reached: $got, want $4)"
+  M6H+="$5=$got "
+}
+m6expect idp-web "$RIP" 8590 yes "idp-web->renderer:8590"; m6expect idp-web "$RIP" 9590 no "idp-web->renderer:9590"
+m6expect idp-mcp "$RIP" 8590 no "gateway->renderer:8590"; m6expect bridge-probe "$RIP" 8590 no "unpoliced->renderer:8590"; m6expect bridge-probe "$RIP" 9590 no "unpoliced->renderer:9590"
+m6expect observability "$RIP" 9590 yes "observability->renderer:9590"; m6expect observability "$RIP" 8590 no "observability->renderer:8590"
+m6expect observability "$PIP" 9591 yes "observability->proxy:9591"; m6expect observability "$PIP" 3128 no "observability->proxy:3128"
+m6expect bridge-probe "$PIP" 3128 no "unpoliced->proxy:3128"; m6expect idp-web "$PIP" 3128 no "idp-web->proxy:3128"
+for t in "$PIP:3128" "$PIP:3129"; do m6expect idp-browser "${t%:*}" "${t#*:}" yes "renderer->proxy:${t#*:}"; done
+m6expect idp-browser "$PIP" 9591 no "renderer->proxy:9591"; m6expect idp-browser "$CIP" 8080 no "renderer->canary"; m6expect idp-browser "$WIP" 8580 no "renderer->idp-web"
+m6expect idp-browser "$KIP" 7080 no "renderer->keycloak"; m6expect idp-browser "1.1.1.1" 443 no "renderer->1.1.1.1:443"; m6expect idp-browser "$RIP" 8590 no "renderer->renderer"
+INTERNET=no; reaches_ip bridge-probe 1.1.1.1 443 && INTERNET=yes   # a pod with no policy: does this cluster have a way out at all
+M6H+="(cluster internet: $INTERNET) "
+for ns_ in idp-web idp-mcp observability bridge-probe idp-browser; do kubectl -n "$ns_" delete pod probe --wait=true >/dev/null; done
+probe_pod idp-browser 'app.kubernetes.io/component: proxy'; kubectl -n idp-browser wait --for=condition=Ready pod/probe --timeout=180s >/dev/null
+m6expect idp-browser "$WIP" 8580 no "proxy->idp-web"; m6expect idp-browser "$RIP" 8590 no "proxy->renderer"; m6expect idp-browser "$KIP" 7080 no "proxy->keycloak"
+[[ "$INTERNET" == no ]] || m6expect idp-browser 1.1.1.1 443 yes "proxy->1.1.1.1:443"
+kubectl -n idp-browser delete pod probe --wait=false >/dev/null; kubectl delete ns observability bridge-probe --wait=false >/dev/null
+[[ -z "$M6HBAD" ]] || { echo "FAIL: PATH M6h: the renderer's and the proxy's ports are reached as the policies do not say:$M6HBAD" >&2; exit 1; }
+echo "PASS: PATH M6h — probe pods against idp-browser (${M6H}): only idp-web's label reaches the renderer's API port, the observability namespace its ops port and the proxy's, the renderer's label reaches the proxy's 3128 and 3129 and nothing else (no canary, no idp-web, no Keycloak, no public address), and the proxy's label reaches no cluster pod"
 fi
 
 # ---- PATH O: a third party's MCP server with the member's own OAuth authorization, through idp-mcp-bridge (plan idp-mcp-bridge-oauth-plan.md section 4) ----
@@ -1390,22 +1522,6 @@ source deploy/compose/path_o.sh
 # API port 8681 and neither the MCP port 8680 nor the ops port 9680; one labelled as the gateway reaches 8680 and not 8681 or 9680; and a pod in a namespace with no
 # policy at all, which can send anything anywhere, reaches none of the three: the bridge's own ingress policy is what stops it.
 BRIDGE_POD_IP="$(kubectl -n idp-mcp-bridge get pod -l app.kubernetes.io/component=bridge -o jsonpath='{.items[0].status.podIP}')"
-probe_pod() { # probe_pod NAMESPACE LABEL-YAML: a python pod that only sleeps, as restricted as the namespaces it stands in
-  kubectl apply -f - >/dev/null <<YAML
-apiVersion: v1
-kind: Pod
-metadata: {name: probe, namespace: $1, labels: {$2}}
-spec:
-  automountServiceAccountToken: false
-  securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
-  containers:
-    - name: probe
-      image: python:3.12-slim
-      imagePullPolicy: IfNotPresent
-      command: [python, -c, "import time; time.sleep(1200)"]
-      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
-YAML
-}
 reaches() { kubectl -n "$1" exec probe -- python -c "import socket,sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), 3).close()" "$BRIDGE_POD_IP" "$2" >/dev/null 2>&1; }
 kubectl create ns bridge-probe >/dev/null   # restricted pod security like the others, and no NetworkPolicy
 kubectl label ns bridge-probe pod-security.kubernetes.io/enforce=restricted >/dev/null

@@ -84,6 +84,13 @@ class Platform:
                 digest = self.image_digest(c["image"] + ":dev")
                 if digest:
                     entry["image"] = {"reference": c["image"] + ":dev", "id": digest}
+                extra = []   # a component with a second image (idp-browser: the renderer and its egress proxy) lists it in the catalog
+                for name in c.get("extra_images", []):
+                    d = self.image_digest(name + ":dev")
+                    if d:
+                        extra.append({"reference": name + ":dev", "id": d})
+                if extra:
+                    entry["extra_images"] = extra
             components.append(entry)
         contracts = {ns: n["version"] for ns, n in sorted(self.registry["namespaces"].items()) if n.get("status") == "PUBLISHED"}
         return {"platform": "idp-telos", "release": "0.1.0-dev", "contracts": contracts, "components": components}

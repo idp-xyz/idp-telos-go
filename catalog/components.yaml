@@ -96,3 +96,16 @@ components:
     adr: docs/adr/ADR-0001-bridge-design.md
     contracts: {produces: null, consumes: []}
     note: Speaks MCP 2026-07-28 behind the idp-mcp gateway (one endpoint per connection, class external) and to third-party MCP servers with each member's own OAuth token; its internal API (port 8681) is the Workspace's and has no registered contract. Platform plan docs/adr/idp-mcp-bridge-oauth-plan.md. The members' grants (sealed tokens) are in PostgreSQL (its own database idp_bridge, ADR-0001 D24, D25), so it may run as several replicas.
+  - name: idp-browser
+    platform: true   # part of deploy/compose/platform.yaml and of deploy/kubernetes/full: PATH M6 on both
+    title: Browser (render pool and egress proxy)
+    repository: idp-xyz/idp-browser
+    visibility: public
+    language: go
+    executables: [idp-browser, idp-browser-proxy]
+    image: idp-browser
+    extra_images: [idp-browser-proxy]   # the BOM records both images: the renderer (headless Chromium) and its public-only egress proxy
+    ports: {render: 8590, proxy: 3128, proxy-admin: 3129}
+    adr: docs/adr/ADR-0001-browser-design.md
+    contracts: {produces: null, consumes: []}
+    note: Layer 1 of docs/adr/browser-capability-plan.md. idp-web sends it pages whose text is made by script (POST /render, signed with idp-web's key), the renderer opens each in a fresh Chromium context whose every request goes through idp-browser-proxy (public addresses only, per-render budgets), and idp-web extracts from the rendered DOM. It publishes no document contract of its own; it keeps no data (the budgets are in memory, the audit is the proxy's log). The Chromium base image is chromedp's headless-shell by digest, mirrored in releases/mirror-images.yaml.
