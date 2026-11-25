@@ -4,7 +4,7 @@
 # maintenance, a node lost (tests/kind/ha-postgres.sh and tests/kind/ha-maintenance.sh run on it). Calico as on the main cluster.
 # It does not touch the main cluster "kind" and leaves kubectl's current context as it was (kind create switches it).
 #
-#   bash tests/kind/multinode-cluster.sh        create "ha" (again: nothing to do)
+#   bash tests/kind/multinode-cluster.sh        create "ha" (again: nothing to do); HA_CLUSTER=NAME names it otherwise (a second one beside "ha")
 #   KIND_CLUSTER=ha bash tests/kind/ha-postgres.sh && bash tests/kind/ha-maintenance.sh
 #   kind delete cluster --name ha               remove it (the main cluster keeps running)
 #
@@ -13,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
-NAME=ha NODE_IMG=kindest/node:v1.35.0 CALICO=v3.30.3
+NAME="${HA_CLUSTER:-ha}" NODE_IMG=ghcr.io/idp-xyz/mirror:docker.io__kindest__node__v1.35.0 CALICO=v3.30.3
 CALICO_SHA256=9382d2b27a76f40c170454b408653e6d71e2205ef0aef069e942bb690e7381d0
 L=.local/multinode; mkdir -p "$L"
 log() { echo "== $*"; }
@@ -36,20 +36,20 @@ KIND_CLUSTER="$NAME" bash tests/kind/pin-node-ips.sh >/dev/null   # its nodes ke
 docker exec "$NAME-control-plane" sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=1048576 >/dev/null
 
 log "Calico $CALICO"
-IMAGES=(quay.io/calico/cni:$CALICO quay.io/calico/node:$CALICO quay.io/calico/kube-controllers:$CALICO)
-if [[ ! -s "$L/calico-images-$CALICO.tar" ]]; then
+IMAGES=(ghcr.io/idp-xyz/mirror:quay.io__calico__cni__$CALICO ghcr.io/idp-xyz/mirror:quay.io__calico__node__$CALICO ghcr.io/idp-xyz/mirror:quay.io__calico__kube-controllers__$CALICO)   # mirror:variable (the three Calico images; tools/mirror_images.py check names them in the list)
+if [[ ! -s "$L/calico-images-mirror-$CALICO.tar" ]]; then
   if docker exec kind-control-plane crictl inspecti "${IMAGES[1]}" >/dev/null 2>&1; then   # the main cluster's node has them
     docker exec kind-control-plane ctr -n k8s.io images export --platform linux/amd64 /tmp/calico.tar "${IMAGES[@]}"
-    docker exec kind-control-plane cat /tmp/calico.tar > "$L/calico-images-$CALICO.tar"   # its /tmp is a tmpfs, which docker cp cannot read
+    docker exec kind-control-plane cat /tmp/calico.tar > "$L/calico-images-mirror-$CALICO.tar"   # its /tmp is a tmpfs, which docker cp cannot read
     docker exec kind-control-plane rm -f /tmp/calico.tar
   else
-    for i in "${IMAGES[@]}"; do bash tests/kind/crane-pull.sh "$i" "$L/$(basename "${i%%:*}").tar"; kind load image-archive "$L/$(basename "${i%%:*}").tar" --name "$NAME" >/dev/null; done
+    for i in "${IMAGES[@]}"; do n="${i%__*}"; n="${n##*__}"; bash tests/kind/crane-pull.sh "$i" "$L/$n.tar"; kind load image-archive "$L/$n.tar" --name "$NAME" >/dev/null; done   # cni, node, kube-controllers
   fi
 fi
-[[ ! -s "$L/calico-images-$CALICO.tar" ]] || kind load image-archive "$L/calico-images-$CALICO.tar" --name "$NAME" >/dev/null   # every node
+[[ ! -s "$L/calico-images-mirror-$CALICO.tar" ]] || kind load image-archive "$L/calico-images-mirror-$CALICO.tar" --name "$NAME" >/dev/null   # every node
 [[ -f "$L/calico-$CALICO.yaml" ]] || curl -sSL --retry 5 --retry-all-errors -m 180 -o "$L/calico-$CALICO.yaml" "https://raw.githubusercontent.com/projectcalico/calico/$CALICO/manifests/calico.yaml"
 [[ "$(sha256sum "$L/calico-$CALICO.yaml" | cut -d' ' -f1)" == "$CALICO_SHA256" ]] || { echo "BLOCKED: the Calico manifest does not match its pinned checksum" >&2; rm -f "$L/calico-$CALICO.yaml"; exit 2; }
-sed 's#docker.io/calico/#quay.io/calico/#' "$L/calico-$CALICO.yaml" | k apply -f - >/dev/null
+sed -E 's#docker\.io/calico/([a-z-]+):#ghcr.io/idp-xyz/mirror:quay.io__calico__\1__#' "$L/calico-$CALICO.yaml" | k apply -f - >/dev/null   # mirror:variable
 k -n kube-system rollout status ds/calico-node --timeout=300s >/dev/null
 k wait --for=condition=Ready nodes --all --timeout=300s >/dev/null
 

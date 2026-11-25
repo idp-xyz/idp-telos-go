@@ -3,7 +3,11 @@
 developer machine gets. Standard library only.
 
   check  [--repos DIR...] [--strict]   validate the list; with --repos also: references in those repositories that are not in
-                                       the list, list entries that nothing references, references that cannot be checked
+                                       the list, references that still name the SOURCE of a listed image (they must name the
+                                       mirror: run `switch`), references to the mirror that are not in the list or pin another
+                                       digest, list entries that nothing references, references that cannot be checked
+  switch --repos DIR... [--dry-run]    rewrite every source reference of a listed image to its mirror name in place, keeping a
+                                       digest pin (a pin that is not the listed digest becomes the listed one: only that one is copied)
   plan   --repos DIR...                every occurrence: repository, file, line, current reference -> mirror reference
   retag  [--dry-run]                   tag the images already in the local Docker daemon with their mirror names (never pulls)
   resolve [--via HOST...] [--verify]   fill every sha256:TODO from the registry (crane digest), or, with --via, through registry
@@ -11,6 +15,11 @@ developer machine gets. Standard library only.
                                        --verify: compare all digests with the registries' current ones, changes nothing
   aliases                              alias TAB digest, one line per alias (for the workflow)
   list                                 one line per entry for the workflow: source@digest TAB target:tag TAB tag (tab separated)
+
+Two markers in a file say that a line is intentionally not a plain mirror reference (on the line or on the line before it):
+  mirror:upstream   the line names the SOURCE of an image on purpose (documentation of what to watch upstream, an example of the rule,
+                    an image that is deliberately not mirrored); it is not checked
+  mirror:variable   the line builds a reference from variables (or hands one on) that was reviewed by hand; it is not reported as unchecked
 
 Naming rule (no exceptions): every mirrored image is a TAG of the one package ghcr.io/idp-xyz/mirror (one package, so one
 visibility switch for all of them). The source is written in full, host first; the tag encodes it:
@@ -250,6 +259,7 @@ class Found:
     text: str          # as written (after variable expansion)
     ref: Ref | None    # None: cannot be checked
     why: str = ""
+    marker: str = ""   # "upstream" or "variable": the line (or the one before) carries mirror:upstream / mirror:variable
 
 
 SKIP_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".zip", ".gz", ".tar", ".woff", ".woff2", ".ttf", ".jar", ".lock",
@@ -265,6 +275,16 @@ BARE_G = re.compile(r"(?<![\w./$:-])([a-z0-9][a-z0-9._-]*(?:/[a-z0-9._-]+)+(?::[
 QUALIFIED = re.compile(r"(?<![\w./-])((?:" + "|".join(re.escape(h) for h in KNOWN_HOSTS) + r")/[\w./$:{}@-]+)")
 CMD_RE = re.compile(r"(?:docker\s+(?:image\s+)?(?:run|pull|create)\b|pull[_-]image\.sh|ensure_image|crane\s+(?:pull|digest|copy|manifest)|--image(?:=|\s+)|kind\s+create)")
 STRONG_UNRESOLVED = re.compile(r"(?:pull[_-]image\.sh|ensure_image)\s+(.*)")
+
+
+def _marker(lines: list[str], ln: int) -> str:
+    """mirror:upstream / mirror:variable on line ln (1-based) or on the line before it."""
+    for i in (ln - 1, ln - 2):
+        if 0 <= i < len(lines):
+            m = re.search(r"mirror:(upstream|variable)\b", lines[i])
+            if m:
+                return m.group(1)
+    return ""
 
 
 def expand(s: str, env: dict[str, str]) -> str:
@@ -293,6 +313,8 @@ def _classify(text: str) -> tuple[Ref | None, str]:
     if "$" in t or "{" in t:
         return None, "built from a variable"
     r = parse_ref(t)
+    if r is not None and r.repo == TARGET_REPO:
+        return r, ""             # a reference to the mirror itself: checked against the list, never an error to have
     if r is None or is_own(r) or r.host in IGNORED_HOSTS:
         return None, ""
     return r, ""
@@ -321,7 +343,23 @@ def list_files(repo: Path) -> list[str]:
     return sorted(files)
 
 
-def scan_text(repo: str, rel: str, text: str) -> list[Found]:
+def short_names(entries: list["Entry"]) -> list[str]:
+    """The Docker Hub / ECR library spellings of the listed images that are written without a registry (python:3.12-slim, prom/prometheus:v3):
+    nothing in a file says they are images, so they are looked for by name."""
+    out: set[str] = set()
+    for e in entries:
+        for r in [e.ref] + [parse_ref(a) for a in e.aliases]:
+            if r is None or not r.tag:
+                continue
+            path = r.path
+            if r.host == "public.ecr.aws" and path.startswith("docker/library/"):
+                out.add(f"{path[len('docker/library/'):]}:{r.tag}")
+            elif r.host == "docker.io":
+                out.add(f"{path[len('library/'):] if path.startswith('library/') else path}:{r.tag}")
+    return sorted(out)
+
+
+def scan_text(repo: str, rel: str, text: str, shorts: list[str] | None = None) -> list[Found]:
     """Every third-party image reference in one file."""
     found: dict[tuple[int, str], Found] = {}
     is_doc = rel.endswith((".md", ".txt", ".rst"))
@@ -349,10 +387,14 @@ def scan_text(repo: str, rel: str, text: str) -> list[Found]:
         if ref is not None and not strong and not (ref.tag or ref.digest):
             return
         ln = at_line or n
-        found.setdefault((ln, shown), Found(repo, rel, ln, shown, ref, why))
+        found.setdefault((ln, shown), Found(repo, rel, ln, shown, ref, why, _marker(lines, ln)))
 
+    short_re = re.compile(r"(?<![\w./$-])(" + "|".join(re.escape(x) for x in shorts) + r")(?![\w.-])") if shorts and not is_doc else None
     for n, raw in enumerate(lines, 1):
         line = re.sub(r"\s+#.*$", "", raw) if not is_doc else raw
+        if short_re is not None and not raw.lstrip().startswith(("#", "//")) and not re.match(r"\s*(?:-\s*)?image:", line):
+            for sm in short_re.finditer(line):
+                add(n, sm.group(1), True)
         if is_dockerfile:
             m = re.match(r"^\s*ARG\s+(\w+)=(\S+)", line)
             if m:
@@ -413,7 +455,7 @@ def scan_text(repo: str, rel: str, text: str) -> list[Found]:
     return sorted(found.values(), key=lambda f: (f.line, f.text))
 
 
-def scan_repo(repo: Path) -> list[Found]:
+def scan_repo(repo: Path, shorts: list[str] | None = None) -> list[Found]:
     out: list[Found] = []
     name = repo.resolve().name
     for rel in list_files(repo):
@@ -423,7 +465,7 @@ def scan_repo(repo: Path) -> list[Found]:
             text = (repo / rel).read_text(errors="replace")
         except OSError:
             continue
-        out += scan_text(name, rel, text)
+        out += scan_text(name, rel, text, shorts)
     return out
 
 
@@ -460,6 +502,10 @@ def mirror_text(ref: Ref, e: Entry) -> str:
     return e.target + (f"@{ref.digest}" if ref.digest else "")
 
 
+def target_index(entries: list[Entry]) -> dict[str, Entry]:
+    return {e.target: e for e in entries}
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     entries = load_list(Path(args.list))
     errors = validate(entries)
@@ -470,16 +516,46 @@ def cmd_check(args: argparse.Namespace) -> int:
     if not args.repos:
         return code
     idx = index_entries(entries)
+    shorts = short_names(entries)
+    targets = target_index(entries)
     referenced: set[int] = set()
     missing: dict[str, list[Found]] = {}
     mismatched: list[tuple[Found, str]] = []
+    unswitched: list[Found] = []
     unchecked: list[Found] = []
-    total = 0
+    total = mirrored = upstream = reviewed = 0
     for d in args.repos:
-        for f in scan_repo(Path(d)):
+        for f in scan_repo(Path(d), shorts):
             total += 1
+            if f.ref is not None and f.ref.repo == TARGET_REPO and not (f.ref.tag or f.ref.digest):
+                total -= 1               # the package's name in a sentence, not an image
+                continue
+            if f.marker == "variable" and (f.ref is None or f.ref.repo == TARGET_REPO and f.ref.tag.endswith("__")):
+                reviewed += 1            # built from variables, reviewed by hand
+                continue
+            if f.ref is not None and f.ref.repo == TARGET_REPO:
+                e = targets.get(f"{TARGET_REPO}:{f.ref.tag}")
+                if e is None:
+                    missing.setdefault(f.ref.text(), []).append(f)
+                    continue
+                referenced.add(id(e))
+                if f.ref.digest and e.ref and f.ref.digest != e.ref.digest:
+                    mismatched.append((f, f"pinned to {f.ref.digest[:19]}..., the list has {e.ref.digest[:19]}..."))
+                else:
+                    mirrored += 1
+                continue
+            if f.marker == "upstream":
+                upstream += 1
+                if f.ref is not None:
+                    e, _ = match(f.ref, idx)
+                    if e is not None:
+                        referenced.add(id(e))
+                continue
             if f.ref is None:
-                unchecked.append(f)
+                if f.marker == "variable":
+                    reviewed += 1
+                else:
+                    unchecked.append(f)
                 continue
             e, why = match(f.ref, idx)
             if e is not None:
@@ -488,12 +564,18 @@ def cmd_check(args: argparse.Namespace) -> int:
                 missing.setdefault(f.ref.text(), []).append(f)
             elif why:
                 mismatched.append((f, why))
-    print(f"references: {total} found in {len(args.repos)} repositories")
+            else:
+                unswitched.append(f)
+    print(f"references: {total} found in {len(args.repos)} repositories: {mirrored} name the mirror, {upstream} name an upstream on purpose "
+          f"(mirror:upstream), {reviewed} are built from variables and reviewed (mirror:variable)")
     for ref, fs in sorted(missing.items()):
         print(f"NOT IN THE LIST: {ref}  ({len(fs)}x, first {fs[0].repo}:{fs[0].file}:{fs[0].line})")
         code = 1
     for f, why in mismatched:
         print(f"DIFFERS FROM THE LIST: {f.repo}:{f.file}:{f.line} {f.text}: {why}")
+        code = 1
+    for f in unswitched:
+        print(f"NOT THE MIRROR: {f.repo}:{f.file}:{f.line} {f.text} -> {mirror_text(f.ref, match(f.ref, idx)[0])}  (python3 tools/mirror_images.py switch --repos <dirs>)")
         code = 1
     unused = [e for e in entries if id(e) not in referenced]
     for e in unused:
@@ -501,20 +583,65 @@ def cmd_check(args: argparse.Namespace) -> int:
     if unused and args.strict:
         code = 1
     for f in unchecked:
-        print(f"{'UNCHECKED' if args.strict else 'note: cannot be checked'}: {f.repo}:{f.file}:{f.line} {f.text} ({f.why})")
+        print(f"{'UNCHECKED' if args.strict else 'note: cannot be checked'}: {f.repo}:{f.file}:{f.line} {f.text} ({f.why})  [review it and put mirror:variable on the line]")
     if unchecked and args.strict:
         code = 1
     print("OK" if code == 0 else "FAIL")
     return code
 
 
+def cmd_switch(args: argparse.Namespace) -> int:
+    entries = load_list(Path(args.list))
+    idx = index_entries(entries)
+    shorts = short_names(entries)
+    changes = manual = 0
+    for d in args.repos:
+        repo = Path(d)
+        by_file: dict[str, list[Found]] = {}
+        for f in scan_repo(repo, shorts):
+            if f.ref is None or f.ref.repo == TARGET_REPO or f.marker == "upstream":
+                continue
+            e, why = match(f.ref, idx)
+            if e is None or (why and "pinned to" not in why):
+                continue
+            by_file.setdefault(f.file, []).append(f)
+        for rel, fs in sorted(by_file.items()):
+            lines = (repo / rel).read_text().splitlines(keepends=True)
+            for f in fs:
+                e, why = match(f.ref, idx)
+                new = e.target + (f"@{e.ref.digest}" if f.ref.digest else "")
+                pat = re.compile(r"(?<![\w./$])(?<!\w-)" + re.escape(f.text.rstrip(".,;")) + r"(?![\w/$:{-])")
+                line = lines[f.line - 1]
+                out, n = pat.subn(lambda _m: new, line)
+                if n == 0:
+                    if f.ref.repo + (":" + f.ref.tag if f.ref.tag else "") in line or "mirror" in line:
+                        continue
+                    print(f"MANUAL {f.repo}:{rel}:{f.line}: {f.text} is not written as such on the line")
+                    manual += 1
+                    continue
+                lines[f.line - 1] = out
+                changes += n
+                print(f"{'WOULD ' if args.dry_run else ''}SWITCH {f.repo}:{rel}:{f.line} {f.text} -> {new}" + (f"  [{why}]" if why else ""))
+            if not args.dry_run:
+                (repo / rel).write_text("".join(lines))
+    print(f"{changes} {'would be ' if args.dry_run else ''}switched, {manual} to do by hand")
+    return 1 if manual else 0
+
+
 def plan_rows(entries: list[Entry], repos: list[str]) -> list[list[str]]:
     idx = index_entries(entries)
+    shorts = short_names(entries)
     rows = []
     for d in repos:
-        for f in scan_repo(Path(d)):
+        for f in scan_repo(Path(d), shorts):
+            if f.marker == "upstream":
+                rows.append([f.repo, f.file, str(f.line), f.text, "STAYS (mirror:upstream)"])
+                continue
             if f.ref is None:
-                rows.append([f.repo, f.file, str(f.line), f.text, "CANNOT BE CHECKED: " + f.why])
+                rows.append([f.repo, f.file, str(f.line), f.text, ("REVIEWED (mirror:variable): " if f.marker else "CANNOT BE CHECKED: ") + f.why])
+                continue
+            if f.ref.repo == TARGET_REPO:
+                rows.append([f.repo, f.file, str(f.line), f.ref.text(), "(already the mirror)"])
                 continue
             e, why = match(f.ref, idx)
             to = mirror_text(f.ref, e) if e else f"NOT IN THE LIST ({why})"
@@ -685,6 +812,10 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--repos", nargs="+", metavar="DIR")
     c.add_argument("--strict", action="store_true", help="unused entries and references that cannot be checked also fail")
     c.set_defaults(fn=cmd_check)
+    sw = sub.add_parser("switch")
+    sw.add_argument("--repos", nargs="+", required=True, metavar="DIR")
+    sw.add_argument("--dry-run", action="store_true")
+    sw.set_defaults(fn=cmd_switch)
     pl = sub.add_parser("plan")
     pl.add_argument("--repos", nargs="+", required=True, metavar="DIR")
     pl.set_defaults(fn=cmd_plan)

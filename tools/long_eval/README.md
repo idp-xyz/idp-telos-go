@@ -60,7 +60,7 @@ python3 -m tools.long_eval history --dump .local/backup-20261117-before-acceptan
 python3 -m tools.long_eval report --name history-20261117 --agent office-assistant
 ```
 
-`history` 把转储恢复进自己的临时 PostgreSQL 容器（`long-eval-history-<随机>`，无网络、不发布端口，用 `public.ecr.aws/docker/library/postgres:17-alpine`，**不拉取**镜像），用与实时评测同一条查询读每次运行，结束时删掉容器。用例当时不存在，所以按运行的第一条用户消息分组（`H01`、`H02` …）；给了 `--cases`，消息恰好等于某个单轮用例那句话的组就用该用例的编号和基线文字，这样旧记录和新测量能并排。转储里没有文件内容，所以不判断成功条件，只显示结局和"是否交付了文件"。窗口缺省 131,072（提案 1.1 节的数字，转储本身不含它，`meta.json` 里写明是假定的）。
+`history` 把转储恢复进自己的临时 PostgreSQL 容器（`long-eval-history-<随机>`，无网络、不发布端口，用 `ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine`，**不拉取**镜像），用与实时评测同一条查询读每次运行，结束时删掉容器。用例当时不存在，所以按运行的第一条用户消息分组（`H01`、`H02` …）；给了 `--cases`，消息恰好等于某个单轮用例那句话的组就用该用例的编号和基线文字，这样旧记录和新测量能并排。转储里没有文件内容，所以不判断成功条件，只显示结局和"是否交付了文件"。窗口缺省 131,072（提案 1.1 节的数字，转储本身不含它，`meta.json` 里写明是假定的）。
 
 ## 上下文视图的数字（idp-host D52）
 

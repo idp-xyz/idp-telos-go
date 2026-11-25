@@ -109,7 +109,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, seccompProfile: {type: RuntimeDefault}}
   containers:
     - name: probe
-      image: public.ecr.aws/docker/library/postgres:17-alpine
+      image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine
       imagePullPolicy: IfNotPresent
       securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
       env: [{name: PGPASSWORD, valueFrom: {secretKeyRef: {name: postgres-superuser, key: password}}}]

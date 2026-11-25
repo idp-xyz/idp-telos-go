@@ -203,7 +203,7 @@ PostgreSQL 的数据卷是 PVC `postgres-data`（5Gi）。`backup.yaml` 的 Cron
 
 `NODE_RESTART=1 bash tests/kind/backup-drill.sh`（约 2 分钟，要先有 `full.sh` 起的集群）：写一条标记记忆 → 备份（检查卷上和桶里都只有 `.age`，桶里的对象带 age 头）→ 重启 PostgreSQL Pod → 重启节点 → `DROP DATABASE idp_cmi` → **从桶里下载、校验清单、用私钥解密、恢复**（私钥只在这个 Job 期间作为 Secret 存在，用完删除；`DRILL_SOURCE=local` 改从本地卷恢复）→ 确认 CMI 又能服务、bob 仍读到标记记忆。不设 `NODE_RESTART` 就跳过节点重启。
 
-备份目标是 RustFS（`docker.io/rustfs/rustfs:1.0.4-glibc`，Apache-2.0，按摘要固定，Barman Cloud 插件自己的测试用的也是这个构建）：MinIO 社区版已停止维护、不再发布镜像，原来固定的 MinIO 镜像在 quay.io 上已拉不到（CI 一直扫不到它；本机那份 2025-09 的镜像有 103 个已知漏洞，不会再修）。Docker 里没有时 `full.sh` 用 crane 按摘要拉取再打标签，控制台关闭。
+备份目标是 RustFS（`ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc`，Apache-2.0，按摘要固定，Barman Cloud 插件自己的测试用的也是这个构建）：MinIO 社区版已停止维护、不再发布镜像，原来固定的 MinIO 镜像在 quay.io 上已拉不到（CI 一直扫不到它；本机那份 2025-09 的镜像有 103 个已知漏洞，不会再修）。Docker 里没有时 `full.sh` 用 crane 按摘要拉取再打标签，控制台关闭。
 
 不起集群也能测镜像：`bash deploy/images/pg-backup/test.sh`（只要 Docker、PostgreSQL、RustFS 镜像）：没有公钥拒绝备份、桶里无明文、错私钥恢复失败且不建库、被篡改的对象被清单拦下、不完整集合被跳过、远端保留。
 
@@ -219,7 +219,7 @@ PostgreSQL 开启 TLS（1.2 及以上），服务端证书由 `.local/kind-ca` �
 
 ## 镜像漏洞扫描（trivy）
 
-`bash tools/scan_images.sh` 用固定版本的 trivy（`ghcr.io/aquasecurity/trivy:0.76.2`，在 Docker 里运行，经 Docker 套接字读本机的镜像）扫平台的镜像，只报有修复版本的 HIGH / CRITICAL，每个镜像一行，最后一行是数据库的日期。`--own` 只扫我们自己构建的镜像，加 `STRICT=1` 时有发现或没扫成就返回 1（平台 CI 用它卡住发布）；`--third-party` 只报告第三方镜像（我们改不了）；也可以直接给镜像名。没扫成的那行写着 trivy 的原因。
+`bash tools/scan_images.sh` 用固定版本的 trivy（`ghcr.io/idp-xyz/mirror:ghcr.io__aquasecurity__trivy__0.76.2`，在 Docker 里运行，经 Docker 套接字读本机的镜像）扫平台的镜像，只报有修复版本的 HIGH / CRITICAL，每个镜像一行，最后一行是数据库的日期。`--own` 只扫我们自己构建的镜像，加 `STRICT=1` 时有发现或没扫成就返回 1（平台 CI 用它卡住发布）；`--third-party` 只报告第三方镜像（我们改不了）；也可以直接给镜像名。没扫成的那行写着 trivy 的原因。
 
 trivy 要两个数据库，放在 `TRIVY_CACHE`（默认 `.local/trivy-cache`，已忽略）：
 
@@ -233,8 +233,8 @@ trivy 要两个数据库，放在 `TRIVY_CACHE`（默认 `.local/trivy-cache`，
 ```bash
 # 网络好的机器：Docker 和上面的 trivy 镜像；在代理后面给两条 docker run 加 -e HTTPS_PROXY=$HTTPS_PROXY --network host，网络慢再加 --timeout 60m
 mkdir -p trivy-offline && chmod 777 trivy-offline
-docker run --rm -v "$PWD/trivy-offline:/root/.cache/trivy" ghcr.io/aquasecurity/trivy:0.76.2 image --download-db-only
-docker run --rm -v "$PWD/trivy-offline:/root/.cache/trivy" ghcr.io/aquasecurity/trivy:0.76.2 image --download-java-db-only
+docker run --rm -v "$PWD/trivy-offline:/root/.cache/trivy" ghcr.io/idp-xyz/mirror:ghcr.io__aquasecurity__trivy__0.76.2 image --download-db-only
+docker run --rm -v "$PWD/trivy-offline:/root/.cache/trivy" ghcr.io/idp-xyz/mirror:ghcr.io__aquasecurity__trivy__0.76.2 image --download-java-db-only
 tar -C trivy-offline -czf trivy-db.tar.gz db java-db           # 约 1.1 GB，打包约 1 分钟
 
 # 要扫的机器（要扫的镜像先放进 Docker：crane pull IMG f.tar && docker load -i f.tar）
@@ -253,7 +253,7 @@ TRIVY_OFFLINE=1 bash tools/scan_images.sh
 - `bash tests/kind/ha-postgres.sh`：集群单独跑一遍，杀主库时让一个写入程序持续写；
 - `bash tests/kind/failover-drill.sh`：整平台跑在集群上，杀主库时 CMI 持续写入，检查 CMI 自己恢复（Pod 不重启）、超时内重新确认写入、没有被确认的记录丢失、所有客户端连接仍是 TLS；
 - 测得（kind，单节点）：主库被强制删除后新主库接管，写入被拒绝约 26 到 29 秒，被确认的写入 0 丢失，旧主库自己变成备库；
-- operator、Barman Cloud 插件、cert-manager 与 PostgreSQL 镜像都要先用 crane 放进 Docker 守护进程（`ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1`、`ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.16.0`、`ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.16.0`、`quay.io/jetstack/cert-manager-{controller,webhook,cainjector}:v1.21.3`、`ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie`），没有的话 `full.sh` 会用 crane 直接装进节点，再构建带 pgvector 的 `idp-postgres-ha:17-dev` 并加载进节点；
+- operator、Barman Cloud 插件、cert-manager 与 PostgreSQL 镜像都要先用 crane 放进 Docker 守护进程（`ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__cloudnative-pg__1.30.1`、`ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud__v0.16.0`、`ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud-sidecar__v0.16.0`、`quay.io/jetstack/cert-manager-{controller,webhook,cainjector}:v1.21.3`、`ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__postgresql__17.11-standard-trixie`），没有的话 `full.sh` 会用 crane 直接装进节点，再构建带 pgvector 的 `idp-postgres-ha:17-dev` 并加载进节点；
 - 按时间点恢复：集群通过 Barman Cloud 插件（每个实例里的 sidecar）持续把 WAL 归档到对象存储（至少每 60 秒一次）并每天做基础备份；`bash tests/kind/pitr-drill.sh` 演示“误 DELETE 了全部数据”后，用 `recoveryTarget.targetTime` 在新集群里恢复到误操作前一刻（50 行回来、之后的 20 行和 DELETE 不重放）。插件需要 cert-manager（只给插件和 operator 之间的 gRPC 签自签证书），两者的命名空间都是默认拒绝。归档由对象存储做服务端加密（`AES256`；kind 上 RustFS 的主密钥由脚本生成，生产用 `aws:kms` 和自己的密钥）。CloudNativePG 1.32 移除内置 barman，从内置 barman 迁到插件的步骤和在 kind 上测得的结果见 `deploy/kubernetes/ha-postgres/README.md`；
 - `ROLLOUT=1 bash tests/kind/failover-drill.sh`：CMI 持续写入时滚动重启整个集群（换镜像、改配置、加插件都是这样），检查最长一段写入被拒绝的时间和没有丢失已确认的写入；集群用 `primaryUpdateMethod: switchover`，主库先切到已更新的备库再重建；
 - HA 模式下 `kubectl exec` 要进当前主库：`kubectl -n databases get cluster postgresql -o jsonpath='{.status.currentPrimary}'`，容器仍写 `-c postgres`。

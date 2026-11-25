@@ -1,7 +1,7 @@
 # The PostgreSQL backup image (DEV and reference): postgres client tools plus age (public-key encryption) and
 # curl (S3-compatible upload with SigV4: AWS S3, RustFS, Cloudflare R2, Oracle OCI, ...). Nothing else, so there is
 # little to patch. Build: deploy/images/pg-backup/build.sh
-FROM public.ecr.aws/docker/library/postgres:17-alpine
+FROM ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine
 USER root
 # upgrade the base's packages (a fixed musl, for one, lands in a newer package than the image was built with), install the two
 # tools, and drop gosu: the official PostgreSQL images ship it built with an old Go (its standard library is what a scanner

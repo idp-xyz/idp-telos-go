@@ -78,7 +78,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: origin
-          image: python:3.12-slim          # on the nodes already: it is what the sandbox runs
+          image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim          # on the nodes already: it is what the sandbox runs
           imagePullPolicy: IfNotPresent
           # the name the bulletin gives the reader for the attacker: the Service's, which resolves from idp-web's namespace
           # WEB_SSRF_TARGETS: the internal addresses of this cluster that PATH M6's SSRF page asks for besides the fixed ones: a canary behind a name (tests/kind/browser-origin.yaml)
@@ -108,7 +108,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: attacker
-          image: python:3.12-slim
+          image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
           imagePullPolicy: IfNotPresent
           env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
           command: [python, -I, /srv/web_origin.py, attacker, "8080"]

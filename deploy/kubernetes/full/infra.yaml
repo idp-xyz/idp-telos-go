@@ -41,7 +41,7 @@ spec:
       # owned by the server's user, which a Secret volume cannot give, so a copy is made first
       initContainers:
         - name: tls
-          image: docker.io/pgvector/pgvector:0.8.7-pg17
+          image: ghcr.io/idp-xyz/mirror:docker.io__pgvector__pgvector__0.8.7-pg17
           command: [sh, -ec, "cp /tls-src/tls.crt /tls-src/tls.key /tls/ && chmod 0600 /tls/tls.key && chmod 0644 /tls/tls.crt"]
           resources: {limits: {cpu: 100m, memory: 32Mi}}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
@@ -50,7 +50,7 @@ spec:
             - {name: tls, mountPath: /tls}
       containers:
         - name: postgres
-          image: docker.io/pgvector/pgvector:0.8.7-pg17
+          image: ghcr.io/idp-xyz/mirror:docker.io__pgvector__pgvector__0.8.7-pg17
           # TLS 1.2 or later, and a pg_hba.conf (ConfigMap postgres-hba) that rejects every TCP connection without it
           args: [-c, ssl=on, -c, ssl_cert_file=/tls/tls.crt, -c, ssl_key_file=/tls/tls.key, -c, ssl_min_protocol_version=TLSv1.2, -c, hba_file=/etc/postgres-hba/pg_hba.conf, -c, password_encryption=scram-sha-256]   # PostgreSQL 17 with pgvector (idp-cmi D38: native vector search; the CMI also works without it)
           env:
@@ -130,7 +130,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: keycloak
-          image: quay.io/keycloak/keycloak:26.8.2
+          image: ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2
           args: [start-dev, --import-realm, --features, token-exchange-standard]
           env:
             - {name: KC_HTTP_ENABLED, value: "true"}

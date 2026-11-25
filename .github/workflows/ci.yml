@@ -57,10 +57,10 @@ jobs:
       - name: Alert rules (promtool 3.14.0, pinned by digest; each rule fires and stays quiet on its test series)
         run: |
           # pulled first, with retries: anonymous pulls are limited per source address and the runners share theirs
-          bash tools/pull_image.sh prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+          bash tools/pull_image.sh ghcr.io/idp-xyz/mirror:docker.io__prom__prometheus__v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
           for t in backup-alerts_test.yaml ha-postgres-alerts_test.yaml; do
             docker run --rm -v "$PWD/deploy/observability:/r:ro" -w /r --entrypoint promtool \
-              prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0 test rules "$t"
+              ghcr.io/idp-xyz/mirror:docker.io__prom__prometheus__v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0 test rules "$t"
           done
       - name: Contract registry against the producers
         run: python -I idp-contracts/tools/validate.py --report /tmp/validation_report.json

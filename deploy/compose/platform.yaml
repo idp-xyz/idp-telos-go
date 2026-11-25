@@ -45,7 +45,7 @@ volumes:
 
 services:
   postgres:
-    image: ${IDP_PG_IMAGE:-pgvector/pgvector:0.8.7-pg17}
+    image: ${IDP_PG_IMAGE:-ghcr.io/idp-xyz/mirror:docker.io__pgvector__pgvector__0.8.7-pg17}
     networks: [data, bridgedb]
     environment: {POSTGRES_PASSWORD: '${IDP_PG_OWNER_PASSWORD:?run deploy/compose/e2e.sh}'}
     volumes: [pgdata:/var/lib/postgresql/data]
@@ -55,7 +55,7 @@ services:
   # Workspace's keys reach nothing else; server-side encryption with a master key generated per stack. The loopback port
   # is for e2e.sh (the bucket, and its checks); a published port needs a network that is not internal, hence edge.
   files-s3:
-    image: ${IDP_FILES_S3_IMAGE:-docker.io/rustfs/rustfs:1.0.4-glibc}
+    image: ${IDP_FILES_S3_IMAGE:-ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc}
     networks: [data, edge]
     ports: ['127.0.0.1:19500:9000']
     environment:
@@ -69,7 +69,7 @@ services:
   # knowledge-base originals (idp-cmi): a RustFS of their own, not the members' files and not the
   # database backups. The loopback port is for e2e.sh to create the bucket.
   knowledge-s3:
-    image: ${IDP_KB_S3_IMAGE:-docker.io/rustfs/rustfs:1.0.4-glibc}
+    image: ${IDP_KB_S3_IMAGE:-ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc}
     networks: [data, edge]
     ports: ['127.0.0.1:19510:9000']
     environment:
@@ -81,7 +81,7 @@ services:
     volumes: [knowledgedata:/data]
 
   keycloak:
-    image: ${IDP_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.2}
+    image: ${IDP_KEYCLOAK_IMAGE:-ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2}
     command: [start-dev, --import-realm, --features, 'token-exchange-standard']
     networks: [edge, upstream, bridgenet]   # bridgenet: the bridge verifies the Workspace's calls against its keys
     ports: ['127.0.0.1:7443:7443']
@@ -195,8 +195,8 @@ services:
       IDP_SANDBOX_CALLER_AUDIENCE: http://sandbox:8570/mcp
       IDP_SANDBOX_METRICS: 0.0.0.0:9570
       IDP_SANDBOX_OWNER: platform
-      IDP_SANDBOX_PYTHON_IMAGE: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
-      IDP_SANDBOX_SHELL_IMAGE: ${IDP_SANDBOX_SHELL_IMAGE:-public.ecr.aws/docker/library/alpine:3.22}
+      IDP_SANDBOX_PYTHON_IMAGE: ${IDP_SANDBOX_PYTHON_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim}
+      IDP_SANDBOX_SHELL_IMAGE: ${IDP_SANDBOX_SHELL_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22}
       IDP_SANDBOX_OFFICE_IMAGE: ${IDP_SANDBOX_OFFICE_IMAGE:-idp-sandbox-office:dev}
       # a member's files move between the Workspace and a workspace on the Workspace's internal listener (idp-sandbox D15)
       IDP_SANDBOX_FILES_URL: http://workspace:8561/internal/v1/files
@@ -224,7 +224,7 @@ services:
   egress-origin:
     <<: *hardened
     profiles: [egress-test]
-    image: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
+    image: ${IDP_SANDBOX_PYTHON_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim}
     networks: [edge]
     user: '65532:65532'
     environment: {PYTHONDONTWRITEBYTECODE: '1'}
@@ -285,7 +285,7 @@ services:
   web-origin: &web-test-origin
     <<: *hardened
     profiles: [web-test]
-    image: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
+    image: ${IDP_SANDBOX_PYTHON_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim}
     networks: [edge]
     user: '65532:65532'
     # WEB_SSRF_TARGETS: internal addresses of this deployment that the SSRF page of PATH M6 asks for besides the fixed ones: a canary behind a name, and real services
@@ -350,7 +350,7 @@ services:
   thirdparty:
     <<: *hardened
     profiles: [bridge-test]
-    image: ${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
+    image: ${IDP_SANDBOX_PYTHON_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim}
     networks: [thirdparty, edge]
     ports: ['127.0.0.1:8590:8590']
     user: '65532:65532'

@@ -72,7 +72,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: origin
-          image: python:3.12-slim
+          image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
           imagePullPolicy: IfNotPresent
           env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
           command: [python, -I, /srv/web_origin.py, origin, "8080"]
@@ -96,7 +96,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: canary
-          image: python:3.12-slim
+          image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
           imagePullPolicy: IfNotPresent
           env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
           command: [python, -I, /srv/web_origin.py, attacker, "8080"]

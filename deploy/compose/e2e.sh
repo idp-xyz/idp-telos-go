@@ -154,14 +154,14 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   docker tag "$(echo "$built" | sed -n 's/^OK: \([^ ]*\) .*/\1/p')" idp-browser:dev; docker tag "$(echo "$built" | sed -n 's/.* \(idp-browser-proxy:[^ ]*\) .*/\1/p')" idp-browser-proxy:dev
 fi
 # the sandbox's runtime images are pulled by the operator (here), never by the service
-bash tools/pull_image.sh public.ecr.aws/docker/library/python:3.12-slim public.ecr.aws/docker/library/alpine:3.22
+bash tools/pull_image.sh ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22
 # the members' file store (idp-workspace D24): RustFS pinned by digest, the build the kind backups use
-FILES_S3_IMG=docker.io/rustfs/rustfs:1.0.4-glibc FILES_S3_DIGEST=sha256:a9b705b9256be756802a60f3498abdc543918b5b5a4437a57a541e89e733c74d
+FILES_S3_IMG=ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc FILES_S3_DIGEST=sha256:a9b705b9256be756802a60f3498abdc543918b5b5a4437a57a541e89e733c74d
 if ! docker image inspect "$FILES_S3_IMG" >/dev/null 2>&1; then
   bash tools/pull_image.sh "${FILES_S3_IMG%%:*}@$FILES_S3_DIGEST" && docker tag "${FILES_S3_IMG%%:*}@$FILES_S3_DIGEST" "$FILES_S3_IMG"
 fi
 # the sandbox's office run image (idp-sandbox ADR-0001 D14) is built offline on that python image; OfficeCLI is pinned in its script
-[[ "${SKIP_BUILD:-0}" == 1 ]] || BASE=public.ecr.aws/docker/library/python:3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
+[[ "${SKIP_BUILD:-0}" == 1 ]] || BASE=ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
 OWN=(idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-sandbox-office:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev)
 for img in "${OWN[@]}" "$FILES_S3_IMG"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing" >&2; exit 2; }
@@ -659,7 +659,7 @@ print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'
 "${C[@]}" logs sandbox 2>/dev/null | grep -q 'callers must be signed by the gateway' || { echo "FAIL: the sandbox does not verify the gateway's signature" >&2; exit 1; }
 SBXNET="$(docker inspect -f '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}' "$("${C[@]}" ps -q sandbox)")"
 FORGED='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sandbox_create","arguments":{},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
-DIRECT="$(docker run --rm --network "$SBXNET" public.ecr.aws/docker/library/alpine:3.22 wget -q -O - --header 'Content-Type: application/json' \
+DIRECT="$(docker run --rm --network "$SBXNET" ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22 wget -q -O - --header 'Content-Type: application/json' \
   --header 'MCP-Protocol-Version: 2026-07-28' --header 'Mcp-Method: tools/call' --post-data "$FORGED" http://sandbox:8570/mcp 2>&1 || true)"
 [[ "$DIRECT" == *403* && "$DIRECT" != *workspaceId* ]] && "${C[@]}" logs sandbox 2>/dev/null | grep -q 'caller assertion refused' \
   || { echo "FAIL: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
@@ -1158,7 +1158,7 @@ MORG="$(web_log web-origin | python3 -I deploy/compose/web_check.py m-origin /ar
 # that caller was the gateway's word, not the network's: a call to idp-web that names bob, without the gateway's signature, is refused
 UPNET="$(docker inspect -f '{{range $k, $_ := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$("${C[@]}" ps -q web)" | grep '_upstream$')"
 FORGED='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"'"$MQ"'"},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
-DIRECT="$(docker run --rm --network "$UPNET" public.ecr.aws/docker/library/alpine:3.22 wget -q -O - --header 'Content-Type: application/json' \
+DIRECT="$(docker run --rm --network "$UPNET" ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22 wget -q -O - --header 'Content-Type: application/json' \
   --header 'MCP-Protocol-Version: 2026-07-28' --header 'Mcp-Method: tools/call' --post-data "$FORGED" http://web:8580/mcp 2>&1 || true)"
 [[ "$DIRECT" == *403* && "$DIRECT" != *address:* ]] && web_log web | grep -q 'caller assertion refused' \
   || { echo "FAIL: PATH M forged caller: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
@@ -1322,14 +1322,14 @@ m6_proxy_log() { "${C[@]}" logs --no-color --no-log-prefix browser-proxy 2>/dev/
 m6_renderer_log() { "${C[@]}" logs --no-color --no-log-prefix browser 2>/dev/null; }
 m6_canary_log() { "${C[@]}" logs --no-color --no-log-prefix web-canary 2>/dev/null; }
 m6_render_origin_log() { "${C[@]}" logs --no-color --no-log-prefix web-render-origin 2>/dev/null; }
-m6_get() { docker run --rm --network idp-telos-platform_browsernet --entrypoint python "${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}" -c 'import sys,urllib.request; r=urllib.request.urlopen(sys.argv[1], timeout=10); sys.stdout.write(r.read().decode())' "$1"; }
+m6_get() { docker run --rm --network idp-telos-platform_browsernet --entrypoint python "${IDP_SANDBOX_PYTHON_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim}" -c 'import sys,urllib.request; r=urllib.request.urlopen(sys.argv[1], timeout=10); sys.stdout.write(r.read().decode())' "$1"; }
 m6_quota_reset() { "${C[@]}" exec -T postgres psql -U postgres -d idp_web -qc "DELETE FROM daily_usage WHERE tenant = '$TENANT'" >/dev/null; }
 m6_renderer_stop() { "${C[@]}" stop browser >/dev/null; }
 m6_renderer_start() { "${C[@]}" start browser >/dev/null; for _ in $(seq 1 60); do m6_get http://browser:9590/readyz >/dev/null 2>&1 && return 0; sleep 1; done; echo "FAIL: PATH M6: the renderer did not become ready again" >&2; exit 1; }
 source deploy/compose/path_m6.sh
 # the renderer's network: nothing reaches its port but idp-web (the containers of the other networks have no route to it), and it reaches the proxy and no way out of the platform
 BROWSER_CID="$("${C[@]}" ps -q browser)"; BROWSER_IP="$(docker inspect -f '{{(index .NetworkSettings.Networks "idp-telos-platform_browsernet").IPAddress}}' "$BROWSER_CID")"
-m6_nc() { docker run --rm --network "$1" --entrypoint nc public.ecr.aws/docker/library/alpine:3.22 -z -w 2 "$2" "$3" >/dev/null 2>&1; }
+m6_nc() { docker run --rm --network "$1" --entrypoint nc ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22 -z -w 2 "$2" "$3" >/dev/null 2>&1; }
 m6_nc idp-telos-platform_browsernet "$BROWSER_IP" 8590 || { echo "FAIL: PATH M6h: the probe cannot reach the renderer from browsernet, where idp-web is: the test would prove nothing" >&2; exit 1; }
 for net in upstream edge data; do m6_nc "idp-telos-platform_$net" "$BROWSER_IP" 8590 && { echo "FAIL: PATH M6h: a container on $net reaches the renderer's port" >&2; exit 1; }; done
 m6_nc "container:$BROWSER_CID" browser-proxy 3128 || { echo "FAIL: PATH M6h: the renderer cannot reach the proxy" >&2; exit 1; }
@@ -1356,7 +1356,7 @@ kc_set_enabled() { # kc_set_enabled USERNAME true|false
   "${KC[@]}" -X PUT -H "Authorization: Bearer $t" -H 'Content-Type: application/json' -d "{\"enabled\": $2}" "${ISSUER%/realms/idp}/admin/realms/idp/users/$id"
 }
 bridge_api() { # bridge_api METHOD PATH TOKEN [BODY]: from a container on bridgenet, where the Workspace is; prints the status, then the body
-  docker run --rm --network idp-telos-platform_bridgenet -e M="$1" -e U="http://bridge:8681$2" -e T="$3" -e B="${4:-}" --entrypoint python "${IDP_SANDBOX_PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}" -c '
+  docker run --rm --network idp-telos-platform_bridgenet -e M="$1" -e U="http://bridge:8681$2" -e T="$3" -e B="${4:-}" --entrypoint python "${IDP_SANDBOX_PYTHON_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim}" -c '
 import os, urllib.request, urllib.error
 h = {"Content-Type": "application/json"}
 if os.environ["T"]: h["Authorization"] = "Bearer " + os.environ["T"]
@@ -1388,7 +1388,7 @@ O8PORTS="$(docker port "$BRIDGE_CID")"
 [[ -z "$O8PORTS" ]] || { echo "FAIL: PATH O8: the bridge publishes ports on the host: $O8PORTS" >&2; exit 1; }
 BRIDGE_IPS="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$v.IPAddress}} {{end}}' "$BRIDGE_CID")"
 O8N=0
-probe() { docker run --rm --network "$1" --entrypoint nc public.ecr.aws/docker/library/alpine:3.22 -z -w 2 "$2" "$3" >/dev/null 2>&1; }
+probe() { docker run --rm --network "$1" --entrypoint nc ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22 -z -w 2 "$2" "$3" >/dev/null 2>&1; }
 probe "${PROJ}_bridgenet" "$(docker inspect -f '{{(index .NetworkSettings.Networks "'"${PROJ}"'_bridgenet").IPAddress}}' "$BRIDGE_CID")" 8681 \
   || { echo "FAIL: PATH O8: the probe cannot reach the bridge's API port from bridgenet, where it must: the test would prove nothing" >&2; exit 1; }
 for net in upstream edge data; do

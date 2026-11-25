@@ -30,8 +30,8 @@ load() { # load IMAGE: into every node that does not have it
   else bash tests/kind/crane-pull.sh "$img" "$tar"; fi
   kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
 }
-for img in ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1 ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.16.0 ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.16.0 \
-           quay.io/jetstack/cert-manager-controller:v1.21.3 quay.io/jetstack/cert-manager-webhook:v1.21.3 quay.io/jetstack/cert-manager-cainjector:v1.21.3; do
+for img in ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__cloudnative-pg__1.30.1 ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud__v0.16.0 ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud-sidecar__v0.16.0 \
+           ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-controller__v1.21.3 ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-webhook__v1.21.3 ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-cainjector__v1.21.3; do
   load "$img"
 done
 

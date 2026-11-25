@@ -160,7 +160,7 @@ ensure_image() { # ensure_image IMAGE [NODE-NAME]
       local tar; tar="$(mktemp --suffix=.tar)"; bash tests/kind/crane-pull.sh "$img" "$tar" && kind load image-archive "$tar" --name "$CLUSTER" >/dev/null; rm -f "$tar"
       return 0
     fi
-    bash tools/pull_image.sh "$img"
+    bash tools/pull_image.sh "$img"   # mirror:variable (img is a mirror name or one of our own)
   fi
   [[ "$img" == "$want" ]] || docker tag "$img" "$want"
   load_image "$want"
@@ -170,20 +170,20 @@ for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing (run without SKIP_BUILD)" >&2; exit 2; }
   load_image "$img"
 done
-ensure_image docker.io/pgvector/pgvector:0.8.7-pg17
+ensure_image ghcr.io/idp-xyz/mirror:docker.io__pgvector__pgvector__0.8.7-pg17
 if [[ "$PG_HA" == 1 ]]; then
-  ensure_image ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie   # the operators' images: tests/kind/ha-operators.sh
+  ensure_image ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__postgresql__17.11-standard-trixie   # the operators' images: tests/kind/ha-operators.sh
   # built like the components (cached, so quick when the Dockerfile has not changed) and always loaded: the node may hold an older
   # build under the same tag
   if [[ "${SKIP_BUILD:-0}" != 1 ]] || ! docker image inspect idp-postgres-ha:17-dev >/dev/null 2>&1; then bash deploy/images/postgres-ha/build.sh idp-postgres-ha:17-dev >/dev/null; fi
   load_image idp-postgres-ha:17-dev
 fi
-ensure_image public.ecr.aws/docker/library/postgres:17-alpine   # the restore drill's client tools
-ensure_image quay.io/keycloak/keycloak:26.8.2
+ensure_image ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine   # the restore drill's client tools
+ensure_image ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2
 ensure_image local/temporal:1.10.0
 # what the sandbox runs (IDP_SANDBOX_PYTHON_IMAGE / _SHELL_IMAGE in its manifest): short names, loaded by the operator
-ensure_image public.ecr.aws/docker/library/python:3.12-slim python:3.12-slim
-ensure_image public.ecr.aws/docker/library/alpine:3.22 alpine:3.22
+ensure_image ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
+ensure_image ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22
 if [[ "$MODEL" == live ]]; then
   # the pods reach the host's model through the kind network's gateway: a forwarder bound to that address only, in a
   # container on the host's network so that it outlives this script and comes back with Docker
@@ -191,7 +191,7 @@ if [[ "$MODEL" == live ]]; then
   [[ -n "$KIND_GW" ]] || { echo "BLOCKED: no IPv4 gateway on the kind network" >&2; exit 2; }
   TARGET="$(python3 -c "import urllib.parse,sys; u=urllib.parse.urlparse(sys.argv[1]); print(f'{u.hostname}:{u.port or 80}')" "$LIVE_URL")"
   LIVE_PATH="$(python3 -c "import urllib.parse,sys; print(urllib.parse.urlparse(sys.argv[1]).path.rstrip('/'))" "$LIVE_URL")"
-  PYIMG=python:3.12-slim; docker image inspect "$PYIMG" >/dev/null 2>&1 || PYIMG=public.ecr.aws/docker/library/python:3.12-slim
+  PYIMG=ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
   bash tools/pull_image.sh "$PYIMG"   # with retries, so that docker run does not pull
   docker rm -f idp-kind-model-forward >/dev/null 2>&1 || true
   docker run -d --name idp-kind-model-forward --restart unless-stopped --network host -v "$PWD/tools/model_forward.py:/model_forward.py:ro" \
@@ -1400,7 +1400,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
   containers:
     - name: probe
-      image: python:3.12-slim
+      image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
       imagePullPolicy: IfNotPresent
       command: [python, -c, "import time; time.sleep(1200)"]
       resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 100m, memory: 64Mi}}   # idp-browser's namespace has a quota that demands them
@@ -1491,7 +1491,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
   containers:
     - name: probe
-      image: python:3.12-slim
+      image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
       imagePullPolicy: IfNotPresent
       command: [python, -c, "import time; time.sleep(1800)"]
       securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}

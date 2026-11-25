@@ -20,13 +20,13 @@
 # ends with the databases' dates: a finding published after them is not seen, so an old database reports too little.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TRIVY="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.76.2}"
+TRIVY="${TRIVY_IMAGE:-ghcr.io/idp-xyz/mirror:ghcr.io__aquasecurity__trivy__0.76.2}"
 CACHE="${TRIVY_CACHE:-$PWD/.local/trivy-cache}"; mkdir -p "$CACHE"; chmod 777 "$CACHE"
 OWN=(idp-cmi:dev idp-host:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-pg-backup:dev idp-postgres-ha:17-dev)
-THIRD=(pgvector/pgvector:0.8.7-pg17 public.ecr.aws/docker/library/postgres:17-alpine quay.io/keycloak/keycloak:26.8.2 temporalio/temporal:1.10.0 ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1
-       ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.16.0 ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.16.0
-       quay.io/jetstack/cert-manager-controller:v1.21.3 quay.io/jetstack/cert-manager-webhook:v1.21.3 quay.io/jetstack/cert-manager-cainjector:v1.21.3
-       public.ecr.aws/docker/library/alpine:3.22 public.ecr.aws/docker/library/python:3.12-slim docker.io/rustfs/rustfs:1.0.4-glibc
+THIRD=(ghcr.io/idp-xyz/mirror:docker.io__pgvector__pgvector__0.8.7-pg17 ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2 ghcr.io/idp-xyz/mirror:docker.io__temporalio__temporal__1.10.0 ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__cloudnative-pg__1.30.1
+       ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud__v0.16.0 ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__plugin-barman-cloud-sidecar__v0.16.0
+       ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-controller__v1.21.3 ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-webhook__v1.21.3 ghcr.io/idp-xyz/mirror:quay.io__jetstack__cert-manager-cainjector__v1.21.3
+       ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22 ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc
        idp-sandbox-office:dev)   # ours, but only the python image above plus the pinned OfficeCLI binary: nothing a rebuild of our code fixes
 case "${1:-}" in
   --own) IMAGES=("${OWN[@]}");;
@@ -42,7 +42,7 @@ if [[ -n "${TRIVY_OFFLINE:-}" ]]; then
 elif [[ -n "${HTTPS_PROXY:-}" ]]; then
   NET=(-e "HTTPS_PROXY=$HTTPS_PROXY" -e "HTTP_PROXY=${HTTP_PROXY:-$HTTPS_PROXY}" -e NO_PROXY=localhost,127.0.0.1 --network host)
 fi
-bash tools/pull_image.sh "$TRIVY"   # with retries, so that docker run does not pull it
+bash tools/pull_image.sh "$TRIVY"   # with retries, so that docker run does not pull it   # mirror:variable
 status=0
 echo "## Image vulnerabilities (trivy ${TRIVY##*:}, HIGH and CRITICAL with a fix)"; echo
 printf '| image | findings | detail |\n|---|---|---|\n'

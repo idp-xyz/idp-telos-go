@@ -4,7 +4,7 @@
 # archiving, base backups and recovery run in the Barman Cloud plugin's sidecar, which brings its own barman-cloud
 # (deploy/kubernetes/ha-postgres/pitr.yaml).
 # Build: deploy/images/postgres-ha/build.sh
-FROM ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie
+FROM ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__postgresql__17.11-standard-trixie
 USER root
 RUN apt-get update \
  && apt-get install -y --no-install-recommends postgresql-17-pgvector \

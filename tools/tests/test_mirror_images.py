@@ -289,12 +289,81 @@ class Repositories(unittest.TestCase):
         self.assertNotIn("postgres:17-alpine  (", out)
         self.assertNotIn("python:3.12-slim  (", out)      # an alias of a listed entry
 
-    def test_clean_when_listed(self):
+    def test_a_source_reference_of_a_listed_image_is_not_the_mirror(self):
         self.list.write_text(self.list.read_text() + entry("quay.io/keycloak/keycloak", "26.8.2", D1))
         code, out = self.run_tool("--list", str(self.list), "check", "--repos", str(self.root / "svc"), str(self.root / "other"))
+        self.assertEqual(code, 1)
+        self.assertIn("NOT THE MIRROR: svc:compose.yaml:3 public.ecr.aws/docker/library/postgres:17-alpine -> ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine", out)
+        self.assertIn("NOT THE MIRROR: other:ci.yml:1 python:3.12-slim", out)      # also by an alias or a short name
+
+    def test_clean_once_switched(self):
+        self.list.write_text(self.list.read_text() + entry("quay.io/keycloak/keycloak", "26.8.2", D1))
+        repos = [str(self.root / "svc"), str(self.root / "other")]
+        code, out = self.run_tool("--list", str(self.list), "switch", "--repos", *repos)
         self.assertEqual(code, 0, out)
-        code, out = self.run_tool("--list", str(self.list), "check", "--strict", "--repos", str(self.root / "svc"))
+        self.assertIn("3 switched, 0 to do by hand", out)
+        self.assertIn("image: ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2", (self.root / "svc" / "compose.yaml").read_text())
+        code, out = self.run_tool("--list", str(self.list), "check", "--repos", *repos)
+        self.assertEqual(code, 0, out)
+        self.assertIn("3 name the mirror", out)
+        code, out = self.run_tool("--list", str(self.list), "check", "--strict", "--repos", *repos)
         self.assertEqual(code, 1)    # strict: the unused entry and the unchecked reference fail
+        self.assertIn("UNUSED", out)
+        self.assertIn("UNCHECKED: svc:run.sh:2 $BASE", out)
+
+    def test_markers(self):
+        self.list.write_text(self.list.read_text() + entry("quay.io/keycloak/keycloak", "26.8.2", D1))
+        self.make(self.root / "svc", {
+            "compose.yaml": "services:\n  db:\n    image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine\n"
+                            "  kc:\n    image: quay.io/keycloak/keycloak:26.8.2   # mirror:upstream: what to watch for releases\n",
+            "run.sh": "docker run --rm $WHAT\n# mirror:variable (BASE is a mirror name)\nbash tools/pull_image.sh $BASE\n"})
+        self.make(self.root / "other", {"ci.yml": f"      image: ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc@{D3}\n"})
+        code, out = self.run_tool("--list", str(self.list), "check", "--strict", "--repos", str(self.root / "svc"), str(self.root / "other"))
+        self.assertEqual(code, 1, out)         # the python entry is unused; nothing else is wrong
+        self.assertIn("1 name an upstream on purpose", out)
+        self.assertIn("1 are built from variables and reviewed", out)
+        self.assertNotIn("UNCHECKED", out)
+        self.assertNotIn("NOT THE MIRROR", out)
+        self.assertEqual([l for l in out.splitlines() if l.startswith(("UNUSED", "NOT", "DIFFERS"))],
+                         ["UNUSED: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim (source public.ecr.aws/docker/library/python:3.12-slim)"])
+
+    def test_short_names_without_a_registry_are_found_anywhere_in_code(self):
+        self.make(self.root / "svc", {
+            "main.go": 'cfg := New(env("PY", "python:3.12-slim"), "alpine:3.22")\n// docs say python:3.12-slim\n',
+            "sb.yaml": "env:\n  - value: python:3.12-slim\n",
+            "ok.sh": "x=ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim\nnot-python:3.12-slim-x\n"})
+        code, out = self.run_tool("--list", str(self.list), "check", "--repos", str(self.root / "svc"))
+        self.assertIn("NOT THE MIRROR: svc:main.go:1 python:3.12-slim", out)
+        self.assertIn("NOT THE MIRROR: svc:sb.yaml:2 python:3.12-slim", out)
+        self.assertNotIn("main.go:2", out)         # a comment line
+        self.assertNotIn("ok.sh", out)
+        self.run_tool("--list", str(self.list), "switch", "--repos", str(self.root / "svc"))
+        self.assertIn('env("PY", "ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim")', (self.root / "svc" / "main.go").read_text())
+
+    def test_a_mirror_reference_must_be_in_the_list_and_keep_the_listed_digest(self):
+        self.make(self.root / "svc", {
+            "a.yaml": "image: ghcr.io/idp-xyz/mirror:docker.io__nobody__nothing__1\n",
+            "b.yaml": f"image: ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc@{D1}\n",
+            "c.md": "the package ghcr.io/idp-xyz/mirror is public\n"})
+        code, out = self.run_tool("--list", str(self.list), "check", "--repos", str(self.root / "svc"))
+        self.assertIn("NOT IN THE LIST: ghcr.io/idp-xyz/mirror:docker.io__nobody__nothing__1", out)
+        self.assertIn("DIFFERS FROM THE LIST: svc:b.yaml:1", out)
+        self.assertNotIn("c.md", out)          # a sentence about the package is not an image
+
+    def test_switch_changes_a_digest_pin_that_the_mirror_does_not_hold(self):
+        self.make(self.root / "svc", {"Dockerfile": f"FROM docker.io/rustfs/rustfs:1.0.4-glibc@{D1}\n"})
+        code, out = self.run_tool("--list", str(self.list), "switch", "--repos", str(self.root / "svc"))
+        self.assertIn(f"FROM ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc@{D3}", (self.root / "svc" / "Dockerfile").read_text())
+
+    def test_switch_dry_run_writes_nothing_and_a_default_in_a_variable_is_found(self):
+        self.make(self.root / "svc", {"x.sh": 'IMG="${X_IMAGE:-public.ecr.aws/docker/library/postgres:17-alpine}"\n'})
+        before = (self.root / "svc" / "x.sh").read_text()
+        code, out = self.run_tool("--list", str(self.list), "switch", "--dry-run", "--repos", str(self.root / "svc"))
+        self.assertIn("WOULD SWITCH svc:x.sh:1", out)
+        self.assertEqual((self.root / "svc" / "x.sh").read_text(), before)
+        self.run_tool("--list", str(self.list), "switch", "--repos", str(self.root / "svc"))
+        self.assertEqual((self.root / "svc" / "x.sh").read_text(),
+                         'IMG="${X_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine}"\n')
 
     def test_invalid_list_fails_check_without_repos(self):
         self.list.write_text(listing(entry(), entry()))

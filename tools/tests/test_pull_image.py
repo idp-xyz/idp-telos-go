@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "pull_image.sh"
-IMAGE = "public.ecr.aws/docker/library/postgres:17-alpine"
+IMAGE = "ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine"
 LIMIT = "Error response from daemon: error from registry: Data limit exceeded"
 
 # FAKE_PULLS_FAILING pulls are refused with the registry's message, later ones succeed; FAKE_PRESENT names the image the
@@ -79,9 +79,9 @@ class PullImage(unittest.TestCase):
         self.assertEqual(r.stderr, "")
 
     def test_several_images_and_none(self):
-        r, pulls = self.run_script(IMAGE, "quay.io/keycloak/keycloak:26.8.2", present=IMAGE)
+        r, pulls = self.run_script(IMAGE, "ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2", present=IMAGE)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(pulls, ["pull -q quay.io/keycloak/keycloak:26.8.2"])
+        self.assertEqual(pulls, ["pull -q ghcr.io/idp-xyz/mirror:quay.io__keycloak__keycloak__26.8.2"])
         r, pulls = self.run_script()
         self.assertEqual((r.returncode, pulls), (0, []))
 

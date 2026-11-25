@@ -30,8 +30,8 @@ load_image() {
 for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev; do load_image "$img"; done
 # LOAD_BASE_IMAGES=1: nodes that cannot reach the registries (a machine behind a proxy) get the base images from the daemon
 if [[ "${LOAD_BASE_IMAGES:-0}" == 1 ]]; then
-  for img in public.ecr.aws/docker/library/postgres:17-alpine public.ecr.aws/docker/library/busybox:1.37; do
-    bash tools/pull_image.sh "$img" || { echo "skipped $img (not available)"; continue; }   # with retries; the nodes then do not pull it
+  for img in ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__busybox__1.37; do
+    bash tools/pull_image.sh "$img" || { echo "skipped $img (not available)"; continue; }   # with retries; the nodes then do not pull it   # mirror:variable
     load_image "$img"
   done
 fi
@@ -102,8 +102,8 @@ diagnose() {
   probe() { # probe NAMESPACE COMPONENT-LABEL URL: a pod the namespace's policies select as that component
     local ns="$1" component="$2" url="$3"
     kubectl -n "$ns" run "probe-$RANDOM" --rm -i --restart=Never --quiet --labels="app.kubernetes.io/component=$component,app.kubernetes.io/name=$ns,app.kubernetes.io/part-of=idp-telos" \
-      --image=public.ecr.aws/docker/library/busybox:1.37 \
-      --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"p","image":"public.ecr.aws/docker/library/busybox:1.37","command":["sh","-c","wget -qO- -T 5 '"$url"' && echo REACHED || echo NOT-REACHED"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
+      --image=ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__busybox__1.37 \
+      --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"p","image":"ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__busybox__1.37","command":["sh","-c","wget -qO- -T 5 '"$url"' && echo REACHED || echo NOT-REACHED"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
       2>&1 | sed "s#^#[$ns as $component -> $url] #" || true
   }
   probe idp-host host http://idp-cmi.idp-cmi.svc.cluster.local:8550/healthz

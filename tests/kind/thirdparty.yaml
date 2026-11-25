@@ -63,7 +63,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: thirdparty
-          image: python:3.12-slim          # on the nodes already: it is what the sandbox runs
+          image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim          # on the nodes already: it is what the sandbox runs
           imagePullPolicy: IfNotPresent
           env:
             - {name: PYTHONDONTWRITEBYTECODE, value: "1"}

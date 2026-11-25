@@ -18,8 +18,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
 CLUSTER="${KIND_CLUSTER:-kind}"; NS=ha-test; L=.local/ha-postgres; ARCHIVE="${ARCHIVE:-}"
-OPERATOR_IMG=ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1
-OPERAND_BASE=ghcr.io/cloudnative-pg/postgresql:17.11-standard-trixie
+OPERATOR_IMG=ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__cloudnative-pg__1.30.1
+OPERAND_BASE=ghcr.io/idp-xyz/mirror:ghcr.io__cloudnative-pg__postgresql__17.11-standard-trixie
 IMG=idp-postgres-ha:17-dev
 MANIFEST_URL=https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.1/cnpg-1.30.1.yaml
 MANIFEST_SHA256=37237f145d8138256ea25ae830f87759255665ff08f8d552fdd8224a5ec032fb

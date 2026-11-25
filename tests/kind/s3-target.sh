@@ -15,7 +15,7 @@ export PATH="$HOME/.local/bin:$PATH"
 [[ $# == 3 ]] || { echo "usage: S3_ACCESS_KEY=... S3_SECRET_KEY=... $0 NAME ADDRESS PORT" >&2; exit 2; }
 NAME="$1" ADDR="$2" PORT="$3"
 : "${S3_ACCESS_KEY:?}" "${S3_SECRET_KEY:?}"
-S3_IMG=docker.io/rustfs/rustfs:1.0.4-glibc S3_DIGEST=sha256:a9b705b9256be756802a60f3498abdc543918b5b5a4437a57a541e89e733c74d
+S3_IMG=ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc S3_DIGEST=sha256:a9b705b9256be756802a60f3498abdc543918b5b5a4437a57a541e89e733c74d
 BUCKET="${S3_BUCKET:-backups}"
 docker rm -f "$NAME" >/dev/null 2>&1 || true; docker volume rm -f "$NAME" >/dev/null 2>&1 || true
 if ! docker image inspect "$S3_IMG" >/dev/null 2>&1; then   # loaded by digest, named by its tag

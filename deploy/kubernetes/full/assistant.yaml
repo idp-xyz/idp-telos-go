@@ -19,7 +19,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: assistant
-          image: python:3.12-slim
+          image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
           imagePullPolicy: IfNotPresent
           command: [python, -m, http.server, "8080", --bind, 0.0.0.0, --directory, /app]
           env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]

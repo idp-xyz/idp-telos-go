@@ -2,10 +2,10 @@
 # Tests the backup image with Docker only (PostgreSQL + an S3-compatible store, RustFS + this image): encryption (no plaintext in the bucket),
 # the shipped manifest, restore with the right and with the wrong private key, a tampered object, an incomplete set,
 # local and remote retention. Needs idp-pg-backup:dev, postgres:17-alpine and the RustFS image in the daemon (tests/kind/full.sh
-# loads it: crane pull by digest, docker load, tagged docker.io/rustfs/rustfs:1.0.4-glibc).
+# loads it: crane pull by digest, docker load, tagged ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc).
 set -euo pipefail
-IMG="${IMG:-idp-pg-backup:dev}"; PG_IMG="${PG_IMG:-public.ecr.aws/docker/library/postgres:17-alpine}"
-S3_IMG="${S3_IMG:-docker.io/rustfs/rustfs:1.0.4-glibc}"
+IMG="${IMG:-idp-pg-backup:dev}"; PG_IMG="${PG_IMG:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine}"
+S3_IMG="${S3_IMG:-ghcr.io/idp-xyz/mirror:docker.io__rustfs__rustfs__1.0.4-glibc}"
 N=idp-bk-test; AK=testaccess; SK=testsecret-0123456789
 cleanup() { docker rm -f $N-pg $N-s3 >/dev/null 2>&1 || true; docker network rm $N >/dev/null 2>&1 || true; docker volume rm -f $N-backup >/dev/null 2>&1 || true; rm -rf "${T:-}"; }
 trap cleanup EXIT; cleanup; T="$(mktemp -d)"; chmod 755 "$T"

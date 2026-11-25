@@ -16,7 +16,7 @@ from pathlib import Path
 from . import metrics
 from .live import PlatformError, psql_in
 
-IMAGE = "public.ecr.aws/docker/library/postgres:17-alpine"
+IMAGE = "ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine"
 DEFAULT_WINDOW = 131072  # the model's window in the proposal's section 1.1; the dump itself does not say
 
 LIST = """SELECT coalesce(json_agg(row_to_json(x) ORDER BY x.created_at, x.id), '[]'::json) FROM (
