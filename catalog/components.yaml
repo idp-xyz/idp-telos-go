@@ -109,3 +109,16 @@ components:
     adr: docs/adr/ADR-0001-browser-design.md
     contracts: {produces: null, consumes: []}
     note: Layer 1 of docs/adr/browser-capability-plan.md. idp-web sends it pages whose text is made by script (POST /render, signed with idp-web's key), the renderer opens each in a fresh Chromium context whose every request goes through idp-browser-proxy (public addresses only, per-render budgets), and idp-web extracts from the rendered DOM. It publishes no document contract of its own; it keeps no data (the budgets are in memory, the audit is the proxy's log). The Chromium base image is chromedp's headless-shell by digest, mirrored in releases/mirror-images.yaml.
+
+# Repositories under idp-xyz that are not part of a release yet: not in the BOM, not deployed, not checked by
+# tools/platform.py (which reads only `components`). One moves into `components`, and so into the BOM and the platform
+# acceptance, when a platform component first depends on it.
+incubating:
+  - name: idp-eii
+    title: Enterprise Interaction Infrastructure (agent-driven UI on A2UI and AG-UI)
+    repository: idp-xyz/idp-eii
+    visibility: private   # cloned in CI with a read-only deploy key once it is in the BOM, as idp-eer is
+    language: go, typescript
+    adr: docs/adr/ADR-0001-eii-design.md
+    status: incubating since 2026-11-25; V0.8 with its own Production HOLD
+    note: Not a deployable subsystem. Its backend becomes an adapter package inside idp-host (idp-host ADR-0001 D63) and its frontend a component in idp-workspace (idp-workspace ADR-0001 D31). It moves into `components` when idp-host first depends on it (D63-5, pinned in idp-host's go.mod), with its contract registered (D63-7) and a platform acceptance path. Its wire format is A2UI 1.0, checked against the official processor (its interop/official). Licence PolyForm Noncommercial 1.0.0, like the others.
