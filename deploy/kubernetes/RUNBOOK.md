@@ -416,6 +416,22 @@ idp-web 若要用每日配额，要先给它建库（`idp-web migrate`、`ensure
 - **idp-web 的清单要随 D33 带上到渲染器的出口策略**（`web-renderer`）；在它合并之前，`full.sh` 的叠加层带同样的一条（`web-renderer-overlay`），`tools/k8s_check.py` 对 `web-browser-render` 在 idp-web 合并前会失败。
 - 浏览器能力计划里的后面几层（交互、会话）没做，渲染器只做"渲染后读取"。
 
+## 升级须知（2026-11-25 的第二个 BOM：知识库 KB1）
+
+从 2026-11-25 的 BOM 升到带知识库第一步（KB1）的 BOM：**idp-cmi 增加知识库对象、三级可见、成员写入、生效窗口、结构分块和原件**（idp-cmi ADR-0001 第 24 节 D47 到 D58，迁移 0013 到 0016，契约 `idp.telos.cmi` 1.5.0；计划 `docs/adr/knowledge-base-plan.md`，idp-cmi 的 README"升级到有知识库的版本"）。只有 idp-cmi 变了；契约 1.5.0 对 1.4.0 只有向后兼容的新增，别的组件不用改。**升级顺序**：先停 idp-cmi（见下面的停机说明），跑迁移 Job，再起新版本；对象存储可以之后再配，没配时文本入库照旧、存原件得 503。
+
+| 组件 | 变了什么 | 怎么看出来 | 怎么处理 |
+|---|---|---|---|
+| idp-cmi（迁移 0013 到 0016，D47） | **迁移要当停机处理**：0013 与 0015 对 `knowledge_documents`、`knowledge_chunks` 取 ACCESS EXCLUSIVE 锁并**改写每个 chunk 行**，停机随语料增长（idp-cmi 在本机测得 30 万个 chunk 约 7 秒；估算与测量办法见该 ADR D47 之后的"迁移"一段）。迁移在同一事务里对相关表 `NO FORCE ROW LEVEL SECURITY`、回填、再 `FORCE`，所以所有者不是超级用户也能回填。已有文档归入以其来源为名的企业库，可见性不变 | 迁移 Job 的日志；`\d knowledge_bases` | 先停 idp-cmi 再迁移；**迁移后对 `knowledge_chunks` 做 VACUUM**；语料大的环境先在副本上量一次时间 |
+| idp-cmi（D52，语义变化） | **"现行"只有一个定义，被取代是推导的**：旧发布把被取代的文档版本存成 `superseded`，升级后这些行按新规则重新解读。**撤销一个后继版本会让前一个版本重新成为现行**（之前什么都不返回）；一个版本到期不会让更早的版本复活；定为未来生效（`validFrom`）的版本不取代现行版本，as-of 视图按窗口给出 | 撤回最新一版后，检索与"现在"的 as-of 视图给同一个答案 | 依赖"撤回即消失"的做法要改成"撤回即回滚到上一版"；要彻底去掉一份文档的所有版本，撤回每一版或用擦除 |
+| idp-cmi（D50、D54，原件） | **原件存在对象存储里**，库里只留键、摘要、大小、媒体类型；没配对象存储时 CMI 照常启动（后台连，不等它），存原件得 503。新环境变量：`IDP_CMI_ORIGINALS_ENDPOINT`、`_BUCKET`、`_ACCESS_KEY_FILE`、`_SECRET_KEY_FILE`（后两个是文件，不是值）、`_REGION`（缺省 us-east-1）、`_SSE`（`false` 关 SSE-S3，缺省开）、`_CA_FILE`（https 端点的额外信任 CA）、`_TIMEOUT`（缺省 2m）。下载一律是附件（`Content-Disposition: attachment`、`nosniff`、`Content-Security-Policy: sandbox`），读出时核对摘要，不符是 500 并写日志 | CMI 日志 `knowledge originals configured`；`PUT /v1/knowledge/documents/{id}/original` | 给原件一个**自己的**对象存储实例（不是成员的文件库，也不是数据库备份的桶：三者的生命周期与擦除要求不同）；平台的验收用 RustFS 的第三个实例 `knowledge-s3`（compose）与 `idp-kind-knowledge-originals`（kind，`KIND_KB_S3_NAME`、`KIND_KB_S3_PORT` 可改名改端口，同一台机器上两个集群要各用各的） |
+| idp-cmi（`IDP_CMI_TEMP_DIR`） | **原件下载需要一个可写的临时目录**（下载经一个已 unlink 的临时文件校验摘要）；根文件系统只读时必须挂一块：Kubernetes 里 idp-cmi 自己的清单带 `emptyDir`（`/var/cache/idp-cmi`，`sizeLimit: 512Mi`，8 个并发下载乘 50 MiB 再加余量），**平台的叠加层只增不换卷，别用整体替换 `volumes` 的补丁**；compose 里要加 `tmpfs: ['/var/cache/idp-cmi:size=512m,mode=1777']` 和 `IDP_CMI_TEMP_DIR: /var/cache/idp-cmi`（`deploy/compose/platform.yaml` 已带） | 缺目录时下载失败，启动日志 `IDP_CMI_TEMP_DIR: … writable temporary directory` | 自己的编排里照样挂；`tmpfs` 或 emptyDir 的大小不要小于并发下载数乘单个文件上限 |
+| idp-cmi（配置文件 `knowledge` 一节） | 新的 `knowledge`：`indexContext`（标题进索引文本，缺省关，D56；在评测集上量过没采纳）、`personalQuotaDocuments`、`personalQuotaBytes`（个人库没有自己的配额时用它；个人库配额为 0 不再等于不限）、`maxInFlightUploadBytes`、`maxConcurrentDownloads`、`maxDownloadsPerCaller`（并发上传下载的上限，防止一个调用者占满）、`transferTimeout` | 配置文件；超限时 429 | 平台的叠加层把 `cmi.yaml` 置空（全部取缺省）；生产里按成员数与文件大小定 |
+| idp-cmi（D47、D48、D53，权限） | 成员可以写入：`POST /v1/knowledge/documents`（`cmi-reader` 或 `cmi-writer`），写自己的个人库（第一次上传时建立，名字带哈希，上传时 `kb://me/<路径>` 是别名）或自己管理的企业／单元库；**uri 必须是 `kb://<库名>/<路径>`，否则 422**；企业库、单元库、个人库里相同的路径是不同的文档，谁也不取代谁。**管理员的缺省检索范围与成员相同**：企业库、所属单元的库、自己的个人库，读别人的个人库必须指名并记审计 `knowledge.read_other`；成员读不到的库和文档是 404 | 审计 `knowledge.read_other`、`knowledge_base.read` | 管理员培训：看别人的个人库是被记录的动作；成员写入会向 PDP 问 `knowledge.write`（配了 PDP 的环境要有这条规则；没有 PDP 的环境不受影响） |
+| idp-cmi（D57，擦除） | **按主体擦除也擦他的个人库**：文档的文本块、原件（新的擦除域 `originals`，对象删除之后才标 verified）、实体、包里的摘录；uri 改成 `kb://<库名>/erased-<文档 id>`；主体自己请求的包的 `query`、`purpose` 换成墓碑；其他文档里 `owner` 是该主体的清空 | `GET /api/v1/erasures/{id}` 的各域；对象存储里该文档前缀下没有对象 | 对象删除之前这次擦除不会标 verified（D57） |
+| idp-cmi（契约） | `idp.telos.cmi` **1.5.0**：新定义 KnowledgeBase；KnowledgeDocument 增 `knowledgeBase`、`validFrom`、`docType`、`owner`、`reviewDue`、`original`；ContextItem 的来源增 `locator`（标题路径、页码、表名）。`idp-contracts` 里的副本与 `idp-cmi/api/contracts` 逐字节相同（`validate.py` 核对）；旧版本文件保留 | `idp-contracts/registry.json` | 消费者按需升级，不用改 |
+| 平台（验收，PATH P0） | compose 与 kind 的验收新增 PATH P0（步骤是同一份 `deploy/compose/path_p0.sh`）：管理员建企业库与单元库；bob（单元成员）往个人库上传 `kb://me/…`；非 `kb://` 的 uri 进库得 422；bob 个人库里与企业文档同路径的文档不取代它（carol 仍检索到企业文档）；carol 指名 bob 的个人库得 404；管理员缺省解析不含 bob 的个人文档，指名则读到且记 `knowledge.read_other`；`validFrom` 在将来的版本到那时之前不现行（as-of 视图）；原件上传下载（附件、`nosniff`、CSP sandbox、摘要核对）；擦除 bob 后他的个人文档、原件（桶里没有他的对象）、uri 与他的包里的查询文本都没了。realm 新增用户 `carol`（`cmi-reader`）。kind 的验收里 idp-cmi 的 `originals` Secret 与 `cmi-originals` 出口策略在叠加层里 | `PASS: PATH P0` | 平台验收之外不需要 carol |
+
 ## 故障排查
 
 | 现象 | 原因 | 处理 |
