@@ -178,3 +178,7 @@ images:
   - source: ghcr.io/aquasecurity/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
     tag: "0.76.2"
     target: ghcr.io/idp-xyz/mirror:ghcr.io__aquasecurity__trivy__0.76.2
+  # the embedding service of the platform (deploy/images/embedding, knowledge-base plan KB2): Hugging Face text-embeddings-inference, the CPU build
+  - source: ghcr.io/huggingface/text-embeddings-inference@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d
+    tag: "cpu-1.9.4"
+    target: ghcr.io/idp-xyz/mirror:ghcr.io__huggingface__text-embeddings-inference__cpu-1.9.4
