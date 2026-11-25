@@ -483,3 +483,14 @@ docker rm -f sbx-dind sbx-dind2                   # gVisor 的 docker-in-docker�
 - 出口代理：PATH L 的源站在集群里，没有测过真实的公网流量；名单按租户，不按人或角色；PATH L 从网关开始，不经过 HOST 和模型（模型替身不会要 `network=egress`）。
 - idp-web：PATH M、N 的页面在集群里，搜索服务是 fixture，没有真实的公网流量或真实的搜索服务商走过 Kubernetes 上的出口规则（私网地址被排除这一点由反向检查证明：去掉测试策略，PATH M 失败）；只有模型替身版；每次运行的调用上限做不到（阶段 1，idp-web ADR-0001 D22）；一个副本，编号、缓存、限流在内存里。
 - 平台 CI 不跑整平台的集群验收（只有轻量 kind 版和静态检查），整平台验收目前只在本机。
+
+## 升级须知（2026-11-25 的第三个 BOM：第三方镜像改从镜像库拉取）
+
+从知识库 KB1 的 BOM 升到这个 BOM：**所有第三方镜像改从 `ghcr.io/idp-xyz/mirror` 拉取**，digest 与源相同（清单 `releases/mirror-images.yaml`，复制工作流 `mirror.yml`）。各组件的代码与行为不变。
+
+| 组件 | 变了什么 | 怎么看出来 | 怎么处理 |
+|---|---|---|---|
+| 全部（compose、kind 与正式清单、Dockerfile、CI） | 第三方镜像的引用都换成镜像库的 tag，例如<!-- mirror:upstream: the example names the source on purpose --> `public.ecr.aws/docker/library/postgres:17-alpine` → `ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__postgres__17-alpine`；按 digest 固定的仍按同一个 digest 固定 | `kubectl get pods -A -o jsonpath='{..image}'` 里的第三方镜像都以 `ghcr.io/idp-xyz/mirror:` 开头 | 能访问 ghcr.io 的环境不用做什么。**用自己 registry 的环境**：照清单把每个条目复制进自己的 registry（`crane copy <source>@<digest> <你的 registry>/<tag>`），再用 kustomize 的 `images:` 或各组件的镜像变量改名；digest 不变，可以照旧核对 |
+| idp-sandbox（运行时镜像的缺省值） | `IDP_SANDBOX_PYTHON_IMAGE`、`IDP_SANDBOX_SHELL_IMAGE` 的缺省值与 `sandbox.yaml` 里的值从 `python:3.12-slim`、`alpine:3.22` 改成镜像库的名字 | 沙箱 Pod 的环境变量；节点上 `crictl images` 出现镜像库名字的 python 与 alpine | 预先把镜像拉到节点上的环境：按新名字再拉一次，或在节点上把已有镜像打上新名字（同一个 digest）；显式设置了这两个变量的环境不受影响 |
+| 本机开发 | 脚本和 compose 按新名字找镜像；本机 Docker 里已有的源镜像不会被自动认出来 | `docker compose pull` 或首次构建开始从 ghcr.io 下载 | `python3 tools/mirror_images.py retag`：给本机已有的源镜像打上镜像库的名字（只打标签，不下载）。到 ghcr.io 很慢的网络上，新镜像先用原来的办法拉源名字，再 `retag` |
+| CI 与检查 | 平台的 `tools/mirror_images.py check` 遇到直接写第三方源的引用（含 `python:3.12-slim` 这样的短名）就失败；九个组件仓库的 CI 各有一步同样的检查 | CI 报 `NOT THE MIRROR` 或 grep 步骤失败 | 新的第三方镜像先进清单、合并后由 `mirror.yml` 复制，再改引用；有意写上游名字的行标 `mirror:upstream` |
