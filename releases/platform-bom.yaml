@@ -3,21 +3,21 @@
 platform: idp-telos
 release: 0.1.0-dev
 contracts:
-  idp.telos.cmi: 1.5.0
+  idp.telos.cmi: 1.6.0
   idp.telos.host: 1.11.0
   idp.telos.mcp: 1.4.0
   idp.telos.workspace: 1.4.0
 components:
 - name: idp-mcp
   repository: idp-xyz/idp-mcp
-  commit: fb433bddfe5026c208a35cb5afec5d5cfe7e7fa7
+  commit: f3dd61f0c4f98b3ec48addd2e5e5a7a7fe741773
   clean: true
   contract:
     namespace: idp.telos.mcp
     version: 1.4.0
   image:
     reference: idp-mcp:dev
-    id: sha256:846870fb2661d2551ec1fc6b1ef156fb36399cb5b3e45032f87257c62a4c846b
+    id: sha256:4112e5218b2cae87c6b158bc8c9e4ab3157ee2888dfcd5315e31510db62c3ca7
 - name: idp-host
   repository: idp-xyz/idp-host
   commit: 137fd588c81d6e3774650a813597032322e55628
@@ -27,65 +27,65 @@ components:
     version: 1.11.0
   image:
     reference: idp-host:dev
-    id: sha256:942a891cfbdff344bb5bf9f3dea74cf04836d01da0844cb01af28abdadaf7fc2
+    id: sha256:6f0b828056b594c721cf42c66d9d41c3949a99ff357be79d11f0dd4dd59a5a5f
 - name: idp-eer
   repository: idp-xyz/idp-eer
   commit: 2f1663dd325ba50158a4c6eca03df0598e45fbe2
   clean: true
   image:
     reference: eer-runtime:dev
-    id: sha256:f00c665e891c8d3194c74f87ff617b2211a064b7cf620814c0e4e853b747d9a4
+    id: sha256:2958d6f259338ca649b78653091b12c8a9d5871e5a0b58ee3c73f1edbe96c806
 - name: idp-cmi
   repository: idp-xyz/idp-cmi
-  commit: 2ca27ebc930e6d9e4a4ed59287dfc71893c04d59
+  commit: 16664b75e426d79bde791680a78f6c0631dcf04c
   clean: true
   contract:
     namespace: idp.telos.cmi
-    version: 1.5.0
+    version: 1.6.0
   image:
     reference: idp-cmi:dev
-    id: sha256:edf24381ca82f250510629f7cb775759cea8cec99cf861f2523915a87590002b
+    id: sha256:259ce168a5908756bfae3d71d5a15f4914c689ab71d6bd0a3a9900a2c2bf6aef
 - name: idp-workspace
   repository: idp-xyz/idp-workspace
-  commit: 658c0450a26435104d9510064465b91efda4a245
+  commit: 032c65c3006a52cea062eb5d5777900942c7ebc6
   clean: true
   contract:
     namespace: idp.telos.workspace
     version: 1.4.0
   image:
     reference: idp-workspace:dev
-    id: sha256:3b1889099980013ba7c6c4969ff2c14db042ced252e0cae939dbc49d91fe290e
+    id: sha256:fa64b8f7e09dee847968c9ca15e77248e6f88f388d64385c4f488657fd43ac2e
 - name: idp-sandbox
   repository: idp-xyz/idp-sandbox
-  commit: f58e7d1816447a71a4c44e4eb7c50fd1df02daa6
+  commit: 902d4399aca53e9c6238f23d6fa222bddc910ace
   clean: true
   image:
     reference: idp-sandbox:dev
-    id: sha256:e505d288c2d394241c2b940130b47d7bb0e77e233a6f13b3aa2b8d6a14fcabae
+    id: sha256:86bb0adb5b6f22f6732de5cdf99fb2632a5c9b17fcf0d309aa9d394be476f95d
 - name: idp-web
   repository: idp-xyz/idp-web
   commit: 8d71f90d3b3475b7c3087d50776d6b1609038890
   clean: true
   image:
     reference: idp-web:dev
-    id: sha256:2513982380a57a64a40f341fcebd228e49ed2b37105ac284c19dc2d4d5a1a4c7
+    id: sha256:246bd1fd7866f097bd6ed076a4ff2b8c37a472631699249a439fc8b743286452
 - name: idp-mcp-bridge
   repository: idp-xyz/idp-mcp-bridge
   commit: da79521de8787ef253623ee89d6327bfbd34f4e3
   clean: true
   image:
     reference: idp-mcp-bridge:dev
-    id: sha256:7111021153ab9b7b7ca05c98851f088bd88a65d59fdba17c24ff9ea772dd0375
+    id: sha256:f09b26920bd9726c9f1540c1eeac30d611cac8fb6f89844b766f3f36bbc15a85
 - name: idp-browser
   repository: idp-xyz/idp-browser
   commit: 435277f02d01fc7348d70331513ef6be60028568
   clean: true
   image:
     reference: idp-browser:dev
-    id: sha256:750f7640c1c57cbc33a28e05a187dcc4d77c70823e652d9bbb3a606adcf8b64b
+    id: sha256:3229074facb9731b395b473da2169e504e1ca6ecd2d04b0d57b1250f20355996
   extra_images:
   - reference: idp-browser-proxy:dev
-    id: sha256:f60b07973c47f568d6347a4586a965e0ae292d3dd0191399cb79e985534c4dac
+    id: sha256:11c9d715d10c602705b81a2f608d1a07b6076ac3aa3eb060a2f5f5767632a589
 images:
 - name: idp-embedding
   path: deploy/images/embedding
@@ -93,4 +93,4 @@ images:
   clean: true
   image:
     reference: idp-embedding:dev
-    id: sha256:e3d0209c940d41c7138b2c419db4b6bd4f29f4e7e4eee165524f4fdd730e7f4b
+    id: sha256:ba90af22e94ac4aed74467507d3d78902fdac853e7895ca65deea56e042daf8b
