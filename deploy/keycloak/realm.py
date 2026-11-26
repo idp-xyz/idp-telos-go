@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The development Keycloak realm of the whole platform (ADR-0001 T5). TEST DOUBLE: dev secrets only.
 
-Users: alice (ws-admin, cmi-admin, host-user), bob (ws-member, host-user; EER actor bob), carol (ws-member, host-user, cmi-reader: bob's colleague, PATH P0), operator (submits EER
+Users: alice (ws-admin, cmi-admin, host-user), dave and erin (ws-member, host-user, cmi-reader: two more members whom nothing else touches, for PATH P3, which reads another member's personal base and so must not use bob or carol, whom P0 and P2 erase), bob (ws-member, host-user; EER actor bob), carol (ws-member, host-user, cmi-reader: bob's colleague, PATH P0), operator (submits EER
 intents), hostadmin, hostapprover, bridgeop (ws-member and bridge-reviewer: the operator who authorizes the reviewer account of a
 bridge connection, idp-mcp-bridge RUNBOOK 5.6). User ids are fixed here and written to CLIENTS_FILE, because idp-eer
 maps principals by (issuer, sub).
@@ -75,7 +75,8 @@ username = {"name": "preferred_username", "protocol": "openid-connect", "protoco
 user_mappers = [tenant_attr, roles_map, username]
 
 users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "host-user", "cmi-reader"], "carol": ["ws-member", "host-user", "cmi-reader"], "operator": [], "hostadmin": ["host-admin"], "hostapprover": ["host-approver"],
-         "bridgeop": ["ws-member", "bridge-reviewer"]}
+         "bridgeop": ["ws-member", "bridge-reviewer"],
+         "dave": ["ws-member", "host-user", "cmi-reader"], "erin": ["ws-member", "host-user", "cmi-reader"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
 # the ingest workload's service-account user has a fixed id: the gateway takes the caller's subject from `sub` (idp-mcp adapters/identity/jwt.go), the ingest sandbox compares it with the `sub` of

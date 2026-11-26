@@ -47,20 +47,27 @@
       ]
     },
     "idp.telos.host": {
-      "id": "urn:idp:telos:host:1.11.0",
-      "version": "1.11.0",
+      "id": "urn:idp:telos:host:1.12.0",
+      "version": "1.12.0",
       "status": "PUBLISHED",
-      "published": "2026-11-19",
-      "schema": "idp.telos.host/1.11.0/schema.json",
-      "examples": "idp.telos.host/1.11.0/examples.json",
+      "published": "2026-11-26",
+      "schema": "idp.telos.host/1.12.0/schema.json",
+      "examples": "idp.telos.host/1.12.0/examples.json",
       "producer": {
         "repository": "idp-host",
         "path": "api/contracts",
         "consistency_test": "go test ./internal/run -run TestContract",
         "regenerate_examples": "go test ./internal/run -run TestContract -update"
       },
-      "note": "Agent Hosting & Coordination（idp-host）的 AgentRelease（idp.host.agent/v1，可嵌入 Skill、引用本地或远端 A2A 子 agent，带护栏、评估集、模型路由与 CMI 上下文策略（含 onStale 复验））、SkillRelease（idp.host.skill/v1，可带资源）、Envelope、AgentRun（含子 agent 运行、评估运行与 contextPackageId）与 RunOptions（创建运行时的调用方选项，1.8.0 起含成员文件的附件与交付票据，1.9.0 起附件带敏感级别；1.10.0 只改描述：CMI 条目按敏感级别筛选，D44；1.11.0 起 AgentRun 带可选的 sources 与 unverifiedCitations，D49）。权威副本在 idp-host/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。",
+      "note": "Agent Hosting & Coordination（idp-host）的 AgentRelease（idp.host.agent/v1，可嵌入 Skill、引用本地或远端 A2A 子 agent，带护栏、评估集、模型路由与 CMI 上下文策略（含 onStale 复验））、SkillRelease（idp.host.skill/v1，可带资源）、Envelope、AgentRun（含子 agent 运行、评估运行与 contextPackageId）与 RunOptions（创建运行时的调用方选项，1.8.0 起含成员文件的附件与交付票据，1.9.0 起附件带敏感级别；1.10.0 只改描述：CMI 条目按敏感级别筛选，D44；1.11.0 起 AgentRun 带可选的 sources 与 unverifiedCitations，D49）。权威副本在 idp-host/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。1.12.0 起 ContextPolicy 带可选的 tools（HOST 自己的知识检索工具 knowledge__search、knowledge__read、knowledge__find，D65）与 rewrite（off 或 model：运行开始的检索之前改写有前文的问题，D66）；事件 idp.host/context.package 与 idp.host/context.rewrite 不属于 schema。",
       "previous": [
+        {
+          "version": "1.11.0",
+          "status": "SUPERSEDED",
+          "schema": "idp.telos.host/1.11.0/schema.json",
+          "published": "2026-11-19",
+          "note": "文件保留；1.12.0 对其只有向后兼容的新增（validate.py 检查）"
+        },
         {
           "version": "1.10.0",
           "status": "SUPERSEDED",
@@ -141,20 +148,27 @@
       ]
     },
     "idp.telos.cmi": {
-      "id": "urn:idp:telos:cmi:1.6.0",
-      "version": "1.6.0",
+      "id": "urn:idp:telos:cmi:1.7.0",
+      "version": "1.7.0",
       "status": "PUBLISHED",
-      "published": "2026-11-25",
-      "schema": "idp.telos.cmi/1.6.0/schema.json",
-      "examples": "idp.telos.cmi/1.6.0/examples.json",
+      "published": "2026-11-26",
+      "schema": "idp.telos.cmi/1.7.0/schema.json",
+      "examples": "idp.telos.cmi/1.7.0/examples.json",
       "producer": {
         "repository": "idp-cmi",
         "path": "api/contracts",
         "consistency_test": "go test ./internal/cmi -run TestContract",
         "regenerate_examples": "go test ./internal/cmi -run TestContract -update"
       },
-      "note": "Context, Memory & Knowledge Infrastructure（idp-cmi）的 ContextPackage（idp.cmi.package/v1）、MemoryRecord、Source、KnowledgeDocument、KnowledgeBase、Envelope、Entity、Verification 与 ItemStatus（含写入时扫描标记、显式实体引用、混合检索命中方式、版本、候选 / 存疑、单元作用域、共享、消费时复验、双时态视图、投影滞后与未进包报告）。权威副本在 idp-cmi/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。1.6.0 新增原件转换的进展（KnowledgeDocument.ingest，D63）、版本状态 pending（原件正在转成文本，尚未生效，D64）、ContextItem 来源的定位 slide、sheet、range（PPTX 幻灯片、XLSX 工作表与单元格范围，D65）。1.5.0 新增 KnowledgeBase；KnowledgeDocument 增 knowledgeBase、validFrom、docType、owner、reviewDue、original；ContextItem 的来源增 locator（知识块在文档里的位置）。",
+      "note": "Context, Memory & Knowledge Infrastructure（idp-cmi）的 ContextPackage（idp.cmi.package/v1）、MemoryRecord、Source、KnowledgeDocument、KnowledgeBase、Envelope、Entity、Verification 与 ItemStatus（含写入时扫描标记、显式实体引用、混合检索命中方式、版本、候选 / 存疑、单元作用域、共享、消费时复验、双时态视图、投影滞后与未进包报告）。权威副本在 idp-cmi/api/contracts/，这里的副本必须逐字节相同（tools/validate.py 核对）。1.7.0 新增知识读取与原词查找（KB8，D71–D78）：ContextItem 的 match 增 exact、增 hits 与 hitCount，KnowledgeDocument 增写入字段 awaitsOriginal（这一版一开始是 pending，等随后存进来的原件转成的文本）。行为差别（契约之外）：给已生效的版本存要转换的原件，1.6.0 把它改成 pending，现在是 409。1.6.0 新增原件转换的进展（KnowledgeDocument.ingest，D63）、版本状态 pending（原件正在转成文本，尚未生效，D64）、ContextItem 来源的定位 slide、sheet、range（PPTX 幻灯片、XLSX 工作表与单元格范围，D65）。1.5.0 新增 KnowledgeBase；KnowledgeDocument 增 knowledgeBase、validFrom、docType、owner、reviewDue、original；ContextItem 的来源增 locator（知识块在文档里的位置）。",
       "previous": [
+        {
+          "version": "1.6.0",
+          "status": "SUPERSEDED",
+          "schema": "idp.telos.cmi/1.6.0/schema.json",
+          "published": "2026-11-25",
+          "note": "文件保留；1.7.0 对其只有向后兼容的新增（validate.py 检查）"
+        },
         {
           "version": "1.5.0",
           "status": "SUPERSEDED",
@@ -345,394 +359,394 @@
     {
       "name": "AgentRelease",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "SkillRelease",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Envelope",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "AgentRun",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "RunOptions",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Definition",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "ModelProfile",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "ModelRef",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "ToolPolicy",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "ConfirmationPolicy",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Limits",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "SkillRef",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "SkillDefinition",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "EmbeddedSkill",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "SubagentRef",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "EmbeddedSubagent",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "SkillMerge",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Resource",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Guards",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "InputGuard",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "OutputGuard",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Evaluation",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "EvalCase",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Expectation",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Routing",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "Candidate",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "A2ARef",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "ContextPolicy",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "RunSource",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "FileAttachment",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "FileDelivery",
       "owner": "idp.telos.host",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.host/1.11.0/schema.json"
+      "file": "idp.telos.host/1.12.0/schema.json"
     },
     {
       "name": "ContextPackage",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "MemoryRecord",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Source",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "KnowledgeDocument",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Envelope",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "ContextItem",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Scope",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Budget",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Provenance",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "ACL",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Validity",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Revocation",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Entity",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Verification",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "ItemStatus",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "AsOf",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Omitted",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "HELPER",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "KnowledgeBase",
       "owner": "idp.telos.cmi",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "role": "CONTRACT",
       "status": "PUBLISHED",
-      "file": "idp.telos.cmi/1.6.0/schema.json"
+      "file": "idp.telos.cmi/1.7.0/schema.json"
     },
     {
       "name": "Workspace",

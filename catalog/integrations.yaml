@@ -32,10 +32,10 @@ integrations:
     port: 8550   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
     from: idp-host
     to: idp-cmi
-    interface: POST /v1/context/resolve, POST /v1/context/packages/{id}/verify
+    interface: "POST /v1/context/resolve, POST /v1/context/packages/{id}/verify; KB8: POST /v1/context/read and /v1/context/find (the HOST's knowledge tools, always with the member's own exchanged token, never HOST's service credential)"
     contract: idp.telos.cmi
-    auth: [static, delegation]
-    evidence: [idp-host ADR-0001 §14 D32, idp-cmi deploy/e2e.sh HOST=1, this repository deploy/compose/e2e.sh (PATH A)]
+    auth: [static, delegation (the member's token; sessionBound: renewed within the member's session for the tools)]
+    evidence: [idp-host ADR-0001 §14 D32, §47-48 D65 to D69, idp-cmi ADR-0001 §27 D71 to D78, idp-cmi deploy/e2e.sh HOST=1, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH A; PATH P3: the tools' packages, the member as the CMI's requester, nobody reads another member's personal base through them)]
   - id: host-mcp-tools
     port: 3220   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
     from: idp-host

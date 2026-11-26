@@ -43,6 +43,9 @@
 #           the previous version stays current while a conversion cannot finish, a sheet over 10,000 rows ends truncated with a notice, a scan fails with the no-text code, a subject erasure leaves no
 #           text, job or ticket; HOST's, a member's and a probe client's tokens cannot call ingest__*; and the policies decide: probe pods in the member-side namespaces reach neither the CMI's file
 #           endpoint nor the system gateway, the ingest sandbox reaches the file endpoint, the CMI reaches the system gateway, run pods reach nothing, and a forged ticket is refused
+#   PATH P3 the HOST's knowledge tools and the question rewrite (KB8; idp-host D65 to D69): deploy/compose/path_p3.sh, shared with deploy/compose/e2e.sh. dave's runs search, find and read through knowledge__search, __find and __read with
+#           his own exchanged token (a package event per call, the citation numbers continue, the CMI sees dave), nobody reads another member's personal base through the tools (alice, ws-admin, included), a run with an external model
+#           has the confidential passage withheld, a follow-up question is rewritten (the CMI is asked the rewritten one), no run keeps the member's CMI token, context.sources limits read and find, and an erasure redacts the packages
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
 # and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
@@ -418,6 +421,7 @@ for d in docs:
     if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "idp-host-providers":
         host = yaml.safe_load(d["data"]["host.yaml"])
         host["providers"] = [dict(p, baseUrl=base) if p["name"] == "local" else p for p in host["providers"]]
+        host["providers"] = [{k: v for k, v in p.items() if k != "reasoningEffort"} for p in host["providers"] if p["name"] != "local-ext"]   # KB8: the live model gets neither the second provider (PATH P3 is NOT_RUN with MODEL=live) nor reasoning_effort
         for p in host["providers"]:
             p.pop("external", None)   # a model on this host is not asserted to be the enterprise's own: it stays external, as before PATH M and N
         host["cmi"]["remember"]["facts"]["model"] = live_model   # the fact extraction uses the same live model
@@ -1007,12 +1011,13 @@ for i in mine:
 print('gateway records:', sorted(tools), 'subject bob, client', mine[0]['client'])
 " || { echo "FAIL: the gateway's invocation records: $INVS" >&2; exit 1; }
 # and the sandbox knew whose workspace it made: its audit log names the caller (a hash), not the code
-kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q '"tool":"sandbox_run".*caller=' || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox did not see the caller" >&2; exit 1; }
+SBX_LOG="$(kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null || true)"   # a variable, not a pipe into grep -q: under pipefail grep -q's early exit can make kubectl die of SIGPIPE and the check fail on a log that has the line
+grep -q '"tool":"sandbox_run".*caller=' <<<"$SBX_LOG" || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox did not see the caller" >&2; exit 1; }
 # that caller was the gateway's word, not the network's: the sandbox verifies the gateway's signature (idp-sandbox D18), and
 # something that reaches it without the signature and names bob is refused before any tool runs. The sandbox's NetworkPolicy
 # admits only the gateway and the registry and stays as shipped; kubectl port-forward does not pass through it (the kubelet
 # connects inside the Pod's own network namespace), so a forward is how a test stands "on the sandbox's port" without a policy.
-kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q 'callers must be signed by the gateway' || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox does not verify the gateway's signature" >&2; exit 1; }
+grep -q 'callers must be signed by the gateway' <<<"$SBX_LOG" || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: the sandbox does not verify the gateway's signature" >&2; exit 1; }
 pf idp-sandbox idp-sandbox 17570:8570
 SBX=http://127.0.0.1:17570/mcp
 # sbx_post METHOD BODY: Mcp-Method is required on every request (idp-sandbox ADR-0001 D10), so the forged call is refused for its caller (403), not for a missing header (400)
@@ -1026,7 +1031,7 @@ done
 [[ "$LISTED" == *sandbox_create* && "$LISTED" == *$'\n'200 ]] || { echo "FAIL: the unsigned tools/list (discovery) does not answer on the sandbox: $LISTED" >&2; exit 1; }
 FORGED='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sandbox_create","arguments":{},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},'"$META"'}}}'
 DIRECT="$(sbx_post tools/call "$FORGED" || true)"
-[[ "$DIRECT" == *$'\n'403 && "$DIRECT" != *workspaceId* ]] && kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null | grep -q 'caller assertion refused' \
+[[ "$DIRECT" == *$'\n'403 && "$DIRECT" != *workspaceId* ]] && grep -q 'caller assertion refused' <<<"$(kubectl -n idp-sandbox logs deploy/idp-sandbox 2>/dev/null || true)" \
   || { kubectl -n idp-sandbox logs deploy/idp-sandbox --tail=20; echo "FAIL: a call that names bob without the gateway's signature was not refused: $DIRECT" >&2; exit 1; }
 echo "PASS: PATH D — bob -> Workspace -> HOST run $DRUN -> idp-mcp gateway (bob's token exchanged by the HOST) -> idp-sandbox (kubernetes backend, caller signed by the gateway and verified; an unsigned tools/call refused with 403, tools/list still answers) -> code ran in an isolated pod -> 'answer 42' in bob's inbox"
 
@@ -1258,7 +1263,7 @@ done
 [[ "$WLISTED" == *web_search* && "$WLISTED" == *$'\n'200 ]] || { echo "FAIL: PATH M: the unsigned tools/list (discovery) does not answer on idp-web: $WLISTED" >&2; exit 1; }
 FORGED='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"'"$MQ"'"},"_meta":{"io.idp.telos/caller":{"subject":"'"$BOB_ID"'","tenant":"'"$TENANT"'","roles":["member"]},'"$META"'}}}'
 WDIRECT="$(web_post tools/call "$FORGED" || true)"
-[[ "$WDIRECT" == *$'\n'403 && "$WDIRECT" != *address:* ]] && web_log idp-web idp-web | grep -q 'caller assertion refused' \
+[[ "$WDIRECT" == *$'\n'403 && "$WDIRECT" != *address:* ]] && grep -q 'caller assertion refused' <<<"$(web_log idp-web idp-web || true)" \
   || { web_log idp-web idp-web | tail -10 >&2; echo "FAIL: PATH M forged caller: a call that names bob without the gateway's signature was not refused: $WDIRECT" >&2; exit 1; }
 echo "PASS: PATH M — bob -> Workspace -> HOST run $MRUN (web-assistant) -> gateway -> idp-web (fixture search, the article read with the search result's ref) -> '41,872' and [1] in bob's inbox; $MGW; $MAUD; $MORG; an unsigned call that names bob is refused (403), tools/list still answers"
 
@@ -1651,6 +1656,15 @@ p2_forged_post() { kubectl -n idp-sandbox-ingest exec -i p2probe -- python - for
 P2_NET_WHAT="probe pods labelled as the pods the policies name, in their namespaces (HOST, Workspace, idp-web and EER on the member side; the ingest sandbox; the CMI; a run pod), against the pod addresses of the CMI's file endpoint (8551) and of the system gateway (3221)"
 source deploy/compose/path_p2.sh
 for pr in "${P2_PROBES[@]}"; do kubectl -n "${pr%%|*}" delete pod p2probe --wait=false >/dev/null || true; done
+
+# ---- PATH P3: the HOST's knowledge tools and the question rewrite (KB8; idp-host D65 to D69, idp-cmi D71 to D78); the steps are in deploy/compose/path_p3.sh, which deploy/compose/e2e.sh sources too. dave and erin are two more
+# members of the realm (deploy/keycloak/realm.py); the model is the double (and its twin `local-ext`, deploy/kubernetes/full/kustomization.yaml); with MODEL=live it is NOT_RUN ----
+p3_hostsql() { kubectl -n databases exec -c postgres "$(pgtarget)" -- psql -U postgres -d idp_host -Atc "$1"; }
+if [[ "$MODEL" == live ]]; then
+  echo "NOT_RUN: PATH P3 uses the model double's knowledge flows (MODEL=fake)"
+else
+  source deploy/compose/path_p3.sh
+fi
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 ALICE="$(user_token alice)"   # PATH P2 may have run longer than a token lives (it waits for the projection queue to drain)

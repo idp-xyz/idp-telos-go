@@ -37,6 +37,10 @@
 #         idp-cmi-ingest; uploads of each type are located (page, heading path, slide, sheet!range), a version being converted stays invisible while the previous one is current, a big sheet is
 #         truncated with a notice, a scan fails with the no-text code and can be retried, a subject erasure removes the text, the jobs and the tickets, and HOST's, a member's and a probe's tokens
 #         cannot call the ingest tools; a forged ticket posted to the file endpoint is refused
+# PATH P3 (KB8, deploy/compose/path_p3.sh): the HOST's knowledge tools (knowledge__search, __read, __find: built in, never through the gateway) with the member's own exchanged token: dave's runs search, find and read, a package event per
+#         call and the citation numbers continue, the CMI sees dave and not HOST's service; nobody reads another member's personal base through the tools (alice, ws-admin, included); a run with an external model has the confidential passage
+#         withheld (context.withheld); a follow-up question is rewritten before the first retrieval (the CMI is asked the rewritten one; with the rewrite off no model call is made for it); no run keeps the member's CMI token after it ends;
+#         context.sources limits read and find; erasing a document redacts the packages that read and find made of it, an empty find too. Uses the model double's know:, know-dig:, know-read:, call: flows and its rewrite
 # (RFC 8693, issued to the client idp-host), the gateway forwards the verified caller to idp-sandbox, which runs the code in an isolated
 # container in a workspace that belongs to bob. The gateway's invocation record names bob and the HOST.
 #
@@ -237,6 +241,13 @@ if [[ "$MODEL" == live && -n "${IDP_LIVE_MODEL_CONTEXT_WINDOW:-}" ]]; then
   [[ "${IDP_LIVE_MODEL_KEEP_NOTES:-}" != 1 ]] || CTX+=("keepBudgetNotes: true")
   if ((${#CTX[@]})); then printf '        context: {%s}\n' "$(IFS=,; echo "${CTX[*]/#/}" | sed 's/,/, /g')" >> "$L/host.yaml"; fi
 fi
+# KB8 (idp-host D65 to D69): with the model double, a second provider that is the same double but not declared the enterprise's own (no `external: false`), so that PATH P3c has a run whose model is
+# external and the HOST screens what the knowledge tools return by sensitivity (D44); and `reasoningEffort: true` on the first, so that the question rewrite's low thinking effort is sent to it (D69-2 k).
+# Neither changes a release that does not name `local-ext` (the agents of the other paths use `local`).
+if [[ "$MODEL" != live ]]; then
+  sed -i 's/^    external: false$/    external: false\n    reasoningEffort: true/' "$L/host.yaml"
+  printf '  - name: local-ext\n    kind: openai\n    baseUrl: %s\n    insecure: true\n' "$MODEL_BASE" >> "$L/host.yaml"
+fi
 # the CMI: the HOST reads AS THE MEMBER (RFC 8693 exchange for the CMI audience, so a member's own memories are the ones
 # retrieved) and writes conversation memory with its own identity (the client idp-host-svc: cmi-writer), for which it
 # mints and refreshes its own token (D36) - a token handed over here would stop working when it expired
@@ -249,6 +260,7 @@ cmi:
     clientId: idp-host
     clientSecretFile: /etc/idp/host.key
     audience: idp-cmi
+    sessionBound: true   # KB8 (idp-host D68): the member's CMI token that the knowledge tools use is renewed within the member's session (a refresh token of the exchange; RFC 8693, SAME_SESSION), until the run ends
   remember:
     enabled: true
     source: idp-host
@@ -585,6 +597,8 @@ for url in "$CMI/healthz" "$HOST/healthz" "$WS/healthz" "$EER/health/ready" http
 done
 
 ALICE="$(user_token alice)"; BOB="$(user_token bob)"; HADMIN="$(user_token hostadmin)"; HAPPROVER="$(user_token hostapprover)"
+# STOP_AFTER_SETUP=1 (with KEEP=1): the platform is up and configured, nothing else is run (to try a path on its own: deploy/compose/p_only.sh)
+[[ "${STOP_AFTER_SETUP:-0}" != 1 ]] || { echo "READY: the platform is up (STOP_AFTER_SETUP)"; exit 0; }
 
 # ---- CMI: the enterprise knowledge the answer must draw on ----
 call 201 POST "$CMI/api/v1/sources" "$ALICE" '{"name":"idp-host","displayName":"Conversations (idp-host)","kind":"agent","trust":"informational"}' >/dev/null
@@ -1522,6 +1536,15 @@ p2_reach() {   # FROM TARGET: compose narrows the CMI's file endpoint (it listen
 p2_forged_post() { p2_probe ingestnet forged http://cmi:8551 write; }
 P2_NET_WHAT="probe containers on the compose networks (the ingest sandbox's network ingestnet; edge, upstream and data, where HOST, the Workspace, idp-web and EER are; the file endpoint listens on 10.253.77.2 only; the system gateway is published and on edge in compose, which compose cannot narrow: PATH P2e's audience check and tests/kind/full.sh's NetworkPolicies cover it)"
 source deploy/compose/path_p2.sh
+
+# ---- PATH P3: the HOST's knowledge tools and the question rewrite (KB8; idp-host D65 to D69, idp-cmi D71 to D78); the steps are in deploy/compose/path_p3.sh, which tests/kind/full.sh sources too. It uses the model double's
+# knowledge flows (know:, know-dig:, know-read:, call:) and its rewrite; with MODEL=live it is NOT_RUN ----
+p3_hostsql() { "${C[@]}" exec -T postgres psql -U postgres -d idp_host -Atc "$1"; }
+if [[ "$MODEL" == live ]]; then
+  echo "NOT_RUN: PATH P3 uses the model double's knowledge flows (MODEL=fake)"
+else
+  source deploy/compose/path_p3.sh
+fi
 
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
 ALICE="$(user_token alice)"   # PATH P2 may have run longer than a token lives (it waits for the projection queue to drain)

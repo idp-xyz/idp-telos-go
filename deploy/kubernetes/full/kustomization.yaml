@@ -169,6 +169,7 @@ patches:
           IDP_HOST_AUDIENCE: "idp-host"
           IDP_HOST_JWKS_URL: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/certs"
           IDP_HOST_CREDENTIAL_KEY_FILE: "/etc/idp/credential-key/key"
+          IDP_HOST_MEMBER_ROLES: "ws-member,ws-admin"   # KB8 (idp-host D68, D69-1): only people who hold one of these roles have their CMI token kept and the knowledge tools offered; unset, nobody does
           IDP_LOG_LEVEL: "info"
           IDP_METRICS_LISTEN: "0.0.0.0:9465"
   - target: {kind: ConfigMap, name: idp-host-providers}
@@ -186,6 +187,13 @@ patches:
                 # outside the enterprise (idp-host D43, D44) and every run, web tools or not, is withheld the context items above the ceiling,
                 # which is what PATH N (d) tells apart from the run that has web tools
                 external: false
+                reasoningEffort: true   # KB8 (idp-host D69-2 k): the question rewrite's low thinking effort is sent to this provider
+              # KB8: the same double, not declared the enterprise's own (no `external: false`): PATH P3c has a run whose model is external and whose knowledge tools' results are screened by sensitivity (D44).
+              # No release but PATH P3's uses it. (tests/kind/full.sh with MODEL=live puts the live model in `local` only and removes this one.)
+              - name: local-ext
+                kind: openai
+                baseUrl: http://fakemodel.idp-host.svc.cluster.local:18080/v1
+                insecure: true
             cmi:
               endpoint: http://idp-cmi.idp-cmi.svc.cluster.local:8550
               # reads AS THE MEMBER (RFC 8693 exchange for the CMI audience), so a member's own memories are the ones retrieved
@@ -195,6 +203,7 @@ patches:
                 clientId: idp-host
                 clientSecretFile: /etc/idp/gateway-client/client-secret
                 audience: idp-cmi
+                sessionBound: true   # KB8 (idp-host D68): the member's CMI token that the knowledge tools use is renewed within the member's session (a refresh token of the exchange, RFC 8693 SAME_SESSION)
               # writes the conversation memory with its own identity (idp-host-svc: cmi-writer; a client-credentials token, one hour)
               remember:
                 enabled: true
@@ -251,7 +260,7 @@ patches:
               host:
                 endpoint: "http://idp-host.idp-host.svc.cluster.local:8450"
                 auth: exchange
-                exchange: {tokenUrl: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange/client-secret, audience: idp-host}
+                exchange: {tokenUrl: "http://keycloak.keycloak.svc.cluster.local:7080/realms/idp/protocol/openid-connect/token", clientId: idp-workspace, clientSecretFile: /etc/idp/exchange/client-secret, audience: idp-host, sessionBound: true}   # as in compose: the token the HOST receives belongs to the member's session, so that the HOST can exchange it for the CMI with a refresh token (idp-host D68, cmi.auth.sessionBound)
               eer:
                 endpoint: "http://eer-api.idp-eer.svc.cluster.local:8080"
                 auth: exchange

@@ -71,7 +71,8 @@ ADM_PKG="$(p0_resolve "$ALICE" "$(p0_text "$W_BOB trip plan")")"
 [[ "$(echo "$ADM_PKG" | hits "$W_BOB")" -eq 0 ]] || bad "(5): an administrator's default resolve contains bob's personal document"
 ADM_NAMED="$(p0_resolve "$ALICE" "$(p0_text "$W_BOB trip plan" ",'scope':{'kind':'subject','id':'$BOB_ID'}")")"
 [[ "$(echo "$ADM_NAMED" | hits "$W_BOB")" -ge 1 ]] || bad "(5): an administrator naming bob's scope does not read his personal document"
-call 200 GET "$CMI/api/v1/knowledge/documents/$B_DOC" "$ALICE" >/dev/null
+call 404 GET "$CMI/api/v1/knowledge/documents/$B_DOC" "$ALICE" >/dev/null   # idp-cmi D78: the administrator reads another member's personal document by id only by naming the owner (?subject=), so without it the answer is 404
+call 200 GET "$CMI/api/v1/knowledge/documents/$B_DOC?subject=$BOB_ID" "$ALICE" >/dev/null
 AUD="$(call 200 GET "$CMI/api/v1/audit?limit=200" "$ALICE")"
 [[ "$(echo "$AUD" | hits "knowledge.read_other")" -ge 2 ]] || bad "(5): the audit has fewer than two knowledge.read_other entries (the named resolve and the document read): $(echo "$AUD" | head -c 300)"
 echo "PASS: PATH P0d — bob retrieves his own personal document; alice's default resolve (enterprise, her units, herself) does not contain it; naming bob's scope or the document id does, and the audit has $(echo "$AUD" | hits "knowledge.read_other") knowledge.read_other entries"
@@ -123,10 +124,12 @@ AFTER="$(p0_resolve "$BOB" "$(p0_text "$W_BOB trip plan")")"
 [[ "$(echo "$AFTER" | hits "$W_BOB")" -eq 0 ]] || bad "(8): bob's resolve still returns his erased personal document"
 KEYS_AFTER="$(p0_s3_keys | grep -c "/$B_DOC/" || true)"
 [[ "$KEYS_AFTER" -eq 0 ]] || bad "(8): $KEYS_AFTER object(s) of the erased document are still in the originals bucket"
-ADM_DOC="$(call 200 GET "$CMI/api/v1/knowledge/documents/$B_DOC" "$ALICE" 2>/dev/null || true)"
+# the document of an erased member is 200 with nothing of his in it or, since idp-cmi D78, 404 (`call` ends its own subshell with exit 1 on another status, so `|| true` would not catch it: curl, and look at the body)
+ADM_DOC="$(curl -s --noproxy '*' "$CMI/api/v1/knowledge/documents/$B_DOC?subject=$BOB_ID" -H "Authorization: Bearer $ALICE" || true)"
 [[ -z "$ADM_DOC" || ("$(echo "$ADM_DOC" | hits "$B_BASE/policy.md")" -eq 0 && "$(echo "$ADM_DOC" | hits "$W_BOB")" -eq 0) ]] || bad "(8): the erased document still carries bob's uri or text: $ADM_DOC"
 PK="$(curl -s --noproxy '*' "$CMI/v1/context/packages/$BOB_PKG_ID" -H "Authorization: Bearer $ALICE")"
 [[ "$(echo "$PK" | rawhits "$W_BOB")" -eq 0 ]] || bad "(8): bob's package $BOB_PKG_ID still has his query text: $(echo "$PK" | head -c 400)"
+[[ "$(call 200 GET "$CMI/api/v1/audit?limit=500" "$ALICE" | hits "package.read_other")" -ge 1 ]] || bad "(8): the administrator's read of bob's package left no package.read_other in the audit (idp-cmi D78)"
 CAROL_AFTER="$(p0_resolve "$CAROL" "$(p0_text "$W_ENT trips economy")")"
 [[ "$(echo "$CAROL_AFTER" | hits "enterprise rule for")" -ge 1 ]] || bad "(8): the enterprise document is gone for carol after bob's erasure"
 echo "PASS: PATH P0g — the erasure of bob ($ER_ID) is verified: his personal document is 404 to him and carries neither his uri nor his words, his resolve finds nothing of it, the originals bucket has no object under it (was $KEYS_BEFORE), his package $BOB_PKG_ID no longer has his query text, and carol still retrieves the enterprise document"

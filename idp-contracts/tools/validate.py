@@ -216,8 +216,18 @@ if HOST in schemas:
         ('run_with_sources_only', HOST, 'AgentRun', 0, S(sources=[{'n': 2, 'title': 'Customs times', 'url': 'https://example.org/customs', 'fetchedAt': '2026-11-03T13:41:07Z', 'sha256': 'ab' * 32, 'cited': True}])),
         # 1.7.0 (CMI D24)
         ('release_context_on_stale_fail', HOST, 'AgentRelease', 0, P('definition.context.onStale', 'fail')),
+        # 1.12.0 (D65, D66): the knowledge tools and the question rewrite
+        ('release_context_knowledge_tools', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__search', 'knowledge__read', 'knowledge__find']})),
+        ('release_context_one_knowledge_tool', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__find']})),
+        ('release_context_rewrite_model', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'rewrite': 'model'})),
+        ('release_context_rewrite_off', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'rewrite': 'off'})),
     ]
     NEGATIVE += [
+        ('release_context_unknown_knowledge_tool', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__delete']})),
+        ('release_context_knowledge_tool_twice', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__find', 'knowledge__find']})),
+        ('release_context_four_knowledge_tools', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__search', 'knowledge__read', 'knowledge__find', 'knowledge__search']})),
+        ('release_context_rewrite_auto', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'rewrite': 'auto'})),
+        ('release_allow_a_knowledge_tool', HOST, 'AgentRelease', 0, P('definition.tools', {'gateway': 'edge', 'allow': ['knowledge__search']})),
         ('host_wrong_schema_version', HOST, 'AgentRelease', 0, S(schemaVersion='idp.host.agent/v2')),
         ('host_version_zero', HOST, 'AgentRelease', 0, S(version=0)),
         ('host_bad_agent_name', HOST, 'AgentRelease', 0, S(agentName='Parcel Assistant')),
@@ -337,6 +347,9 @@ if CMI in schemas:
         ('cmi_package_omitted', CMI, 'ContextPackage', 0, S(omitted={'budget': 3, 'flagged': 1, 'candidate': 0, 'disputed': 0, 'forbidden': 0, 'lowSimilarity': 2})),        # 1.5.0 (D47-D58)
         ('cmi_document_knowledge_fields', CMI, 'KnowledgeDocument', 0, S(knowledgeBase='sales', validFrom='2026-12-01T00:00:00Z', docType='policy', owner='carol', reviewDue='2027-01-01T00:00:00Z')),
         ('cmi_document_with_original', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 1234, 'sha256': 'sha256:' + 'ab' * 32})),
+        # 1.7.0 (D71-D78): read and find, and a version that awaits its original
+        ('cmi_document_awaits_original', CMI, 'KnowledgeDocument', 0, S(awaitsOriginal=True, status='pending')),
+        ('cmi_item_find_hit', CMI, 'ContextPackage', 0, P('items.0.match', 'exact'), P('items.0.hits', [{'offset': 12, 'length': 5}, {'offset': 80, 'length': 5}]), P('items.0.hitCount', 3)),
         # 1.6.0 (D61-D70): the conversion of originals
         ('cmi_document_pending', CMI, 'KnowledgeDocument', 0, S(status='pending')),
         ('cmi_document_ingest_queued', CMI, 'KnowledgeDocument', 0, S(status='pending', ingest={'state': 'queued', 'attempts': 0, 'updatedAt': '2026-11-25T10:00:00Z'})),
@@ -380,6 +393,12 @@ if CMI in schemas:
         ('cmi_document_bad_knowledge_base_name', CMI, 'KnowledgeDocument', 0, S(knowledgeBase='Sales Team')),
         ('cmi_document_original_without_digest', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 1234})),
         ('cmi_document_original_zero_bytes', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 0, 'sha256': 'sha256:' + 'ab' * 32})),
+        ('cmi_item_hit_without_length', CMI, 'ContextPackage', 0, P('items.0.hits', [{'offset': 1}])),
+        ('cmi_item_hit_negative_offset', CMI, 'ContextPackage', 0, P('items.0.hits', [{'offset': -1, 'length': 3}])),
+        ('cmi_item_hit_zero_length', CMI, 'ContextPackage', 0, P('items.0.hits', [{'offset': 1, 'length': 0}])),
+        ('cmi_item_hit_count_zero', CMI, 'ContextPackage', 0, P('items.0.hitCount', 0)),
+        ('cmi_item_match_unknown_new_value', CMI, 'ContextPackage', 0, P('items.0.match', 'regex')),
+        ('cmi_document_awaits_original_not_a_boolean', CMI, 'KnowledgeDocument', 0, S(awaitsOriginal='yes')),
         ('cmi_document_ingest_unknown_state', CMI, 'KnowledgeDocument', 0, S(ingest={'state': 'done', 'attempts': 1, 'updatedAt': '2026-11-25T10:00:00Z'})),
         ('cmi_document_ingest_without_attempts', CMI, 'KnowledgeDocument', 0, S(ingest={'state': 'queued', 'updatedAt': '2026-11-25T10:00:00Z'})),
         ('cmi_document_ingest_error_is_not_a_code', CMI, 'KnowledgeDocument', 0, S(ingest={'state': 'failed', 'attempts': 1, 'error': 'OutOfMemoryException: the converter said so', 'updatedAt': '2026-11-25T10:00:00Z'})),

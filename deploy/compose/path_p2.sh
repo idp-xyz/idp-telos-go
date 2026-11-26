@@ -30,8 +30,9 @@ import json,sys
 for it in json.load(sys.stdin)['package']['items']:
     if sys.argv[1] in json.dumps(it, ensure_ascii=False): print(json.dumps(it.get('locator') or {}, ensure_ascii=False, sort_keys=True)); break
 else: print('none')" "$1"; }
-# p2_new NAME TITLE TEXT: a version of kb://me/NAME with text the writer supplies (a placeholder, or the text of an earlier version); prints its id
-p2_new() { local id; p2_fresh; id="$(call 201 POST "$CMI/v1/knowledge/documents" "$CAROL" "$(python3 -c "import json,sys; print(json.dumps({'source':sys.argv[1],'uri':'kb://me/'+sys.argv[2],'title':sys.argv[3],'text':sys.argv[4]}))" "$P2_SRC" "$1" "$2" "$3")" | field "['documentId']")"; echo "$id" >> "$P2D/docs.txt"; echo "$id"; }   # p2_new runs in a subshell: the ids of every document of this path are kept in a file
+# p2_new NAME TITLE TEXT [await]: a version of kb://me/NAME with text the writer supplies (a placeholder, or the text of an earlier version); prints its id. With a fourth argument it is written with
+# awaitsOriginal (idp-cmi D77, contract 1.7.0): pending from the start, in force when the text of the original stored next is committed. A convertible original for a version that is in force is 409.
+p2_new() { local id; p2_fresh; id="$(call 201 POST "$CMI/v1/knowledge/documents" "$CAROL" "$(python3 -c "import json,sys; print(json.dumps({'source':sys.argv[1],'uri':'kb://me/'+sys.argv[2],'title':sys.argv[3],'text':sys.argv[4],**({'awaitsOriginal':True} if len(sys.argv)>5 else {})}))" "$P2_SRC" "$1" "$2" "$3" ${4:+await})" | field "['documentId']")"; echo "$id" >> "$P2D/docs.txt"; echo "$id"; }   # p2_new runs in a subshell: the ids of every document of this path are kept in a file
 p2_put() { local code; p2_fresh; code="$(curl -s --noproxy '*' -o "$P2D/put.out" -w '%{http_code}' -X PUT "$CMI/v1/knowledge/documents/$1/original" -H "Authorization: Bearer $CAROL" -H "Content-Type: $2" --data-binary @"$3")"; [[ "$code" == 200 ]] || p2_bad "the upload of $3 was HTTP $code: $(head -c 300 "$P2D/put.out")"; }
 # p2_state ID: "status|ingest state|attempts|error|next|notice" ("-" where absent; next is "next" when a retry is scheduled)
 p2_state() { p2_fresh; call 200 GET "$CMI/v1/knowledge/documents/$1" "$CAROL" | python3 -c "
@@ -64,11 +65,12 @@ python3 -I deploy/compose/kb3_docs.py docx "$P2D/handbook.docx" "$W_DOCT" "$W_DO
 python3 -I deploy/compose/kb3_docs.py pptx "$P2D/review.pptx" "$W_PPT1" "$W_PPT2" "$W_PPT3"
 python3 -I deploy/compose/kb3_docs.py xlsx "$P2D/totals.xlsx" "$W_XLS"
 P2_A=""
-P2_PDF="$(p2_new "rota-$R2.pdf" "Dock rota $R2" "Dock rota $R2 (text to come from the original)")"
-P2_DOCX="$(p2_new "handbook-$R2.docx" "Travel handbook $R2" "Travel handbook $R2 (text to come from the original)")"
-P2_PPTX="$(p2_new "review-$R2.pptx" "Depot review $R2" "Depot review $R2 (text to come from the original)")"
-P2_XLSX="$(p2_new "totals-$R2.xlsx" "Totals $R2" "Totals $R2 (text to come from the original)")"
-# before the original, a version with only its placeholder is active; storing a PDF or Office original makes it pending while it is converted (D64)
+P2_PDF="$(p2_new "rota-$R2.pdf" "Dock rota $R2" "Dock rota $R2 (text to come from the original)" await)"
+P2_DOCX="$(p2_new "handbook-$R2.docx" "Travel handbook $R2" "Travel handbook $R2 (text to come from the original)" await)"
+P2_PPTX="$(p2_new "review-$R2.pptx" "Depot review $R2" "Depot review $R2 (text to come from the original)" await)"
+P2_XLSX="$(p2_new "totals-$R2.xlsx" "Totals $R2" "Totals $R2 (text to come from the original)" await)"
+# a version written with awaitsOriginal is pending from the start (D77: an original for a version that is in force is refused, below): it is not current before its text has been committed
+for d in "$P2_PDF" "$P2_DOCX" "$P2_PPTX" "$P2_XLSX"; do [[ "$(p2_state "$d" | cut -d'|' -f1)" == pending ]] || p2_bad "(a): a version written with awaitsOriginal is '$(p2_state "$d")' before its original, not pending"; done
 p2_put "$P2_PDF" "$MEDIA_PDF" "$P2D/rota.pdf"
 [[ "$(p2_state "$P2_PDF" | cut -d'|' -f1)" == pending ]] || p2_bad "(a): the version of the PDF is '$(p2_state "$P2_PDF")' right after its original was stored, not pending (D64)"
 p2_wait "$P2_PDF" 240; [[ "$P2_ST" == active\|succeeded\|* ]] || p2_bad "(a): the PDF ended '$P2_ST'"; T_PDF="$P2_WAITED"
@@ -87,7 +89,7 @@ import json,re,sys
 l=json.loads(sys.argv[1]); m=re.fullmatch(r'[A-Z]+(\d+):[A-Z]+(\d+)', l.get('range',''))
 sys.exit(0 if l.get('sheet')=='Totals' and m and int(m.group(1)) <= 7 <= int(m.group(2)) else 1)" "$LOC" || p2_bad "(a): the XLSX's cell word (row 7) is located '$LOC' (want sheet Totals and a range that has row 7)"
 P2_A+="XLSX: the word of cell B7 found at $LOC after $T_XLSX s"
-echo "PASS: PATH P2a — four originals uploaded to carol's personal base (CMI -> system gateway -> ingest sandbox -> CMI): each version was pending right after its original was stored and ended active/succeeded; $P2_A"
+echo "PASS: PATH P2a — four originals uploaded to carol's personal base (CMI -> system gateway -> ingest sandbox -> CMI): each version was written with awaitsOriginal, was pending before and after its original was stored, and ended active/succeeded; $P2_A"
 
 # (b) a conversion that cannot finish leaves the previous version current; when it finishes the new text is found and the old is not.
 # The ingest sandbox is stopped for the first part, so that "during" is a state and not a race with a fast converter: v2 is written (a placeholder), its original stored, the job is
@@ -96,7 +98,7 @@ P2_V1="$(p2_new "policy-$R2.docx" "Rota policy $R2" "Rota policy $R2. The previo
 [[ "$(p2_loc "$W_OLD")" != none ]] || p2_bad "(b): v1 is not found before the change"
 python3 -I deploy/compose/kb3_docs.py docx "$P2D/policy2.docx" "$W_NEWH" "$W_NEW" "$W_NEWC"
 p2_sandbox_stop
-P2_V2="$(p2_new "policy-$R2.docx" "Rota policy $R2" "Rota policy $R2 (the new revision, its text is being converted)")"
+P2_V2="$(p2_new "policy-$R2.docx" "Rota policy $R2" "Rota policy $R2 (the new revision, its text is being converted)" await)"
 p2_put "$P2_V2" "$MEDIA_DOCX" "$P2D/policy2.docx"
 T0=$(p2_now_ms)
 for _ in $(seq 1 90); do ST="$(p2_state "$P2_V2")"; IFS='|' read -r _ s2 at _ _ _ <<<"$ST"; [[ "$at" -ge 1 ]] && break; sleep 1; done
@@ -132,7 +134,7 @@ echo "PASS: PATH P2b2 — the sandbox back: v2 became active $T_B s later (retri
 
 # (c) an XLSX of 10,500 rows: ends truncated, with the notice on the document; the rows kept are searchable, the rows left out are not
 python3 -I deploy/compose/kb3_docs.py bigxlsx "$P2D/big.xlsx" 10500 "$W_KEEP" "$W_DROP"
-P2_BIG="$(p2_new "big-$R2.xlsx" "Big sheet $R2" "Big sheet $R2 (text to come from the original)")"
+P2_BIG="$(p2_new "big-$R2.xlsx" "Big sheet $R2" "Big sheet $R2 (text to come from the original)" await)"
 p2_put "$P2_BIG" "$MEDIA_XLSX" "$P2D/big.xlsx"; p2_wait "$P2_BIG" 300
 IFS='|' read -r s1 s2 _ _ _ notice <<<"$P2_ST"
 [[ "$s1" == active && "$s2" == truncated && "$notice" == *10000* && "$notice" == *10500* ]] || p2_bad "(c): the 10,500-row sheet ended '$P2_ST' (want active, truncated, and a notice that names 10000 of 10500)"
@@ -142,7 +144,7 @@ echo "PASS: PATH P2c — a sheet of 10,500 rows ended active/truncated after $P2
 
 # (d) a scan fails with the no-text code and stays pending; POST .../ingest queues it again; a finished conversion can be run again and ends the same way
 python3 -I deploy/compose/kb3_docs.py scan "$P2D/scan.pdf"
-P2_SCAN="$(p2_new "scan-$R2.pdf" "Scanned receipt $R2" "Scanned receipt $R2 (text to come from the original)")"
+P2_SCAN="$(p2_new "scan-$R2.pdf" "Scanned receipt $R2" "Scanned receipt $R2 (text to come from the original)" await)"
 p2_put "$P2_SCAN" "$MEDIA_PDF" "$P2D/scan.pdf"; p2_wait "$P2_SCAN" 240
 [[ "$P2_ST" == pending\|failed\|*\|no_text\|-\|* ]] || p2_bad "(d): the scan ended '$P2_ST' (want pending, failed, no_text)"
 T_SCAN="$P2_WAITED"; A1="$(echo "$P2_ST" | cut -d'|' -f3)"
@@ -150,13 +152,16 @@ RET="$(call 202 POST "$CMI/v1/knowledge/documents/$P2_SCAN/ingest" "$CAROL" | fi
 [[ "$RET" == queued || "$RET" == running ]] || p2_bad "(d): the retry's answer says the conversion is '$RET'"
 p2_wait "$P2_SCAN" 240; [[ "$P2_ST" == pending\|failed\|*\|no_text\|-\|* ]] || p2_bad "(d): the retried scan ended '$P2_ST'"
 P2_MD="$(p2_new "plain-$R2.md" "Plain note $R2" "A plain markdown note without an original.")"
+# idp-cmi D77, behaviour change of 1.7.0: a convertible original for a version that is in force (here an active one with the writer's text) is 409; in 1.6.0 it turned the version pending
+P2_409="$(curl -s --noproxy '*' -o "$P2D/put409.out" -w '%{http_code}' -X PUT "$CMI/v1/knowledge/documents/$P2_MD/original" -H "Authorization: Bearer $CAROL" -H "Content-Type: $MEDIA_PDF" --data-binary @"$P2D/rota.pdf")"
+[[ "$P2_409" == 409 && "$(p2_state "$P2_MD" | cut -d'|' -f1)" == active ]] || p2_bad "(d): a PDF original for an active version was HTTP $P2_409 ('$(p2_state "$P2_MD")'), want 409 and the version still active"
 call 422 POST "$CMI/v1/knowledge/documents/$P2_MD/ingest" "$CAROL" >/dev/null
 BEFORE="$(p2_state "$P2_DOCX" | cut -d'|' -f3)"
 call 202 POST "$CMI/v1/knowledge/documents/$P2_DOCX/ingest" "$CAROL" >/dev/null
 for _ in $(seq 1 240); do ST="$(p2_state "$P2_DOCX")"; IFS='|' read -r s1 s2 at _ _ _ <<<"$ST"; [[ "$s2" == succeeded && "$at" -ge 1 ]] && break; sleep 1; done
 [[ "$s2" == succeeded ]] || p2_bad "(d): the finished DOCX conversion run again ended '$ST'"
 [[ "$(p2_loc "$W_DOCC")" != none ]] || p2_bad "(d): after running the DOCX conversion again its text is not found"
-echo "PASS: PATH P2d — a scanned PDF ended pending/failed/no_text after $T_SCAN s (attempts $A1), its version stays unsearchable; POST .../ingest queued it again (202, '$RET') and it ended failed/no_text again; a markdown document without an original answers 422; the finished DOCX conversion run again through POST .../ingest ended succeeded and its text is still found"
+echo "PASS: PATH P2d — a scanned PDF ended pending/failed/no_text after $T_SCAN s (attempts $A1), its version stays unsearchable; POST .../ingest queued it again (202, '$RET') and it ended failed/no_text again; a markdown document without an original answers 422, and a PDF original for its active version is refused with 409 (idp-cmi D77) and leaves it active; the finished DOCX conversion run again through POST .../ingest ended succeeded and its text is still found"
 
 # (e) the tokens: the CMI is served by the system gateway; HOST's delegated token, a member's token and a platform client that is not the CMI are not, and ingest__* is not host-only
 HOSTONLY="$(grep -h hostOnlyTools "$L/gateway-system-clients.yaml" "$L/gateway-clients.yaml" 2>/dev/null || true)"

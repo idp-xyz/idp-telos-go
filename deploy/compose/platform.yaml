@@ -562,6 +562,7 @@ services:
       IDP_HOST_ISSUER: https://127.0.0.1:7443/realms/idp
       IDP_HOST_JWKS_URL: http://keycloak:7080/realms/idp/protocol/openid-connect/certs
       IDP_HOST_CREDENTIAL_KEY: ${IDP_HOST_CREDENTIAL_KEY:?run deploy/compose/e2e.sh}
+      IDP_HOST_MEMBER_ROLES: ws-member,ws-admin   # KB8 (idp-host D68, D69-1): only people who hold one of these roles have their CMI token kept and the knowledge tools offered; unset, nobody does (fail closed)
       IDP_HOST_CONFIG: /etc/idp/host.yaml
       IDP_HOST_WORKERS: '0'
     volumes: ['../../.local/platform/host.yaml:/etc/idp/host.yaml:ro', '../../.local/platform/cmi-client.secret:/etc/idp/cmi-client.secret:ro', '../../.local/platform/host.key:/etc/idp/host.key:ro', '../../.local/platform/live-model.key:/etc/idp/live-model.key:ro']
