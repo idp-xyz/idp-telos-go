@@ -1,0 +1,4 @@
+For acceptance of this platform, follow the tiers in tests/ACCEPTANCE.md and choose the tier from what changed: T1 (only the affected paths, embedding double) for a feature batch, T2 (every path, double) before a BOM, T3 (real embeddings) only in CI or by explicit request.
+Select paths with `python3 -I tools/acceptance.py select --changed <component|auto>`, run them with `PATHS=... bash deploy/compose/e2e.sh`, and check the log with `tools/acceptance.py verify`.
+Never run the full kind script (tests/kind/full.sh) unless the rule in tests/ACCEPTANCE.md calls for it: manifests, network policies, the sandbox runtime or the kind scripts changed.
+Never wait on real embeddings outside T3: EMBED=double is the default, and EMBED=real (the 17-minute projection drain of P2) belongs to the nightly or BOM-triggered CI run.

@@ -30,7 +30,9 @@ kind delete cluster --name kind; bash idp-sandbox/tests/kind/local-cluster.sh   
 | 5 Docker 后端在 gVisor 下 | `bash idp-sandbox/tests/integration/gvisor.sh` | 约 4 分钟（含取 `docker:dind`），20 项 |
 | 6 Kata | `bash idp-sandbox/tests/kind/kata.sh`，再换运行时并检查 | 约 11 分钟（下载 1.3 GB）+ 2.5 分钟检查 |
 | 7 整平台再跑一遍，沙箱在 gVisor 下 | `SKIP_BUILD=1 SANDBOX_RUNTIME_CLASS=gvisor bash tests/kind/full.sh` | 约 2 分钟 |
-| 8 真实模型，在浏览器里体验 | `SKIP_BUILD=1 SANDBOX_RUNTIME_CLASS=gvisor MODEL=live bash tests/kind/full.sh`，再按"访问集群里的平台"开转发、登录 | 约 2 分钟（本机模型已在运行） |
+| 8 真实模型，在浏览器里体验 | `SKIP_BUILD=1 SANDBOX_RUNTIME_CLASS=gvisor MODEL=live EMBED=real bash tests/kind/full.sh`，再按"访问集群里的平台"开转发、登录 | 约 2 分钟（本机模型已在运行） |
+
+**验收分层（tests/ACCEPTANCE.md）：** `full.sh` 默认 `EMBED=double`——两个嵌入实例换成确定性的替身（`deploy/images/embedding-double`，几十 MiB，不起 text-embeddings-inference 的两个 Pod，省下它们请求的 5.5 GiB、上限 7 GiB 内存），需要语义相似度的步骤（P1 b 到 e）打印 `NOT_RUN`。要在集群里真正体验语义检索（上表第 8 行），加 `EMBED=real`。`PATHS="A P2 P3"` 只跑所选路径（准备工作照做）。整套 kind 只在清单、网络策略、沙箱运行时或 kind 脚本变了时才跑。
 
 ## 环境须知
 

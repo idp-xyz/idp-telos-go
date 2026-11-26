@@ -4,10 +4,35 @@ name: kind
 # public components are cloned at the BOM's commits and built, their own manifests are composed by
 # deploy/kubernetes/kind and applied to kind, and tests/kind/smoke.sh runs PATH A through the cluster.
 
+# Not on every push (tests/ACCEPTANCE.md): the platform on kind answers whether the manifests, the network policies, the sandbox runtime and the kind scripts work together; the compose
+# acceptance (platform.yml) answers everything else. It runs when those change, every night (which also catches what arrives through a component's own manifests with a BOM bump) and by hand.
+# tests/kind/full.sh (the full script, with gVisor and EMBED=double) is run on a machine of ours, before a BOM that touched them; this workflow runs tests/kind/smoke.sh (PATH A).
 on:
   push:
     branches: [main]
+    paths:
+      - deploy/kubernetes/**              # the manifests, and with them the NetworkPolicies (deploy/kubernetes/full/networkpolicy.yaml)
+      - tests/kind/**                     # the kind scripts, the gVisor node (tests/kind/gvisor-node.sh: the sandbox runtime)
+      - deploy/keycloak/**
+      - deploy/images/embedding-double/** # the double that kind runs in place of the two embedding pods
+      - tools/k8s_check.py                # the check of the policies
+      - tools/acceptance.py
+      - tests/paths.yaml
+      - deploy/compose/lib_acceptance.sh
+      - .github/workflows/kind.yml
   pull_request:
+    paths:
+      - deploy/kubernetes/**              # the manifests, and with them the NetworkPolicies (deploy/kubernetes/full/networkpolicy.yaml)
+      - tests/kind/**                     # the kind scripts, the gVisor node (tests/kind/gvisor-node.sh: the sandbox runtime)
+      - deploy/keycloak/**
+      - deploy/images/embedding-double/** # the double that kind runs in place of the two embedding pods
+      - tools/k8s_check.py                # the check of the policies
+      - tools/acceptance.py
+      - tests/paths.yaml
+      - deploy/compose/lib_acceptance.sh
+      - .github/workflows/kind.yml
+  schedule:
+    - cron: '23 3 * * *'
   workflow_dispatch:
 
 permissions:

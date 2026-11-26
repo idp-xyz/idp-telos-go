@@ -1,11 +1,15 @@
 name: platform
 
-# The platform acceptance in CI: every component, idp-eer included (read-only deploy key, secret
-# IDP_EER_DEPLOY_KEY), is checked out at the commits releases/platform-bom.yaml pins, the images are built
-# and deploy/compose/e2e.sh runs PATH A to O (O: a third party's MCP server reached through idp-mcp-bridge with the member's own OAuth
-# authorization; the bridge's image is built from idp-mcp-bridge at its BOM commit, like the others, and is published with them). On main, exactly the images that passed are then
-# published to ghcr.io/idp-xyz/<image>:<component commit>, signed with cosign (keyless, this workflow's
-# GitHub OIDC identity) and with an SPDX SBOM attestation (tools/publish_images.sh).
+# The platform acceptance in CI, in tiers (tests/ACCEPTANCE.md; tests/paths.yaml lists the paths). Every component, idp-eer included (read-only deploy key, secret
+# IDP_EER_DEPLOY_KEY), is checked out at the commits releases/platform-bom.yaml pins, the images are built and deploy/compose/e2e.sh runs with the embedding double
+# (EMBED=double: deterministic and instant; the steps that need semantic similarity are the T3 run's, acceptance-real-embeddings.yml):
+#   pull request    T1  only the paths the change affects: `tools/acceptance.py select --changed auto` (the BOM's moved components, the path scripts changed, plus the paths
+#                       those need, plus PATH A)
+#   push to main    T2  every path, when releases/platform-bom.yaml or an acceptance file (deploy/compose, deploy/keycloak, the embedding double, tests/paths.yaml,
+#                       tools/acceptance.py) changed or the run is started by hand; T1 otherwise
+# `tools/acceptance.py verify` then checks that every selected path's PASS ids are in the log and that there is no FAIL or BLOCKED line (it replaces the list that was here).
+# On main, after a T2 run, exactly the images that passed are published to ghcr.io/idp-xyz/<image>:<component commit>, signed with cosign (keyless, this workflow's
+# GitHub OIDC identity) and with an SPDX SBOM attestation (tools/publish_images.sh); the real embedding image is published by the T3 run, which is what proves it.
 #   verify: cosign verify ghcr.io/idp-xyz/idp-cmi:<commit> \
 #     --certificate-identity-regexp '^https://github.com/idp-xyz/idp-telos-go/.github/workflows/platform.yml@' \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
@@ -25,7 +29,7 @@ concurrency:
 
 jobs:
   acceptance:
-    name: platform acceptance (PATH A to O)
+    name: platform acceptance (T1 or T2, embedding double)
     # pull requests from forks get no secrets, so idp-eer cannot be checked out there
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -36,6 +40,8 @@ jobs:
       id-token: write   # keyless signing (main only)
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the diff against the base selects the paths
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
@@ -58,48 +64,81 @@ jobs:
         with:
           python-version-file: idp-eer/.python-version
       - run: pip install --disable-pip-version-check 'PyYAML==6.0.3'
-      - name: The embedding model (pinned revision; deploy/images/embedding/build.sh fetches what is missing from Hugging Face and checks every file against model.sha256)
-        uses: actions/cache@v4
-        with:
-          path: .local/embedding-model
-          key: embedding-model-${{ hashFiles('deploy/images/embedding/MODEL_REVISION', 'deploy/images/embedding/model.sha256') }}
-      - name: Platform acceptance
+      - name: Which tier, which paths
+        id: tier
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          full() { python3 -I tools/acceptance.py select --changed all; }
+          auto() { python3 -I tools/acceptance.py select --changed auto --base "$1"; }
+          if [ "$EVENT" = pull_request ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            tier=T1; paths="$(auto "origin/$BASE_REF")"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            if git diff --name-only "$BEFORE" HEAD | grep -qE '^(releases/platform-bom\.yaml|deploy/compose/|deploy/keycloak/|deploy/images/embedding-double/|tests/paths\.yaml|tools/acceptance\.py)'; then
+              tier=T2; paths="$(full)"
+            else
+              tier=T1; paths="$(auto "$BEFORE")"
+            fi
+          else   # a manual run, a new branch: everything
+            tier=T2; paths="$(full)"
+          fi
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"; echo "paths=$paths" >> "$GITHUB_OUTPUT"
+          echo "### $tier: $paths" >> "$GITHUB_STEP_SUMMARY"
+      - name: Platform acceptance (${{ steps.tier.outputs.tier }}, EMBED=double)
         env:
           EER_TEMPORAL_IMAGE: ghcr.io/idp-xyz/mirror:docker.io__temporalio__temporal__1.10.0
+          PATHS: ${{ steps.tier.outputs.paths }}
+          EMBED: double
+          TIMINGS: ${{ github.workspace }}/timings.json
         run: |
           set -o pipefail
           bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
-          for p in A B C D E F G H I J0 J K L M N O0 O1 O1b O2 O3 O4 O4c O5 O6 O7 O8 O9 O10b O10c O10d M6a M6b M6c M6d M6e M6f M6g M6h P0a P0b P0c P0d P0e P0f P0g P1a P1b P1c P1d P1e P2a P2b P2c P2d P2e P2f P2g P3a P3b P3c P3d P3e P3f P3g; do grep -q "^PASS: PATH $p" e2e.log || { echo "FAIL: PATH $p did not pass" >&2; exit 1; }; done
+          python3 -I tools/acceptance.py verify --log e2e.log --paths "$PATHS" --embed double
+      - name: Timings against the budgets
+        if: always()
+        run: python3 -I tools/acceptance.py report --timings timings.json | tee -a "$GITHUB_STEP_SUMMARY" || true
       - name: Image vulnerabilities in our own images (trivy, HIGH and CRITICAL with a fix fail the build)
         run: |
           bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
           bash deploy/images/postgres-ha/build.sh idp-postgres-ha:17-dev
-          STRICT=1 bash tools/scan_images.sh --own | tee -a "$GITHUB_STEP_SUMMARY"
+          SCAN_SKIP=idp-embedding:dev STRICT=1 bash tools/scan_images.sh --own | tee -a "$GITHUB_STEP_SUMMARY"   # the real embedding image is the T3 run's
       - name: Image vulnerabilities in the third-party images (trivy; reported, not gating)
         run: bash tools/scan_images.sh --third-party | tee -a "$GITHUB_STEP_SUMMARY"
       - name: PATH C output on failure
         if: failure()
         run: cat .local/platform/path-c.log 2>/dev/null || true
       - name: Log in to ghcr.io
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.tier.outputs.tier == 'T2'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: sigstore/cosign-installer@v3
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.tier.outputs.tier == 'T2'
       - uses: anchore/sbom-action/download-syft@v0
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-      - name: Publish the accepted images (signed, SBOM attested)
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.tier.outputs.tier == 'T2'
+      - name: Publish the accepted images (signed, SBOM attested; T2 only, a T1 run has not accepted every path)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.tier.outputs.tier == 'T2'
         run: |
-          bash tools/publish_images.sh | tee -a "$GITHUB_STEP_SUMMARY"
+          PUBLISH_SKIP=idp-embedding:dev bash tools/publish_images.sh | tee -a "$GITHUB_STEP_SUMMARY"
           { echo '```json'; cat published-images.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.tier.outputs.tier == 'T2'
         with:
           name: published-images
           path: |
             published-images.json
             sbom-*.spdx.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-timings
+          path: |
+            timings.json
+            e2e.log
+          if-no-files-found: ignore

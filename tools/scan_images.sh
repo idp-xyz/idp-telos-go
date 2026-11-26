@@ -10,6 +10,7 @@
 #   bash tools/scan_images.sh --own            only ours: STRICT=1 makes a finding fail (CI does)
 #   bash tools/scan_images.sh --third-party    only the third-party ones: reported, not gating (we cannot rebuild them)
 #   bash tools/scan_images.sh IMAGE...         just these
+#   SCAN_SKIP="idp-embedding:dev"             leave these out of the list (the T2 run has the embedding double, not the real service's image)
 #   TRIVY_CACHE=dir                            where the databases live (default .local/trivy-cache)
 #   TRIVY_OFFLINE=1                            no network: the two databases already in $TRIVY_CACHE, the images already in Docker,
 #                                              trivy's container started without a network
@@ -34,6 +35,9 @@ case "${1:-}" in
   "") IMAGES=("${OWN[@]}" "${THIRD[@]}");;
   *) IMAGES=("$@");;
 esac
+if [[ -n "${SCAN_SKIP:-}" ]]; then   # the images of SCAN_SKIP are not scanned and not in the report
+  KEEP=(); for i in "${IMAGES[@]}"; do [[ " $SCAN_SKIP " == *" $i "* ]] || KEEP+=("$i"); done; IMAGES=("${KEEP[@]}")
+fi
 OFFLINE=(); NET=()
 if [[ -n "${TRIVY_OFFLINE:-}" ]]; then
   [[ -f "$CACHE/db/trivy.db" && -f "$CACHE/java-db/trivy-java.db" ]] || {

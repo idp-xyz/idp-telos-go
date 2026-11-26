@@ -2,7 +2,7 @@
 # tests/kind/full.sh, which `source` it after PATH P0. Everything goes through CMI's HTTP API with real tokens (alice cmi-admin, carol cmi-reader); the stored vectors are looked at in the database.
 # What the caller supplies: CMI, ALICE, CAROL, `call EXPECTED METHOD URL TOKEN [BODY]` and `field`, and the adapters p1_embedding_stop and p1_embedding_start (the service stopped; started and
 # answering /health), p1_sql SQL (psql on the CMI's database, tuples only), p1_metrics (the CMI's Prometheus text) and p1_query_stop / p1_query_start (the second embedding instance, idp-cmi D59). Random suffix per run; the words searched for are made of it.
-# The embedding service is up for every earlier path. Here it is stopped, documents are uploaded and resolved (lexically, nothing marked permanent), then it returns and backfill embeds them.
+# EMBED (lib_acceptance.sh): with the double only (a) runs in full; (b) to (e) need semantic similarity and print NOT_RUN. The embedding service is up for every earlier path. Here it is stopped, documents are uploaded and resolved (lexically, nothing marked permanent), then it returns and backfill embeds them.
 set -u
 R1="$(openssl rand -hex 3)"; P1_SRC="p1-docs-$R1"; P1_KB="p1-kb-$R1"
 W_RET="tulipwren${R1//[0-9]/x}"; W_PICK="hatchlark${R1//[0-9]/x}"; W_LIVE="quillfinch${R1//[0-9]/x}"
@@ -19,23 +19,7 @@ import json,sys
 for it in json.load(sys.stdin)['package']['items']:
     if sys.argv[1] in json.dumps(it, ensure_ascii=False): print(it.get('match','?')); break
 else: print('none')" "$1"; }
-# p1_metric NAME [label=value ...]: the sum of the samples of NAME that carry all the labels (0 when there are none); the caller's p1_metrics prints the text of every CMI replica (kind runs two), so a
-# state counts as reached when at least one replica reports it, and a counter or a last-success time has grown when the sum has
-p1_metric() { p1_metrics | python3 -c "
-import re,sys
-name,want=sys.argv[1],sys.argv[2:]; tot=0.0
-for l in sys.stdin:
-    if not l.startswith(name+'{') and not l.startswith(name+' '): continue
-    if all(('%s=\"%s\"' % tuple(w.split('=',1))) in l for w in want): tot+=float(l.rsplit(' ',1)[1])
-print(int(tot) if tot==int(tot) else tot)" "$@"; }
-# p1_metric_max NAME [label=value ...]: the largest of those samples (a last-success time: the replica that embedded last has the newest)
-p1_metric_max() { p1_metrics | python3 -c '
-import sys
-name,want=sys.argv[1],[w.replace("=", "=\"", 1) + "\"" for w in sys.argv[2:]]; best=0.0
-for l in sys.stdin:
-    if not l.startswith(name + "{") and not l.startswith(name + " "): continue
-    if all(w in l for w in want): best=max(best, float(l.rsplit(" ", 1)[1]))
-print(best)' "$@"; }
+source deploy/compose/lib_p1_helpers.sh   # p1_metric and p1_metric_max (path_p2.sh uses them too, so they are in a file of their own)
 p1_bad() { echo "FAIL: PATH P1 $*" >&2; exit 1; }
 p1_wait() { local what="$1" want="$2" w="$3" q="$4" secs="$5" got="" t0; t0=$(date +%s)   # poll a resolve until the item has one of the wanted matches (words), for secs seconds
   while :; do got="$(p1_match "$w" "$q")"; [[ " $want " == *" $got "* ]] && { P1_WAITED=$(( $(date +%s) - t0 )); return 0; }; (( $(date +%s) - t0 > secs )) && p1_bad "$what: after $secs s the match is '$got', want $want"; sleep 3; done; }
@@ -66,6 +50,15 @@ NOVEC="$(p1_sql "SELECT count(*) FROM knowledge_chunks WHERE document_id IN ('$D
 [[ "$PERM" == 0 && "$NOVEC" -ge 2 ]] || p1_bad "(a): $PERM chunk(s) marked permanent, $NOVEC without a vector (want 0 and at least 2)"
 echo "PASS: PATH P1a — the embedding service stopped: 2 documents uploaded into $P1_KB are answered lexically (match $M_LEX for a query that shares '$W_RET'), the paraphrase finds nothing, idp_cmi_embed_failures_total{kind=unavailable,role=documents} grew by $FAILED and $PERM chunk(s) are marked permanent (D58), $NOVEC wait without a vector"
 
+# (b) to (e) are paraphrases with no shared word and a Chinese question: they need semantic similarity, which only the real embedding service has (tests/paths.yaml realEmbedding).
+# With the double (EMBED=double, the default; lib_acceptance.sh) they print NOT_RUN and the service is only started again, with the part of (b) that needs no similarity checked:
+# the chunks that were uploaded while it was down get their vectors through backfill.
+if [[ "${EMBED:-real}" != real ]]; then
+p1_embedding_start
+for _ in $(seq 1 60); do LEFT="$(p1_sql "SELECT count(*) FROM knowledge_chunks WHERE document_id IN ('$DOC_A','$DOC_B') AND embedding IS NULL")"; [[ "$LEFT" == 0 ]] && break; sleep 3; done
+[[ "$LEFT" == 0 ]] || p1_bad "(b): $LEFT chunk(s) of the documents uploaded while the service was down still have no vector 3 minutes after it started (the double)"
+for id in P1b P1c P1d P1e; do path_needs_real "$id" || true; done
+else
 # (b) the service returns: the pending chunks get vectors through backfill, and the paraphrase now finds the document with match semantic
 p1_embedding_start
 p1_wait "(b) the paraphrase after the service returned" semantic "$W_RET" "$P1_PARA" 300
@@ -105,3 +98,4 @@ p1_wait "(e) the paraphrase after the query instance returned" semantic "$W_RET"
 P1_E_WAIT=$P1_WAITED
 [[ "$(p1_metric idp_cmi_query_endpoint_state state=ok)" -ge 1 ]] || p1_bad "(e): the query endpoint's state is not ok after the instance returned"
 echo "PASS: PATH P1e — the query instance stopped: a resolve still answers, lexically (the shared-word query is $M_E, the paraphrase finds nothing), idp_cmi_embed_failures_total{kind=unavailable,role=query} grew from $QF0 to $QF1; with it back the paraphrase is semantic again after $P1_E_WAIT s and idp_cmi_query_endpoint_state is ok"
+fi

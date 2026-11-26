@@ -175,8 +175,9 @@ services:
     environment: {IDP_EMBEDDING_THREADS: '${IDP_EMBEDDING_THREADS:-4}', IDP_EMBEDDING_MAX_BATCH_TOKENS: '2048'}   # 2048 tokens per batch: warm-up peak 3.3 GiB instead of 5.8 at 4096, same ingest rate (measured)
     cpus: ${IDP_EMBEDDING_CPUS:-4}
     mem_limit: ${IDP_EMBEDDING_MEMORY:-4g}
-    healthcheck: {test: ['CMD', 'curl', '-sf', 'http://127.0.0.1:8700/health'], interval: 3s, timeout: 3s, retries: 60}
+    healthcheck: {test: ['CMD-SHELL', '${IDP_EMBEDDING_HEALTHCMD:-curl -sf http://127.0.0.1:8700/health}'], interval: 3s, timeout: 3s, retries: 60}   # the double (EMBED=double) has no curl: e2e.sh sets IDP_EMBEDDING_HEALTHCMD
 
+  # EMBED=double (deploy/compose/e2e.sh; deploy/images/embedding-double): IDP_EMBEDDING_IMAGE names the double, which takes the same environment, key file and port, and both instances use it
   # the second instance of the same image, for the CMI's query embeddings (idp-cmi `embedding.query`): a query that arrives behind a 64-input ingest request on one instance waits for all
   # 64 (measured: 247 s; docs/adr/knowledge-base-plan.md section 10). Same key file, same model; it has its own CPUs, so a query is answered in about 0.3 s during an ingest.
   # profile embedding-query: deploy/compose/e2e.sh always turns it on (the CMI's embedding.query points at it, idp-cmi D59).
@@ -190,7 +191,7 @@ services:
     environment: {IDP_EMBEDDING_THREADS: '${IDP_EMBEDDING_QUERY_THREADS:-2}', IDP_EMBEDDING_MAX_BATCH_TOKENS: '1024', IDP_EMBEDDING_MAX_CLIENT_BATCH: '8'}   # questions only: warm-up 14 s and peak 2.6 GiB (measured); a text over 1024 tokens is refused and that question is answered from words alone
     cpus: ${IDP_EMBEDDING_QUERY_CPUS:-2}
     mem_limit: ${IDP_EMBEDDING_QUERY_MEMORY:-3g}
-    healthcheck: {test: ['CMD', 'curl', '-sf', 'http://127.0.0.1:8700/health'], interval: 3s, timeout: 3s, retries: 60}
+    healthcheck: {test: ['CMD-SHELL', '${IDP_EMBEDDING_HEALTHCMD:-curl -sf http://127.0.0.1:8700/health}'], interval: 3s, timeout: 3s, retries: 60}   # the double (EMBED=double) has no curl: e2e.sh sets IDP_EMBEDDING_HEALTHCMD
 
   # ---- idp-mcp (registry, gateway) and idp-sandbox (P4) ----
   mcp-admin:

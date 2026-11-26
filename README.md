@@ -47,7 +47,7 @@ git clone https://github.com/idp-xyz/idp-browser.git
 ```sh
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py check    # 目录、发布清单、兼容性矩阵
 uv run --no-project --with PyYAML==6.0.3 python -I tools/platform.py bom      # 组件移动后重新生成发布清单（matrix 同理）
-bash deploy/compose/e2e.sh                                                     # 构建各组件镜像，跑 PATH A 到 N（含 M6：渲染读取）与 O 验收（KEEP=1 保留运行；MODEL=live 用本机真实模型）
+bash deploy/compose/e2e.sh                                                     # 构建各组件镜像，跑 PATH A 到 N（含 M6：渲染读取）与 O 验收（KEEP=1 保留运行；MODEL=live 用本机真实模型；PATHS="A P3" 只跑所选路径，EMBED=double|real 选嵌入服务，分层见 tests/ACCEPTANCE.md）
 uv run --no-project --with PyYAML==6.0.3 python -I tools/k8s_check.py          # 渲染各组件（七个）的 Kubernetes 清单，核对每条集成两端的 NetworkPolicy
 bash tests/kind/smoke.sh                                                       # 在 kind 集群上按组件清单部署并跑 PATH A（CI: kind.yml）
 bash tests/kind/full.sh                                                        # 整平台上 kind：八个组件的清单 + Keycloak（https 发行者）、PostgreSQL、Temporal，全部命名空间默认拒绝（需要 Calico 等强制执行 NetworkPolicy 的集群），经 port-forward 跑 PATH A、B、D、E、I、L、F、G、H、M、N、O、C（M、N 是联网检索与页面注入，用 idp-web 的清单加测试源站；O 是第三方 MCP 服务与成员各自的 OAuth 授权，用桥的清单加测试第三方，并用探测 Pod 验证网络策略），再装好"助手"应用，浏览器里可从登录、提问、跑代码到审批完整体验（SKIP_BUILD=1 用已有镜像；MODEL=live 用本机真实模型；TEARDOWN=1 结束时删除）

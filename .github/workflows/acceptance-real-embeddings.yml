@@ -1,0 +1,101 @@
+name: acceptance-real-embeddings
+
+# T3 of the tiered acceptance (tests/ACCEPTANCE.md): the paths that need real semantic similarity (tests/paths.yaml: realEmbedding, P1 b to e) and PATH P2, whose end waits for the
+# projection queue to drain, run with the real embedding image (deploy/images/embedding: text-embeddings-inference with Qwen3-Embedding-0.6B) instead of the double. That tests
+# the model and the machine as much as the code, so it is not on every push: when the BOM or the embedding image or the paths that use it change, and every night. It proves the
+# real image, and publishes it (signed, SBOM attested) when it passes on main; platform.yml (T1/T2) publishes the others.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - releases/platform-bom.yaml
+      - deploy/images/embedding/**
+      - deploy/compose/path_p1.sh
+      - deploy/compose/path_p2.sh
+      - deploy/compose/lib_p1_helpers.sh
+      - tests/paths.yaml
+      - .github/workflows/acceptance-real-embeddings.yml
+  schedule:
+    - cron: '43 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-real-embeddings-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-embeddings:
+    name: real embeddings (T3, P1 and P2 with idp-embedding)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write   # publish the embedding image (main only)
+      id-token: write   # keyless signing (main only)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Pinned tools
+        run: pip install --disable-pip-version-check 'PyYAML==6.0.3'
+      - name: Components at the BOM's commits
+        env:
+          IDP_EER_DEPLOY_KEY: ${{ secrets.IDP_EER_DEPLOY_KEY }}
+        run: python -I tools/checkout_components.py --require idp-eer
+      - name: The embedding model (pinned revision; deploy/images/embedding/build.sh fetches what is missing from Hugging Face and checks every file against model.sha256)
+        uses: actions/cache@v4
+        with:
+          path: .local/embedding-model
+          key: embedding-model-${{ hashFiles('deploy/images/embedding/MODEL_REVISION', 'deploy/images/embedding/model.sha256') }}
+      - name: The paths that need real embeddings, with the real image
+        env:
+          EER_TEMPORAL_IMAGE: ghcr.io/idp-xyz/mirror:docker.io__temporalio__temporal__1.10.0
+          EMBED: real
+          TIMINGS: ${{ github.workspace }}/timings.json
+        run: |
+          set -o pipefail
+          PATHS="$(python3 -I tools/acceptance.py select --t3)"
+          export PATHS
+          echo "### T3: $PATHS" >> "$GITHUB_STEP_SUMMARY"
+          bash deploy/compose/e2e.sh 2>&1 | tee e2e.log
+          python3 -I tools/acceptance.py verify --log e2e.log --paths "$PATHS" --embed real
+      - name: Timings against the budgets
+        if: always()
+        run: python3 -I tools/acceptance.py report --timings timings.json --embed real | tee -a "$GITHUB_STEP_SUMMARY" || true
+      - name: Image vulnerabilities in the embedding image (trivy, HIGH and CRITICAL with a fix fail the build)
+        run: STRICT=1 bash tools/scan_images.sh idp-embedding:dev | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Log in to ghcr.io
+        if: github.event_name != 'schedule' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v3
+        if: github.event_name != 'schedule' && github.ref == 'refs/heads/main'
+      - uses: anchore/sbom-action/download-syft@v0
+        if: github.event_name != 'schedule' && github.ref == 'refs/heads/main'
+      - name: Publish the accepted embedding image (signed, SBOM attested)
+        if: github.event_name != 'schedule' && github.ref == 'refs/heads/main'
+        run: PUBLISH_ONLY=idp-embedding:dev bash tools/publish_images.sh | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-timings-real
+          path: |
+            timings.json
+            e2e.log
+          if-no-files-found: ignore

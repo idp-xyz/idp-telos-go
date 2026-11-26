@@ -1,0 +1,247 @@
+# The platform acceptance paths, in the order deploy/compose/e2e.sh runs them (tests/ACCEPTANCE.md explains the tiers).
+# Read by tools/acceptance.py (select, verify, report) and deploy/compose/lib_acceptance.sh; tools/tests/test_acceptance.py checks it against the scripts.
+#
+# Fields of a path
+#   id              what PATHS="..." and `want ID` in e2e.sh / tests/kind/full.sh name; letters and digits only
+#   pass            the PASS ids it prints, each as a line starting "PASS: PATH <id>" (verify wants every one of the selected paths)
+#   components      what it exercises: the component repositories (and the platform image idp-embedding / the double); `select --changed` picks the
+#                   paths whose components meet the changed set
+#   needs           paths whose STATE it depends on (a variable, an agent or an app they create, a count they leave): selected with it, run before it
+#   realEmbedding   PASS ids that need semantic similarity (a paraphrase with no shared word, a cross-language question): with EMBED=double they print
+#                   "NOT_RUN: PATH <id> needs real embeddings (EMBED=double)" and verify accepts that; they are the T3 paths
+#   t3              also in the T3 run with the real embedding image, though it needs no semantic similarity (it measures the real service's load)
+#   budgetSeconds   measured on the compose acceptance with EMBED=double, plus headroom; over it only warns. realBudgetSeconds: with EMBED=real.
+#                   kindBudgetSeconds: tests/kind/full.sh (EMBED=double, gVisor)
+#   kind            tests/kind/full.sh runs it too; kindOrder gives the order there; kindExtras are PASS lines of kind that sit next to the path
+#   script, files   what `select --changed auto` maps to the path: its script, and other files only it uses
+#   uses, erases    the members whose accounts it uses and the ones it erases as subjects: a subject is never used after a path erased it
+#                   (P0 erases bob, P2 erases carol: the order of this file is what keeps the rest working)
+#
+# `select --changed auto` (tools/acceptance.py): releases/platform-bom.yaml against the base (a component whose commit or image id moved is changed);
+# a path script or a `files` entry selects that path; deploy/keycloak/**, deploy/compose/platform.yaml, e2e.sh, lib_acceptance.sh, tools/acceptance.py
+# and this file select everything, and so does any other file under deploy/compose/ that no path claims. The smoke path A always runs.
+version: 1
+smoke: [A]
+components: [idp-host, idp-cmi, idp-mcp, idp-sandbox, idp-web, idp-workspace, idp-eer, idp-mcp-bridge, idp-browser, idp-eii, idp-embedding, embedding-double]
+kindOrder: [A, B, E, F, D, I, L, G, H, M, M2, M3, M4, M5, N, M6, O, P0, P1, P2, P3, C]
+paths:
+  - id: A
+    pass: [A]
+    components: [idp-host, idp-cmi, idp-workspace]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 30
+    notes: smoke. bob -> Workspace -> HOST -> CMI package -> inbox, and the three systems agree
+  - id: B
+    pass: [B]
+    components: [idp-eer, idp-workspace]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 30
+    notes: a T2 execution waits in EER, the approver decides in the Workspace
+  - id: D
+    pass: [D]
+    components: [idp-host, idp-mcp, idp-sandbox, idp-workspace]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 30
+  - id: I
+    pass: [I]
+    components: [idp-host, idp-workspace, idp-mcp, idp-sandbox]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 30
+  - id: J0
+    pass: [J0]
+    components: [idp-host, idp-mcp, idp-sandbox, idp-workspace]
+    needs: []
+    uses: [bob]
+    budgetSeconds: 45
+    notes: creates the officecli skill, office-assistant and the office app that J uses
+  - id: J
+    pass: [J]
+    components: [idp-host, idp-mcp, idp-sandbox, idp-workspace]
+    needs: [J0]
+    uses: [bob]
+    budgetSeconds: 45
+  - id: K
+    pass: [K]
+    components: [idp-host, idp-workspace, idp-mcp]
+    needs: []
+    uses: [bob]
+    budgetSeconds: 20
+  - id: L
+    pass: [L]
+    components: [idp-mcp, idp-sandbox]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 90
+    budgetSeconds: 30
+    kindExtras: ["the assistant app is installed in us-ops"]
+  - id: E
+    pass: [E]
+    components: [idp-host, idp-cmi, idp-workspace]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 30
+    notes: creates memory-assistant and the assistant app, and defines ask() that G uses
+  - id: F
+    pass: [F]
+    components: [idp-cmi, idp-workspace]
+    needs: [E]
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 45
+    budgetSeconds: 20
+    kindExtras: ["pgvector"]
+    notes: lists and erases the memory E left
+  - id: G
+    pass: [G]
+    components: [idp-host, idp-cmi, idp-workspace]
+    needs: [E]
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 30
+  - id: H
+    pass: [H]
+    components: [idp-cmi]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 30
+    budgetSeconds: 20
+    kindExtras: ["PostgreSQL over TLS"]
+  - id: M
+    pass: [M]
+    components: [idp-host, idp-mcp, idp-web, idp-workspace]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 30
+    notes: the web setup block (web-assistant, the websearch app, the helpers) runs for M, M2, M3, M4, M5, N and M6 alike
+  - id: M2
+    pass: [M2]
+    components: [idp-mcp, idp-web, idp-host]
+    needs: []
+    kind: true
+    kindBudgetSeconds: 30
+    budgetSeconds: 20
+  - id: M3
+    pass: [M3]
+    components: [idp-web, idp-host, idp-mcp]
+    needs: [M]
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 40
+    notes: needs the count of searches M leaves (1 or 2 of 3)
+  - id: M4
+    pass: [M4]
+    components: [idp-web, idp-host, idp-mcp]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 40
+  - id: M5
+    pass: [M5]
+    components: [idp-host, idp-web, idp-workspace]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 40
+  - id: N
+    pass: [N]
+    components: [idp-host, idp-web, idp-mcp, idp-cmi]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 40
+    notes: zeroes the day's search count first, so that it has all three whatever ran before it
+  - id: M6
+    pass: [M6a, M6b, M6c, M6d, M6e, M6f, M6g, M6h]
+    components: [idp-browser, idp-web, idp-host, idp-mcp]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 480
+    budgetSeconds: 90
+    script: deploy/compose/path_m6.sh
+  - id: O
+    pass: [O0, O1, O1b, O2, O3, O4, O4c, O5, O6, O7, O8, O9, O10b, O10c, O10d]
+    components: [idp-mcp-bridge, idp-workspace, idp-host, idp-mcp]
+    needs: []
+    uses: [bob]
+    kind: true
+    kindBudgetSeconds: 240
+    budgetSeconds: 180
+    script: deploy/compose/path_o.sh
+    files: [deploy/compose/bridge_check.py, deploy/compose/bridge_setup.py, deploy/compose/thirdparty_double.py]
+  - id: P0
+    pass: [P0a, P0b, P0c, P0d, P0e, P0f, P0g]
+    components: [idp-cmi]
+    needs: []
+    uses: [bob, carol]
+    erases: [bob]
+    kind: true
+    kindBudgetSeconds: 90
+    budgetSeconds: 90
+    script: deploy/compose/path_p0.sh
+  - id: P1
+    pass: [P1a, P1b, P1c, P1d, P1e]
+    components: [idp-cmi, idp-embedding, embedding-double]
+    needs: []
+    uses: [carol]
+    realEmbedding: [P1b, P1c, P1d, P1e]
+    kind: true
+    kindBudgetSeconds: 240
+    budgetSeconds: 150
+    realBudgetSeconds: 450
+    script: deploy/compose/path_p1.sh
+    files: [deploy/images/embedding/**, deploy/images/embedding-double/**]
+    notes: P1a (the service stopped, lexical answers, nothing permanent) needs no similarity; b to e are paraphrases with no shared word and a Chinese question
+  - id: P2
+    pass: [P2a, P2b1, P2b2, P2c, P2d, P2e, P2f, P2g]
+    components: [idp-cmi, idp-sandbox, idp-mcp, idp-embedding, embedding-double]
+    needs: []
+    uses: [carol]
+    erases: [carol]
+    t3: true
+    kind: true
+    kindBudgetSeconds: 540
+    budgetSeconds: 150
+    realBudgetSeconds: 1800
+    script: deploy/compose/path_p2.sh
+    files: [deploy/compose/kb3_docs.py, deploy/compose/ingest_check.py, deploy/compose/p2_probe.py, deploy/compose/mcp_setup_ingest.py]
+    notes: no similarity is asked, but its end waits for the projection queue to drain, which on the real image is the CPU embedding of every chunk it made (17 minutes on the shared machine)
+  - id: P3
+    pass: [P3a, P3b, P3c, P3d, P3e, P3f, P3g]
+    components: [idp-host, idp-cmi]
+    needs: []
+    kind: true
+    kindBudgetSeconds: 90
+    budgetSeconds: 90
+    script: deploy/compose/path_p3.sh
+  - id: C
+    pass: [C]
+    components: [idp-eer, idp-cmi]
+    needs: []
+    kind: true
+    kindBudgetSeconds: 60
+    budgetSeconds: 45
+    notes: needs uv for EER's own test (NOT_RUN without it)

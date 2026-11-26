@@ -12,6 +12,7 @@
 #   P2_SYSGW_ISOLATED                    1 where the system gateway is unreachable from the member side by the network (kind); compose cannot narrow that and says so
 #   P2_NET_WHAT                          one sentence on how the reach checks were made, for the PASS line
 set -u
+source deploy/compose/lib_p1_helpers.sh   # p1_metric, which this path reads the conversion counters with (the caller supplies p1_metrics, p1_sql and p0_s3_keys)
 R2="$(openssl rand -hex 3)"; P2_SRC="p2-notes"
 p2w() { echo "$1${R2//[0-9]/x}"; }   # a word made of letters only (no digit: no stemming or token split turns it into two)
 W_PDF1="$(p2w kestrel)"; W_PDF2="$(p2w plover)"; W_PDF3="$(p2w avocet)"; W_DOCT="$(p2w bittern)"; W_DOCS="$(p2w godwit)"; W_DOCC="$(p2w nuthatch)"
@@ -24,8 +25,11 @@ P2_TOK_AT=0
 p2_fresh() { local now; now=$(date +%s); (( now - P2_TOK_AT > 240 )) && { CAROL="$(user_token carol)"; P2_TOK_AT=$now; }; return 0; }   # a token lives 10 minutes
 p2_now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
 p2_q() { python3 -c "import json,sys; print(json.dumps({'query':sys.argv[1],'purpose':'assist','budget':{'maxItems':8}}))" "$1"; }
-# p2_loc WORD: the locator (JSON) of the first item of carol's resolve whose text has WORD, or "none"
-p2_loc() { p2_fresh; call 200 POST "$CMI/v1/context/resolve" "$CAROL" "$(p2_q "$1")" | python3 -c "
+# p2_loc WORD [CONTEXT]: the locator (JSON) of the first item of carol's resolve whose text has WORD, or "none". The query is CONTEXT and WORD: with a vector stored, the CMI drops a chunk
+# whose cosine to the query is under its floor (0.40) even when the word matched (idp-cmi D11, lexicalBlend), and the real model's cosine of a bare marker word to a table of numbers is 0.38 (measured
+# 2026-11-26): the sheet of (a) is found by a question that names its sheet and row (0.52). Where the chunk has no vector yet (the projection is behind) the word alone is enough, which is why this
+# passed on a loaded machine and failed on an idle one.
+p2_loc() { p2_fresh; call 200 POST "$CMI/v1/context/resolve" "$CAROL" "$(p2_q "${2:+$2 }$1")" | python3 -c "
 import json,sys
 for it in json.load(sys.stdin)['package']['items']:
     if sys.argv[1] in json.dumps(it, ensure_ascii=False): print(json.dumps(it.get('locator') or {}, ensure_ascii=False, sort_keys=True)); break
@@ -84,7 +88,7 @@ P2_A+="DOCX: a table cell found under the heading path $LOC after $T_DOCX s; "
 p2_put "$P2_PPTX" "$MEDIA_PPTX" "$P2D/review.pptx"; p2_wait "$P2_PPTX" 240; [[ "$P2_ST" == active\|succeeded\|* ]] || p2_bad "(a): the PPTX ended '$P2_ST'"; T_PPTX="$P2_WAITED"
 LOC="$(p2_loc "$W_PPT2")"; p2_hasloc "$LOC" '{"slide": 2}' || p2_bad "(a): the PPTX's word of slide 2 is located '$LOC'"; P2_A+="PPTX: slide 2 word found at $LOC after $T_PPTX s; "
 p2_put "$P2_XLSX" "$MEDIA_XLSX" "$P2D/totals.xlsx"; p2_wait "$P2_XLSX" 240; [[ "$P2_ST" == active\|succeeded\|* ]] || p2_bad "(a): the XLSX ended '$P2_ST'"; T_XLSX="$P2_WAITED"
-LOC="$(p2_loc "$W_XLS")"; python3 -c "
+LOC="$(p2_loc "$W_XLS" "Totals sheet row 7")"; python3 -c "
 import json,re,sys
 l=json.loads(sys.argv[1]); m=re.fullmatch(r'[A-Z]+(\d+):[A-Z]+(\d+)', l.get('range',''))
 sys.exit(0 if l.get('sheet')=='Totals' and m and int(m.group(1)) <= 7 <= int(m.group(2)) else 1)" "$LOC" || p2_bad "(a): the XLSX's cell word (row 7) is located '$LOC' (want sheet Totals and a range that has row 7)"
