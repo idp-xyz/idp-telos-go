@@ -337,6 +337,13 @@ if CMI in schemas:
         ('cmi_package_omitted', CMI, 'ContextPackage', 0, S(omitted={'budget': 3, 'flagged': 1, 'candidate': 0, 'disputed': 0, 'forbidden': 0, 'lowSimilarity': 2})),        # 1.5.0 (D47-D58)
         ('cmi_document_knowledge_fields', CMI, 'KnowledgeDocument', 0, S(knowledgeBase='sales', validFrom='2026-12-01T00:00:00Z', docType='policy', owner='carol', reviewDue='2027-01-01T00:00:00Z')),
         ('cmi_document_with_original', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 1234, 'sha256': 'sha256:' + 'ab' * 32})),
+        # 1.6.0 (D61-D70): the conversion of originals
+        ('cmi_document_pending', CMI, 'KnowledgeDocument', 0, S(status='pending')),
+        ('cmi_document_ingest_queued', CMI, 'KnowledgeDocument', 0, S(status='pending', ingest={'state': 'queued', 'attempts': 0, 'updatedAt': '2026-11-25T10:00:00Z'})),
+        ('cmi_document_ingest_truncated', CMI, 'KnowledgeDocument', 0, S(ingest={'state': 'truncated', 'attempts': 1, 'updatedAt': '2026-11-25T10:00:00Z', 'notice': 'sheet Data: 10000 of 12000 rows kept'})),
+        ('cmi_document_ingest_failed_retrying', CMI, 'KnowledgeDocument', 0, S(status='pending', ingest={'state': 'failed', 'attempts': 2, 'error': 'sandbox_busy', 'updatedAt': '2026-11-25T10:00:00Z', 'nextAttemptAt': '2026-11-25T10:01:00Z'})),
+        ('cmi_item_locator_slide', CMI, 'ContextPackage', 0, P('items.0.locator', {'slide': 3})),
+        ('cmi_item_locator_sheet_range', CMI, 'ContextPackage', 0, P('items.0.locator', {'sheet': 'Q3 totals', 'range': 'A12:F40'})),
     ]
     NEGATIVE += [
         ('cmi_package_wrong_schema_version', CMI, 'ContextPackage', 0, S(schemaVersion='idp.cmi.package/v2')),
@@ -373,6 +380,12 @@ if CMI in schemas:
         ('cmi_document_bad_knowledge_base_name', CMI, 'KnowledgeDocument', 0, S(knowledgeBase='Sales Team')),
         ('cmi_document_original_without_digest', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 1234})),
         ('cmi_document_original_zero_bytes', CMI, 'KnowledgeDocument', 0, S(original={'mediaType': 'application/pdf', 'byteSize': 0, 'sha256': 'sha256:' + 'ab' * 32})),
+        ('cmi_document_ingest_unknown_state', CMI, 'KnowledgeDocument', 0, S(ingest={'state': 'done', 'attempts': 1, 'updatedAt': '2026-11-25T10:00:00Z'})),
+        ('cmi_document_ingest_without_attempts', CMI, 'KnowledgeDocument', 0, S(ingest={'state': 'queued', 'updatedAt': '2026-11-25T10:00:00Z'})),
+        ('cmi_document_ingest_error_is_not_a_code', CMI, 'KnowledgeDocument', 0, S(ingest={'state': 'failed', 'attempts': 1, 'error': 'OutOfMemoryException: the converter said so', 'updatedAt': '2026-11-25T10:00:00Z'})),
+        ('cmi_document_ingest_unknown_field', CMI, 'KnowledgeDocument', 0, S(ingest={'state': 'queued', 'attempts': 0, 'updatedAt': '2026-11-25T10:00:00Z', 'stderr': 'x'})),
+        ('cmi_item_locator_range_is_not_a_range', CMI, 'ContextPackage', 0, P('items.0.locator', {'sheet': 'S', 'range': 'A1'})),
+        ('cmi_item_locator_slide_zero', CMI, 'ContextPackage', 0, P('items.0.locator', {'slide': 0})),
     ]
 
 #    idp.telos.workspace: mirrors idp-workspace's TestContractRejectsWhatTheWorkspaceRejects

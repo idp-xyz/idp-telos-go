@@ -1,0 +1,379 @@
+# KB3: the conversion of knowledge originals (platform plan knowledge-base-plan.md section 5; idp-cmi D61 to D70; idp-sandbox D25), as PATH P2 of tests/kind/full.sh runs it.
+# The CMI converts the PDF and Office originals of knowledge documents to text in a SECOND idp-sandbox instance, the ingest sandbox, which it reaches only through a
+# gateway of its own, the SYSTEM gateway (one gateway per tenant, idp-mcp D6; the tenant is the platform's own workload's). What is here:
+#   idp-sandbox-ingest (service) and idp-sandbox-ingest-runs (what it runs): the same image and code as the interactive sandbox, its own owner label, namespaces, RBAC,
+#       quota (configmaps 128: a 50 MiB file is cut into 53 ConfigMaps, the default 48 cannot hold one) and limits (transfer 50 MiB, workspace 160 MiB, a run of 300 s and 512 MiB, 8 at once,
+#       16 workspaces for the one caller, idle 5 minutes); runs have no network; IDP_SANDBOX_FILES_URL is the CMI's internal file endpoint (Service idp-cmi-ingest, ClusterIP only)
+#   idp-mcp-gateway-system (in idp-mcp): the system gateway: one target (`ingest`, granted to the role cmi-ingest), one client (the CMI), the call timeout above a run
+# Its pods carry the component label gateway-system, NOT gateway, so that none of the shipped policies for the member-side gateway (who may call it, where it may go) applies to
+# it: it has its own, below. The NetworkPolicies are the whole point: the ingest sandbox reaches the CMI's file endpoint and nothing else of the cluster but the API server; the
+# CMI reaches the system gateway; the system gateway reaches the registry, Keycloak and the ingest sandbox; run pods have no network; nothing on the member side
+# (HOST, Workspace, idp-web, EER, ...) reaches the file endpoint or the system gateway. tools/k8s_check.py --full checks the namespace-level flows (catalog/integrations.yaml).
+# DEV and reference: Keycloak's keys over plain http inside the cluster, as everywhere in this overlay. tests/kind/full.sh creates the Secrets and ConfigMaps this file names.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: idp-sandbox-ingest
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    idp-mcp/mcp-upstream: "true"      # the registry discovers the sandbox's tools here (idp-mcp's registry policy selects namespaces with this label)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: idp-sandbox-ingest-runs
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: idp-sandbox-ingest
+  namespace: idp-sandbox-ingest
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: idp-sandbox-runner
+  namespace: idp-sandbox-ingest-runs
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: idp-sandbox-runner
+  namespace: idp-sandbox-ingest-runs
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: idp-sandbox-runner}
+subjects:
+  - {kind: ServiceAccount, name: idp-sandbox-ingest, namespace: idp-sandbox-ingest}
+---
+# the quota of the runs namespace: 8 runs of 512 MiB at once and up to 24 workspaces of 160 MiB; configmaps 128 (idp-sandbox D25 asks for at least 60: one 50 MiB transfer is 53)
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: idp-sandbox-runs
+  namespace: idp-sandbox-ingest-runs
+spec:
+  hard:
+    pods: "24"
+    count/jobs.batch: "48"
+    configmaps: "128"
+    persistentvolumeclaims: "48"
+    requests.storage: 8Gi
+    requests.cpu: "12"
+    requests.memory: 12Gi
+    limits.cpu: "12"
+    limits.memory: 12Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: idp-sandbox-runs
+  namespace: idp-sandbox-ingest-runs
+spec:
+  limits:
+    - type: Container
+      default: {cpu: 500m, memory: 128Mi}
+      defaultRequest: {cpu: 100m, memory: 64Mi}
+      max: {cpu: "2", memory: 1Gi}
+    - type: PersistentVolumeClaim
+      max: {storage: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idp-sandbox-ingest
+  namespace: idp-sandbox-ingest
+  labels: {app.kubernetes.io/name: idp-sandbox-ingest, app.kubernetes.io/component: sandbox-ingest}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}      # the workspace table is in memory and the start-up sweep deletes everything labelled with this owner
+  selector:
+    matchLabels: {app.kubernetes.io/component: sandbox-ingest}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: idp-sandbox-ingest, app.kubernetes.io/component: sandbox-ingest}
+    spec:
+      serviceAccountName: idp-sandbox-ingest
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10570, runAsGroup: 10570, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: sandbox
+          image: idp-sandbox
+          ports:
+            - {name: mcp, containerPort: 8570}
+            - {name: ops, containerPort: 9570}
+          env:
+            - {name: IDP_SANDBOX_BACKEND, value: kubernetes}
+            - {name: IDP_SANDBOX_LISTEN, value: "0.0.0.0:8570"}
+            - {name: IDP_SANDBOX_PRIVATE_NETWORK, value: "true"}      # the NetworkPolicy lets only the system gateway and the registry reach it
+            - {name: IDP_SANDBOX_METRICS, value: "0.0.0.0:9570"}
+            - {name: IDP_SANDBOX_NAMESPACE, value: idp-sandbox-ingest-runs}
+            - {name: IDP_SANDBOX_OWNER, value: ingest}
+            - {name: IDP_SANDBOX_PYTHON_IMAGE, value: "ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim"}
+            - {name: IDP_SANDBOX_SHELL_IMAGE, value: "ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22"}
+            - {name: IDP_SANDBOX_OFFICE_IMAGE, value: "idp-sandbox-office:dev"}   # the office profile: ooxml2md and pdftext --markdown (idp-sandbox D25); loaded into the nodes by tests/kind/full.sh
+            - {name: IDP_SANDBOX_FILES_URL, value: "http://idp-cmi-ingest.idp-cmi.svc.cluster.local:8551"}   # the CMI's internal file endpoint: `endpointUrl` of the CMI's knowledge.conversion, exactly
+            - {name: IDP_SANDBOX_CALLER_KEYS_FILE, value: /etc/idp/gateway/caller.pub}   # the system gateway's key, and no other
+            - {name: IDP_SANDBOX_CALLER_AUDIENCE, value: "http://idp-sandbox-ingest.idp-sandbox-ingest.svc.cluster.local:8570/mcp"}
+            - {name: IDP_SANDBOX_TRANSFER_MB, value: "50"}
+            - {name: IDP_SANDBOX_WORKSPACE_MB, value: "160"}
+            - {name: IDP_SANDBOX_TIMEOUT_S, value: "300"}
+            - {name: IDP_SANDBOX_MEMORY_MB, value: "512"}
+            - {name: IDP_SANDBOX_MAX_CONCURRENT, value: "8"}
+            - {name: IDP_SANDBOX_MAX_PER_CALLER, value: "16"}
+            - {name: IDP_SANDBOX_MAX_WORKSPACES, value: "24"}
+            - {name: IDP_SANDBOX_IDLE_MIN, value: "5"}
+          readinessProbe: {httpGet: {path: /readyz, port: ops}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: ops}, periodSeconds: 20}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "2", memory: 1Gi}     # about 110 MiB per concurrent transfer (idp-sandbox D25): at least 1 GiB
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+          volumeMounts:
+            - {name: gateway-caller-keys, mountPath: /etc/idp/gateway, readOnly: true}
+      volumes:
+        - {name: gateway-caller-keys, configMap: {name: idp-sandbox-ingest-gateway-caller-keys}}   # created per run by tests/kind/full.sh
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: idp-sandbox-ingest
+  namespace: idp-sandbox-ingest
+  labels: {app.kubernetes.io/component: sandbox-ingest}
+spec:
+  selector: {app.kubernetes.io/component: sandbox-ingest}
+  ports: [{name: mcp, port: 8570, targetPort: mcp}]
+---
+# the CMI's internal file endpoint (idp-cmi D62): a Service of its own, ClusterIP, for the ingest sandbox only (the policies below); never an Ingress, never a port-forward in the acceptance
+apiVersion: v1
+kind: Service
+metadata:
+  name: idp-cmi-ingest
+  namespace: idp-cmi
+  labels: {app.kubernetes.io/component: cmi}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/component: cmi}
+  ports: [{name: ingest, port: 8551, targetPort: ingest}]
+---
+# ---- the system gateway ----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: idp-mcp-gateway-system
+  namespace: idp-mcp
+data:
+  IDP_GATEWAY_LISTEN: "0.0.0.0:3221"
+  IDP_REGISTRY_URL: "http://idp-mcp-registry.idp-mcp.svc.cluster.local:8250"
+  IDP_GATEWAY_TOKEN_FILE: "/etc/idp/credential/token"
+  IDP_GATEWAY_CALLER_KEY_FILE: "/etc/idp/caller/caller.key"   # its own key: the ingest sandbox trusts this one and the interactive sandbox does not
+  IDP_GATEWAY_CLIENTS_FILE: "/etc/idp/clients/clients.yaml"
+  IDP_GATEWAY_ALLOWED_HOSTS: "idp-mcp-gateway-system.idp-mcp.svc.cluster.local,idp-mcp-gateway-system.idp-mcp.svc.cluster.local:3221"
+  IDP_RELEASE_CACHE: "/var/cache/idp/release.json"
+  # above a run (IDP_SANDBOX_TIMEOUT_S of the ingest sandbox: 300 s), below the CMI's callTimeout (390 s): the gateway's default 60 s records a long run UNKNOWN (idp-sandbox D25)
+  IDP_CALL_TIMEOUT: "330s"
+  IDP_DRIFT_INTERVAL: "60s"
+  IDP_LOG_LEVEL: "info"
+---
+# the one client the system gateway serves: the CMI (the client id of its service account, deploy/keycloak/realm.py). `ingest__*` is NOT host-only: the CMI is not the HOST
+# and the pattern would lock it out; the control is "one role, one client, one tenant"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: idp-mcp-gateway-system-clients
+  namespace: idp-mcp
+data:
+  clients.yaml: |
+    clients:
+      idp-cmi-ingest: {kind: platform}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idp-mcp-gateway-system
+  namespace: idp-mcp
+  labels: {app.kubernetes.io/component: gateway-system, idp-mcp/gateway: system}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/component: gateway-system, idp-mcp/gateway: system}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/component: gateway-system, idp-mcp/gateway: system}
+    spec:
+      serviceAccountName: idp-mcp-gateway
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: gateway
+          image: idp-mcp
+          command: ["/usr/local/bin/mcp-gateway"]
+          ports: [{name: mcp, containerPort: 3221}]
+          envFrom: [{configMapRef: {name: idp-mcp-gateway-system}}]
+          env:
+            - {name: IDP_GATEWAY_ID, valueFrom: {secretKeyRef: {name: idp-mcp-gateway-system, key: gateway-id}}}
+            - {name: IDP_GATEWAY_INSTANCE, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+          volumeMounts:
+            - {name: credential, mountPath: /etc/idp/credential, readOnly: true}
+            - {name: caller-key, mountPath: /etc/idp/caller, readOnly: true}
+            - {name: clients, mountPath: /etc/idp/clients, readOnly: true}
+            - {name: cache, mountPath: /var/cache/idp}
+          readinessProbe: {httpGet: {path: /readyz, port: mcp, scheme: HTTP}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: mcp, scheme: HTTP}, periodSeconds: 20}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: "2", memory: 512Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+      volumes:
+        - {name: credential, secret: {secretName: idp-mcp-gateway-system, items: [{key: token, path: token}]}}
+        - {name: caller-key, secret: {secretName: idp-mcp-gateway-system-caller-key}}   # created per run by tests/kind/full.sh
+        - {name: clients, configMap: {name: idp-mcp-gateway-system-clients}}
+        - {name: cache, emptyDir: {sizeLimit: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: idp-mcp-gateway-system
+  namespace: idp-mcp
+  labels: {app.kubernetes.io/component: gateway-system}
+spec:
+  selector: {app.kubernetes.io/component: gateway-system, idp-mcp/gateway: system}
+  ports: [{name: mcp, port: 3221, targetPort: mcp}]
+---
+# ================= NetworkPolicies =================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: idp-sandbox-ingest}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: idp-sandbox-ingest}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+# the ingest sandbox: in on 8570 from the system gateway and the registry (discovery) only; out to the API server (its runs) and to the CMI's file endpoint, nothing else
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: sandbox-ingest, namespace: idp-sandbox-ingest}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: sandbox-ingest}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: gateway-system}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: registry}}
+      ports: [{protocol: TCP, port: 8570}]
+  egress:
+    - to:
+        - ipBlock: {cidr: 203.0.113.99/32}       # the Kubernetes API server (tests/kind/full.sh puts this cluster's in); the control-plane endpoint
+      ports: [{protocol: TCP, port: 6443}, {protocol: TCP, port: 443}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-cmi}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: cmi}}
+      ports: [{protocol: TCP, port: 8551}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: idp-sandbox-ingest-runs}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+# the untrusted code: nothing in, nothing out (the service checks at start that a pod labelled like a run reaches nothing)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: run-pods-no-network, namespace: idp-sandbox-ingest-runs}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: idp.sandbox/role, operator: In, values: [run, file]}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []
+---
+# the CMI's file endpoint: in on 8551 from the ingest sandbox's pods only (nothing else in the cluster, whatever its namespace admits)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cmi-ingest-files, namespace: idp-cmi}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: cmi}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-sandbox-ingest}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: sandbox-ingest}}
+      ports: [{protocol: TCP, port: 8551}]
+---
+# the CMI -> the system gateway (and the token endpoint, which keycloak-cmi already opens): its pods, port 3221, nothing else of that namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cmi-system-gateway, namespace: idp-cmi}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: cmi}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-mcp}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: gateway-system}}
+      ports: [{protocol: TCP, port: 3221}]
+---
+# the system gateway: in on 3221 from the CMI's pods only; out to the registry (its release), Keycloak (the keys of the tokens) and the ingest sandbox, nothing else
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: gateway-system, namespace: idp-mcp}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: gateway-system}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-cmi}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: cmi}}
+      ports: [{protocol: TCP, port: 3221}]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: registry}}
+      ports: [{protocol: TCP, port: 8250}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+      ports: [{protocol: TCP, port: 7080}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: idp-sandbox-ingest}}
+          podSelector: {matchLabels: {app.kubernetes.io/component: sandbox-ingest}}
+      ports: [{protocol: TCP, port: 8570}]
+---
+# the registry takes the system gateway's calls for its release and catalog (the shipped policy admits the member-side gateway's pods, which carry the label gateway)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: registry-system-gateway, namespace: idp-mcp}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: registry}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: gateway-system}}
+      ports: [{protocol: TCP, port: 8250}]

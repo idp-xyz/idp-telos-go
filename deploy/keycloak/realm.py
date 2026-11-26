@@ -26,9 +26,17 @@ Clients:
                     system): a confidential client-credentials client whose tokens carry the bridge's audience; it is the only `azp` in the bridge's
                     IDP_BRIDGE_OFFBOARD_CLIENTS. The bridge refuses a token with a session (`sid`) or a delegation (`act`): Keycloak's client-credentials
                     tokens have neither unless the client keeps a session (see the comment at the client)
+- idp-cmi-ingest    the CMI's workload identity for the conversion of knowledge originals (idp-cmi D67, D70; platform PATH P2): a service account (client
+                    credentials) whose tokens carry the SYSTEM tenant's tenant_id, the role cmi-ingest and the audience of the SYSTEM gateway (a
+                    gateway of its own, one tenant each: idp-mcp D6), and a service-account user of a fixed id (ids.idp-cmi-ingest in CLIENTS_FILE), which is the token's `sub`: the CMI's `workloadSubject`
+                    (the gateway's subject is `sub`; preferred_username is service-account-idp-cmi-ingest). fullScopeAllowed is off: nothing but those mappers decides what the token says. Keycloak is the dev/test
+                    identity provider; the CMI only knows "an OIDC client's credentials" (client_credentials), so this client is the part that moves
 - e2e-cli           the acceptance script (password grant), aud idp-workspace, idp-host, idp-probe, idp-cmi, eer-runtime
 
-  python3 deploy/keycloak/realm.py OUT_DIR TENANT_ID CLIENTS_FILE
+  python3 deploy/keycloak/realm.py OUT_DIR TENANT_ID CLIENTS_FILE [SYSTEM_TENANT_ID]
+
+SYSTEM_TENANT_ID is the tenant of the platform's own workload (the ingest identity above); without it a fixed one is used. IDP_REALM_SYSTEM_GATEWAY
+is the system gateway's canonical MCP URI (the audience; kind: its Service URL).
 """
 import json
 import os
@@ -37,8 +45,10 @@ import sys
 import uuid
 
 out, tenant, clients_file = sys.argv[1:4]
+SYSTEM_TENANT = sys.argv[4] if len(sys.argv) > 4 else "00000000-0000-4000-8000-0000000051f0"
 SHELL = os.environ.get("IDP_REALM_SHELL", "http://127.0.0.1:8560")   # the Workspace shell's origin as the browser opens it (kind: its port-forward)
 GATEWAY = os.environ.get("IDP_REALM_GATEWAY", "http://mcp-gateway:3320/mcp")   # the idp-mcp gateway as the HOST calls it (kind: its Service URL)
+SYSTEM_GATEWAY = os.environ.get("IDP_REALM_SYSTEM_GATEWAY", "http://mcp-gateway-system:3320/mcp")   # the system gateway (the ingest sandbox's), as the CMI calls it
 
 
 def hardcoded(name, value, json_type="String"):
@@ -68,11 +78,15 @@ users = {"alice": ["ws-admin", "cmi-admin", "host-user"], "bob": ["ws-member", "
          "bridgeop": ["ws-member", "bridge-reviewer"]}
 passwords = {u: secrets.token_urlsafe(16) for u in users}
 ids = {u: str(uuid.uuid4()) for u in users}
-secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "idp-probe", "svc-eer", "eer-intelligence", "e2e-cli", "idp-bridge-directory", "idp-lifecycle-svc")}
+# the ingest workload's service-account user has a fixed id: the gateway takes the caller's subject from `sub` (idp-mcp adapters/identity/jwt.go), the ingest sandbox compares it with the `sub` of
+# the CMI's tickets, and the CMI's `workloadSubject` is therefore this id (written to CLIENTS_FILE under ids.idp-cmi-ingest), not the preferred_username
+ids["idp-cmi-ingest"] = str(uuid.uuid4())
+secret = {c: secrets.token_urlsafe(32) for c in ("idp-workspace", "idp-host-svc", "idp-host", "idp-probe", "svc-eer", "eer-intelligence", "e2e-cli", "idp-bridge-directory", "idp-lifecycle-svc", "idp-cmi-ingest")}
 realm = {
     "realm": "idp", "enabled": True, "sslRequired": "none", "accessTokenLifespan": 600,
     "roles": {"realm": [{"name": r} for r in ("ws-admin", "ws-member", "ws-producer", "host-user", "host-admin", "host-approver", "cmi-admin", "cmi-writer", "cmi-reader", "bridge-reviewer")]},
-    "users": [{"username": "service-account-idp-bridge-directory", "enabled": True, "serviceAccountClientId": "idp-bridge-directory",
+    "users": [{"id": ids["idp-cmi-ingest"], "username": "service-account-idp-cmi-ingest", "enabled": True, "serviceAccountClientId": "idp-cmi-ingest"},
+              {"username": "service-account-idp-bridge-directory", "enabled": True, "serviceAccountClientId": "idp-bridge-directory",
                "clientRoles": {"realm-management": ["view-users"]}}] + [{"id": ids[u], "username": u, "enabled": True, "emailVerified": True, "email": u + "@example.com", "firstName": u, "lastName": "User",
                "attributes": {"tenant_id": [tenant]}, "realmRoles": roles,
                "credentials": [{"type": "password", "value": passwords[u], "temporary": False}]} for u, roles in users.items()],
@@ -95,6 +109,10 @@ realm = {
         {"clientId": "eer-intelligence", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["eer-intelligence"], "standardFlowEnabled": False,
          "serviceAccountsEnabled": True, "fullScopeAllowed": False,
          "protocolMappers": [audience("idp-cmi"), hardcoded("tenant_id", tenant), hardcoded("roles", json.dumps(["cmi-reader", "cmi-writer"]), "JSON"), username]},
+        # the CMI's ingest workload (idp-cmi D67, D70): the system tenant, the role the system gateway's one grant names, the system gateway's audience
+        {"clientId": "idp-cmi-ingest", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-cmi-ingest"], "standardFlowEnabled": False,
+         "serviceAccountsEnabled": True, "fullScopeAllowed": False, "attributes": {"access.token.lifespan": "3600"},
+         "protocolMappers": [audience_uri(SYSTEM_GATEWAY), hardcoded("tenant_id", SYSTEM_TENANT), hardcoded("roles", json.dumps(["cmi-ingest"]), "JSON"), username]},
         {"clientId": "idp-host", "enabled": True, "protocol": "openid-connect", "publicClient": False, "secret": secret["idp-host"], "standardFlowEnabled": False,
          "serviceAccountsEnabled": True, "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true", "standard.token.exchange.enableRefreshRequestedTokenType": "SAME_SESSION"},
          "protocolMappers": [audience_uri(GATEWAY), audience("idp-cmi")] + user_mappers},
@@ -106,6 +124,7 @@ realm = {
          "serviceAccountsEnabled": True, "fullScopeAllowed": True, "attributes": {"standard.token.exchange.enabled": "true"},
          "protocolMappers": [audience_uri(GATEWAY)] + user_mappers},
         {"clientId": GATEWAY, "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
+        {"clientId": SYSTEM_GATEWAY, "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "idp-cmi", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "eer-runtime", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},
         {"clientId": "idp-mcp-bridge", "enabled": True, "protocol": "openid-connect", "bearerOnly": True, "publicClient": False, "standardFlowEnabled": False},

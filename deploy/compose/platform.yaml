@@ -18,6 +18,12 @@
 # Workspace (8681, the internal API) and Keycloak, whose keys the bridge fetches; `bridgedb` (internal) holds it and PostgreSQL;
 # `thirdparty` holds it and the third party. The third party is a test container (profile bridge-test): an authorization server
 # and a protected MCP server that records every request (deploy/compose/thirdparty_double.py).
+# KB3 (platform plan knowledge-base-plan.md section 5; idp-cmi D61 to D70; PATH P2): the CMI converts the PDF and Office originals of knowledge documents to text in a
+# second idp-sandbox instance (`sandbox-ingest`: its own owner label, limits and files endpoint, which is the CMI's internal file endpoint) that it reaches only through a
+# gateway of its own (`mcp-gateway-system`, the tenant of the platform's own workload, one client: the CMI). `ingestnet` (internal) holds the CMI, the ingest sandbox, the
+# system gateway and the registry (which discovers the sandbox's tools); the CMI's file endpoint listens on its ingestnet address only, so nothing on the other networks
+# reaches it. Compose cannot narrow who reaches the system gateway (it is published for the acceptance and on `edge` for Keycloak's keys): its token's audience does, and
+# tests/kind/full.sh's NetworkPolicies do the rest.
 # DEV ONLY: a test realm and CA, plaintext http on private networks.
 name: idp-telos-platform
 
@@ -37,12 +43,16 @@ networks:
   bridgedb: {internal: true}    # the bridge's database: PostgreSQL and the bridge
   browsernet: {internal: true}  # idp-browser's renderer, its egress proxy and idp-web: the renderer has no other way out than the proxy
   embednet: {internal: true}    # idp-embedding and idp-cmi, nothing else: the embedding service is reached by the CMI only and reaches nothing
+  ingestnet:                    # KB3: the CMI (its file endpoint, on 10.253.77.2 only), the ingest sandbox, the system gateway and the registry; nothing else
+    internal: true
+    ipam: {config: [{subnet: 10.253.77.0/24, ip_range: 10.253.77.128/25}]}   # dynamic addresses from the upper half: the CMI has 10.253.77.2 by hand
   thirdparty: {}                # the bridge and the third party (TEST ONLY: a container; production reaches public https addresses)
 
 volumes:
   pgdata: {}
   filesdata: {}
   knowledgedata: {}
+  ingestkey: {}   # the CMI's ticket key, owned by its user and mode 0400 (it refuses a key that others can read)
 
 services:
   postgres:
@@ -111,7 +121,12 @@ services:
     <<: *hardened
     image: ${IDP_CMI_IMAGE:-idp-cmi:dev}
     command: [serve]
-    networks: [edge, upstream, data, embednet]
+    networks:
+      edge: {}
+      upstream: {}
+      data: {}
+      embednet: {}
+      ingestnet: {ipv4_address: 10.253.77.2}   # the file endpoint for the ingest sandbox listens on this address only (IDP_CMI_INGEST_LISTEN)
     ports: ['127.0.0.1:8550:8550', '127.0.0.1:19564:9564']   # 9564: Prometheus metrics (P1 reads the embedding counters there)
     environment:
       <<: *oidc
@@ -127,12 +142,28 @@ services:
       IDP_CMI_ORIGINALS_ACCESS_KEY_FILE: /etc/idp/kb-s3.access
       IDP_CMI_ORIGINALS_SECRET_KEY_FILE: /etc/idp/kb-s3.secret
       IDP_CMI_CONFIG: /etc/idp/cmi.yaml   # the embedding section (e2e.sh writes it: idp-cmi's recommended settings for Qwen3-Embedding-0.6B, ADR-0001 D37)
+      IDP_CMI_INGEST_LISTEN: 10.253.77.2:8551   # KB3 (idp-cmi D62): the internal file endpoint of the conversion; never the API's address
+      IDP_CMI_INGEST_TICKET_KEY_FILE: /run/ingest-key/ticket.key
       IDP_CMI_TEMP_DIR: /var/cache/idp-cmi   # downloads of originals are verified through a file here: the root is read-only (idp-cmi deploy/compose.yaml)
     tmpfs: ['/var/cache/idp-cmi:size=512m,mode=1777']
     volumes: ['../../.local/platform/kb-s3.access:/etc/idp/kb-s3.access:ro', '../../.local/platform/kb-s3.secret:/etc/idp/kb-s3.secret:ro',
-              '../../.local/platform/cmi.yaml:/etc/idp/cmi.yaml:ro', '../../.local/platform/embedding.key:/etc/idp/embedding.key:ro']
-    depends_on: [knowledge-s3]   # not on `embedding`: the CMI answers without it (lexical) and embeds what is pending when it returns (D58)
+              '../../.local/platform/cmi.yaml:/etc/idp/cmi.yaml:ro', '../../.local/platform/embedding.key:/etc/idp/embedding.key:ro',
+              'ingestkey:/run/ingest-key:ro', '../../.local/platform/cmi-ingest.secret:/etc/idp/cmi-ingest.secret:ro']
+    depends_on:   # not on `embedding`: the CMI answers without it (lexical) and embeds what is pending when it returns (D58)
+      knowledge-s3: {condition: service_started}
+      ingest-key-init: {condition: service_completed_successfully}
 
+  # KB3: puts the ticket key where the CMI wants it (idp-cmi checks the mode: 0600 or 0400, so not a bind mount of a file the host user owns): a volume, owner 10001, mode 0400
+  ingest-key-init:
+    image: ${IDP_SANDBOX_PYTHON_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim}
+    user: '0:0'
+    network_mode: none
+    read_only: true
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    volumes: ['../../.local/platform/ingest-ticket.key:/in/ticket.key:ro', 'ingestkey:/out']
+    command: [sh, -c, 'cp /in/ticket.key /out/ticket.key && chown 10001:10001 /out/ticket.key && chmod 0400 /out/ticket.key']
   # the embedding service (knowledge-base plan KB2): text-embeddings-inference with Qwen3-Embedding-0.6B at a pinned revision in the image (deploy/images/embedding).
   # Only the CMI shares a network with it (embednet is internal); the API key is a file; the image runs as 10700 with a read-only root and needs no network.
   embedding:
@@ -178,15 +209,15 @@ services:
     image: ${IDP_MCP_IMAGE:-idp-mcp:dev}
     entrypoint: [/usr/local/bin/registry-service]
     command: [serve]
-    networks: [edge, upstream, data, bridgenet]   # bridgenet: it discovers the bridge's tools
+    networks: [edge, upstream, data, bridgenet, ingestnet]   # bridgenet: it discovers the bridge's tools; ingestnet: the ingest sandbox's
     ports: ['127.0.0.1:8250:8250']
     environment:
       IDP_DATABASE_URL: postgres://idp_mcp_svc:${IDP_MCP_DB_PASSWORD}@postgres:5432/idp_mcp?sslmode=disable
       IDP_REGISTRY_LISTEN: 0.0.0.0:8250
       IDP_DEV_MODE: 'true'   # HS256 admin tokens (dev-token); the data plane below verifies Keycloak tokens
       IDP_DEV_ADMIN_SECRET: ${IDP_MCP_ADMIN_SECRET}
-      IDP_ALLOWED_UPSTREAM_HOSTS: sandbox,web,bridge
-      IDP_PRIVATE_UPSTREAM_HOSTS: sandbox,web,bridge
+      IDP_ALLOWED_UPSTREAM_HOSTS: sandbox,web,bridge,sandbox-ingest
+      IDP_PRIVATE_UPSTREAM_HOSTS: sandbox,web,bridge,sandbox-ingest
       # a server registered at the bridge's address must be of class external (idp-mcp ADR-0001 D50); the gateway holds the same list
       IDP_BRIDGE_ENDPOINTS: http://bridge:8680/mcp/
   mcp-gateway:
@@ -271,6 +302,61 @@ services:
             def log_message(*a): pass
         socketserver.ThreadingTCPServer.allow_reuse_address = True
         socketserver.ThreadingTCPServer(('0.0.0.0', 80), H).serve_forever()
+
+  # ---- KB3: the conversion of knowledge originals (idp-cmi D61 to D70) ----
+  # The system gateway: one gateway per tenant (idp-mcp D6), the tenant of the platform's own workload. Its Release has one target, `ingest`, granted to the role
+  # cmi-ingest only; its clients file lists only the CMI's client; `ingest__*` is NOT a host-only tool (the CMI is not the HOST: that would lock it out). The audience of its
+  # tokens is its own MCP URI. IDP_CALL_TIMEOUT is above a run (300 s) and below the CMI's callTimeout (390 s), so that a run is not recorded UNKNOWN by the gateway and the CMI
+  # still hears the gateway's answer. It signs the caller it forwards with a key of its own (the ingest sandbox trusts that key and no other).
+  mcp-gateway-system:
+    <<: *hardened
+    image: ${IDP_MCP_IMAGE:-idp-mcp:dev}
+    entrypoint: [/usr/local/bin/mcp-gateway]
+    networks: [edge, ingestnet]   # edge: Keycloak's keys, the registry and the loopback port of the acceptance; ingestnet: the ingest sandbox
+    ports: ['127.0.0.1:3321:3320']
+    tmpfs: ['/var/cache/idp:uid=10001,gid=10001,mode=0700']
+    environment:
+      IDP_GATEWAY_ID: ${IDP_SYSGW_ID:-pending}
+      IDP_GATEWAY_TOKEN: ${IDP_SYSGW_TOKEN:-pending}
+      IDP_REGISTRY_URL: http://mcp-registry:8250
+      IDP_GATEWAY_LISTEN: 0.0.0.0:3320
+      IDP_GATEWAY_ALLOWED_HOSTS: mcp-gateway-system,mcp-gateway-system:3320
+      IDP_RELEASE_CACHE: /var/cache/idp/release.json
+      IDP_METRICS_LISTEN: 0.0.0.0:9464
+      IDP_CALL_TIMEOUT: 330s
+      IDP_GATEWAY_CALLER_KEY_FILE: /etc/idp/caller.key
+      IDP_GATEWAY_CLIENTS_FILE: /etc/idp/clients.yaml
+    volumes: ['../../.local/platform/caller-system.key:/etc/idp/caller.key:ro', '../../.local/platform/gateway-system-clients.yaml:/etc/idp/clients.yaml:ro']
+    depends_on: [mcp-registry]
+  # The ingest sandbox: the same image and code as `sandbox`, its own owner label (the start-up sweep touches only its own runs), its own limits (idp-sandbox D25: transfer 50 MiB,
+  # a workspace of at least 160 MiB, a run of 300 s and 512 MiB, 8 at once, the one caller (the CMI's workload identity) may hold 16 workspaces, idle workspaces go after 5
+  # minutes) and the CMI's internal file endpoint as its files endpoint. It trusts the system gateway's key only. The service container holds at least 1 GiB (about 110 MiB
+  # per concurrent transfer). Its runs are the office profile (ooxml2md and pdftext --markdown) with no network.
+  sandbox-ingest:
+    <<: *hardened
+    image: ${IDP_SANDBOX_IMAGE:-idp-sandbox:dev}
+    networks: [ingestnet]
+    mem_limit: 1g
+    volumes: [/var/run/docker.sock:/var/run/docker.sock, '../../.local/platform/caller-system.pub:/etc/idp/gateway.pub:ro']
+    environment:
+      IDP_SANDBOX_LISTEN: 0.0.0.0:8570
+      IDP_SANDBOX_PRIVATE_NETWORK: 'true'
+      IDP_SANDBOX_CALLER_KEYS_FILE: /etc/idp/gateway.pub
+      IDP_SANDBOX_CALLER_AUDIENCE: http://sandbox-ingest:8570/mcp
+      IDP_SANDBOX_METRICS: 0.0.0.0:9570
+      IDP_SANDBOX_OWNER: ingest
+      IDP_SANDBOX_PYTHON_IMAGE: ${IDP_SANDBOX_PYTHON_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim}
+      IDP_SANDBOX_SHELL_IMAGE: ${IDP_SANDBOX_SHELL_IMAGE:-ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__alpine__3.22}
+      IDP_SANDBOX_OFFICE_IMAGE: ${IDP_SANDBOX_OFFICE_IMAGE:-idp-sandbox-office:dev}
+      IDP_SANDBOX_FILES_URL: http://cmi:8551   # idp-cmi's internal file endpoint: the same string as `endpointUrl` in the CMI's knowledge.conversion
+      IDP_SANDBOX_TRANSFER_MB: '50'
+      IDP_SANDBOX_WORKSPACE_MB: '160'
+      IDP_SANDBOX_TIMEOUT_S: '300'
+      IDP_SANDBOX_MEMORY_MB: '512'
+      IDP_SANDBOX_MAX_CONCURRENT: '8'
+      IDP_SANDBOX_MAX_PER_CALLER: '16'
+      IDP_SANDBOX_MAX_WORKSPACES: '24'
+      IDP_SANDBOX_IDLE_MIN: '5'
 
   # idp-web (platform ADR-0003): the agents' search and page reading. The gateway reaches it on upstream (internal: nothing else
   # does, which is what IDP_WEB_PRIVATE_NETWORK says) and it goes out to the web over edge, the same network the sandbox's egress

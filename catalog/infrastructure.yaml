@@ -19,3 +19,4 @@ flows:
   - {id: postgres-web, from: idp-web, to: databases, port: 5432, what: "PostgreSQL (the daily quota and the numbers of the sources)"}
   - {id: temporal-eer, from: idp-eer, to: temporal, port: 7233, what: Temporal frontend (api and worker)}
   - {id: embedding-cmi, from: idp-cmi, to: idp-embedding, port: 8700, what: "the embedding service (idp-embedding image, Qwen3-Embedding-0.6B): /v1/embeddings with the API key; nothing else reaches it and it reaches nothing"}
+  - {id: keycloak-token-cmi-ingest, from: idp-cmi, to: keycloak, port: 7080, what: "the client-credentials token of the CMI's ingest identity (idp-cmi-ingest: audience the system gateway); the token endpoint (KB3)"}

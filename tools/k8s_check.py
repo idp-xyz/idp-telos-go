@@ -4,7 +4,10 @@ For each integration of catalog/integrations.yaml: the caller's namespace has an
 callee's namespace on the callee's port, and the callee's namespace has an ingress rule from the
 caller's namespace on that port. For each component: its namespace enforces the restricted pod
 security standard and has a default-deny policy. Integrations marked `kubernetes: not-deployed` are
-reported, not checked.
+reported, not checked; those marked `kubernetes: full-only` are the platform's own wiring between instances that no
+component's manifests carry alone (KB3: the CMI, the system gateway, the ingest sandbox), so only --full checks them, and they
+may name the namespace of an end (`from_namespace`, `to_namespace`) where it is not the component's own (the ingest sandbox is
+an instance of idp-sandbox in the namespace idp-sandbox-ingest).
 
   python tools/k8s_check.py [--root DIR]        exit 0 passed, 1 failed, 2 a component could not be rendered
   python tools/k8s_check.py --full              the same for the full kind overlay (deploy/kubernetes/full), where the
@@ -75,7 +78,7 @@ def check_full(root):
         if not any(p["spec"].get("podSelector") == {} and set(p["spec"].get("policyTypes", [])) == {"Ingress", "Egress"}
                    and not p["spec"].get("ingress") and not p["spec"].get("egress") for p in policies[n]):
             problems.append(f"no default-deny NetworkPolicy in {n}")
-    flows = [(i["id"], i["from"], i["to"], i["port"]) for i in
+    flows = [(i["id"], i.get("from_namespace", i["from"]), i.get("to_namespace", i["to"]), i["port"]) for i in
              yaml.safe_load((root / "catalog/integrations.yaml").read_text())["integrations"] if i.get("kubernetes") != "not-deployed"]
     flows += [(f["id"], f["from"], f["to"], f["port"]) for f in yaml.safe_load((root / "catalog/infrastructure.yaml").read_text())["flows"]]
     for fid, a, b, port in flows:
@@ -161,6 +164,9 @@ def main(argv=None):
     for i in integrations:
         if i.get("kubernetes") == "not-deployed":
             notes.append(f"{i['id']}: not deployed by the manifests ({i['from']} -> {i['to']})")
+            continue
+        if i.get("kubernetes") == "full-only":
+            notes.append(f"{i['id']}: the platform's own wiring, checked by --full ({i['from']} -> {i['to']})")
             continue
         a, b, port = i["from"], i["to"], i["port"]
         if a not in rendered or b not in rendered:

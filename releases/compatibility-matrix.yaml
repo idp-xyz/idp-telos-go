@@ -6,16 +6,16 @@ rows:
   namespace: idp.telos.cmi
   pinned: 1.4.0
   copy: tests/contracts/idp.telos.cmi/1.4.0/schema.json
-  registered: 1.5.0
+  registered: 1.6.0
   status: COMPATIBLE
-  note: behind (1.4.0 -> 1.5.0, additive)
+  note: behind (1.4.0 -> 1.6.0, additive)
 - consumer: idp-eer
   namespace: idp.telos.cmi
   pinned: 1.2.0
   copy: intelligence/tests/contracts/idp.telos.cmi/1.2.0/schema.json
-  registered: 1.5.0
+  registered: 1.6.0
   status: COMPATIBLE
-  note: behind (1.2.0 -> 1.5.0, additive)
+  note: behind (1.2.0 -> 1.6.0, additive)
 - consumer: idp-eer
   namespace: idp.telos.host
   pinned: 1.5.0

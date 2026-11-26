@@ -110,3 +110,35 @@ integrations:
     contract: null  # idp-browser's own API
     auth: [the caller assertion signed with idp-web's key (IDP_WEB_RENDER_KEY_FILE), which the renderer verifies against idp-web's public key (IDP_BROWSER_CALLER_KEYS_FILE); only idp-web is admitted by the NetworkPolicy]
     evidence: [idp-browser ADR-0001 D3, D8, idp-web ADR-0001 D33, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH M6: a page whose text exists only after script is read and cited as rendered; the SSRF page's every forbidden request is refused at the proxy; a storm ends within the budgets; an access-denied page and a PDF are not rendered; with the renderer stopped a script page gives needs_script), platform plan browser-capability-plan.md]
+  # KB3 (knowledge-base plan section 5; idp-cmi ADR-0001 D61 to D70): the conversion of the originals of knowledge documents. Three hops, each a flow of the full overlay only
+  # (kubernetes: full-only: no component's own manifests carry both ends; tools/k8s_check.py --full checks them): the CMI calls the ingest sandbox through the SYSTEM gateway
+  # (a gateway of its own: idp-mcp D6), the gateway calls the sandbox, and the sandbox moves the bytes to and from the CMI's internal file endpoint with a ticket
+  - id: cmi-mcp-ingest
+    port: 3221   # the system gateway's port in deploy/kubernetes/full/ingest.yaml (compose: 3320 on its own container)
+    kubernetes: full-only
+    from: idp-cmi
+    to: idp-mcp
+    interface: MCP (streamable HTTP, 2026-07-28) through the SYSTEM mcp-gateway (the tenant of the platform's own workload; one target `ingest`, one client, the CMI); tools ingest__sandbox_create / _import_file / _run / _export_file / _delete
+    contract: null  # the MCP protocol itself
+    auth: [OAuth client credentials of the service account idp-cmi-ingest (tenant_id of the system tenant, role cmi-ingest, audience the system gateway, preferred_username = the CMI's workloadSubject); the gateway lists only that client, and `ingest__*` is not host-only]
+    evidence: [idp-cmi ADR-0001 D61, D67, D70, idp-mcp ADR-0001 D6, D46 to D48, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH P2: a PDF, a DOCX, a PPTX and an XLSX original become located text; HOST's delegated token, a member's token and a probe client's cannot list or call ingest__* and on kind cannot reach the system gateway at all)]
+  - id: mcp-sandbox-ingest-tools
+    port: 8570   # the callee port the NetworkPolicies must open (tools/k8s_check.py)
+    kubernetes: full-only
+    from: idp-mcp
+    to: idp-sandbox
+    to_namespace: idp-sandbox-ingest   # the second instance of the sandbox: its own namespaces, quota, owner label and files endpoint (idp-sandbox D25)
+    interface: MCP (streamable HTTP) upstream of the system gateway; the sandbox's tools with the office profile (ooxml2md, pdftext FILE.pdf --markdown)
+    contract: null  # the MCP protocol itself
+    auth: [none on the hop: a private network that only the system gateway (and the registry's discovery) reaches; the gateway authenticates and authorizes the caller and forwards it, signed with the system gateway's own key (identity=forward, idp-mcp ADR-0001 D40, D44)]
+    evidence: [idp-sandbox ADR-0001 D18, D25, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH P2)]
+  - id: sandbox-ingest-cmi-files
+    port: 8551   # the CMI's internal file endpoint (IDP_CMI_INGEST_LISTEN), a listener of its own and a Service of its own (idp-cmi-ingest), for the ingest sandbox only
+    kubernetes: full-only
+    from: idp-sandbox
+    from_namespace: idp-sandbox-ingest
+    to: idp-cmi
+    interface: "GET /content (a read ticket: the original of one document) and POST / (a write ticket: the converted text), the sandbox's sandbox_import_file and sandbox_export_file"
+    contract: null  # the CMI's internal interface, not a public contract (idp-cmi ADR-0001 D62)
+    auth: [a ticket per file move: HS256 with the CMI's ticket key, for one document, one job attempt, one direction, used once (the sandbox does not verify the signature; the CMI does, against its database)]
+    evidence: [idp-cmi ADR-0001 D62 (R139 to R151), idp-sandbox ADR-0001 D15, D25, this repository deploy/compose/e2e.sh and tests/kind/full.sh (PATH P2f: a forged ticket is refused; on kind only the ingest sandbox's pods reach the port)]

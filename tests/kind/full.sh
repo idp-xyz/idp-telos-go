@@ -37,10 +37,16 @@
 #           party is a pod (tests/kind/thirdparty.yaml, the script of the compose acceptance), the bridge is as shipped plus what this platform's Keycloak,
 #           Workspace and gateway need of it (deploy/kubernetes/full) and the per-run overlay (the connections file, IDP_BRIDGE_TEST_ORIGINS, the test
 #           NetworkPolicies); with MODEL=live it is NOT_RUN
+#   PATH P0 / P1  the knowledge bases (KB1) and embeddings with semantic retrieval (KB2): deploy/compose/path_p0.sh and path_p1.sh, shared with deploy/compose/e2e.sh
+#   PATH P2 the conversion of knowledge originals (KB3; idp-cmi D61 to D70, idp-sandbox D25): deploy/compose/path_p2.sh, shared with deploy/compose/e2e.sh. A PDF, a DOCX, a PPTX and an XLSX original
+#           become located text (CMI -> the SYSTEM gateway -> the ingest sandbox, a second idp-sandbox instance in its own namespaces under gVisor when the cluster has it -> the CMI's file endpoint),
+#           the previous version stays current while a conversion cannot finish, a sheet over 10,000 rows ends truncated with a notice, a scan fails with the no-text code, a subject erasure leaves no
+#           text, job or ticket; HOST's, a member's and a probe client's tokens cannot call ingest__*; and the policies decide: probe pods in the member-side namespaces reach neither the CMI's file
+#           endpoint nor the system gateway, the ingest sandbox reaches the file endpoint, the CMI reaches the system gateway, run pods reach nothing, and a forged ticket is refused
 #   PATH C  idp-eer's Intelligence test run from this host (uv) against the CMI port-forward
 # and installs the assistant app (deploy/apps/assistant): a chat page in the shell for both agents, on its own origin.
 # Local ports: 17443 Keycloak (https; it is also the issuer https://127.0.0.1:17443/realms/idp), 17560 Workspace,
-# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway, 17561 the assistant's page, 17570 the sandbox (PATH D's unsigned call), 17580 idp-web (PATH M's), 17590 the third party's test controls and its authorization page (PATH O).
+# 17450 HOST, 17550 CMI, 17180 EER api, 17250 idp-mcp registry, 17320 idp-mcp gateway, 17321 the system gateway (PATH P2's token checks), 17561 the assistant's page, 17570 the sandbox (PATH D's unsigned call), 17580 idp-web (PATH M's), 17590 the third party's test controls and its authorization page (PATH O).
 #
 #   bash tests/kind/full.sh             build the images (as deploy/compose/e2e.sh), load them, deploy, run the paths
 #   PG_HA=1 ...                         PostgreSQL as a CloudNativePG cluster (a primary and two synchronous standbys, deploy/kubernetes/ha-postgres)
@@ -71,12 +77,14 @@ ISSUER=https://127.0.0.1:17443/realms/idp
 WS=http://127.0.0.1:17560 HOST=http://127.0.0.1:17450 CMI=http://127.0.0.1:17550 EER=http://127.0.0.1:17180 REG=http://127.0.0.1:17250
 KCS=keycloak.keycloak.svc.cluster.local
 GATEWAY_URL=http://idp-mcp-gateway-edge-1.idp-mcp.svc.cluster.local:3220/mcp
+SYSGW_URL=http://idp-mcp-gateway-system.idp-mcp.svc.cluster.local:3221/mcp   # KB3: the system gateway (the CMI's ingest identity; deploy/kubernetes/full/ingest.yaml)
+INGEST_URL=http://idp-sandbox-ingest.idp-sandbox-ingest.svc.cluster.local:8570/mcp   # the ingest sandbox as registered at the system gateway (IDP_SANDBOX_CALLER_AUDIENCE there)
 SANDBOX_URL=http://idp-sandbox.idp-sandbox.svc.cluster.local:8570/mcp
 WEB_URL=http://idp-web.idp-web.svc.cluster.local:8580/mcp   # as shipped in idp-web's manifest (IDP_WEB_CALLER_AUDIENCE) and as registered at the gateway
 # PATH O: the bridge, the third party it talks to (tests/kind/thirdparty.yaml) and the connection's endpoint at the bridge, as registered at the gateway
 BRIDGE_ENDPOINT=http://idp-mcp-bridge.idp-mcp-bridge.svc.cluster.local:8680/mcp/thirdparty
 TP_BASE=http://thirdparty.thirdparty.svc.cluster.local:8590 TP=http://127.0.0.1:17590
-NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-web idp-mcp-bridge thirdparty bridge-probe web-origin web-attacker web-render-origin web-canary idp-browser idp-embedding egress-origin databases keycloak temporal)
+NAMESPACES=(idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-runs idp-sandbox-ingest idp-sandbox-ingest-runs idp-web idp-mcp-bridge thirdparty bridge-probe web-origin web-attacker web-render-origin web-canary idp-browser idp-embedding egress-origin databases keycloak temporal)
 EGRESS_ORIGIN=origin.egress-origin.svc.cluster.local   # PATH L: the one host bob's tenant may reach (tests/kind/egress-origin.yaml)
 # PATH M and N: the page server and the "attacker" (tests/kind/web-origin.yaml), each in a namespace of its own, on the Service port 80
 WEB_ORIGIN=origin.web-origin.svc.cluster.local WEB_ATTACKER=attacker.web-attacker.svc.cluster.local
@@ -107,7 +115,7 @@ fi
 diagnose() {
   echo "== diagnostics" >&2
   kubectl get pods -A 2>&1 | grep -E 'idp-|databases|keycloak|temporal' | grep -vE 'Running +[0-9]+ .*|Completed' >&2 || true
-  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-web idp-mcp-bridge idp-browser thirdparty web-origin web-attacker web-render-origin web-canary idp-embedding keycloak temporal; do
+  for ns in idp-cmi idp-host idp-workspace idp-eer idp-mcp idp-sandbox idp-sandbox-ingest idp-web idp-mcp-bridge idp-browser thirdparty web-origin web-attacker web-render-origin web-canary idp-embedding keycloak temporal; do
     for p in $(kubectl -n "$ns" get pods --no-headers 2>/dev/null | awk '$3!="Running" && $3!="Completed" {print $1}'); do
       echo "-- $ns/$p" >&2; kubectl -n "$ns" describe pod "$p" 2>&1 | tail -8 >&2; kubectl -n "$ns" logs "$p" --all-containers --tail=15 2>&1 >&2 || true
     done
@@ -140,6 +148,9 @@ if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
   built="$(CHROMIUM_IMAGE="$BROWSER_CHROMIUM" bash idp-browser/deploy/build.sh idp-browser)"; echo "$built"
   docker tag "$(echo "$built" | sed -n 's/^OK: \([^ ]*\) .*/\1/p')" idp-browser:dev; docker tag "$(echo "$built" | sed -n 's/.* \(idp-browser-proxy:[^ ]*\) .*/\1/p')" idp-browser-proxy:dev
   bash deploy/images/pg-backup/build.sh idp-pg-backup:dev
+  # the ingest sandbox's office run image (ooxml2md and pdftext --markdown, idp-sandbox D25), built offline on the python run image like the compose acceptance's
+  bash tools/pull_image.sh ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
+  BASE=ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim bash idp-sandbox/deploy/office/build.sh idp-sandbox-office:dev
   bash deploy/images/embedding/build.sh idp-embedding:dev   # Qwen3-Embedding-0.6B at a pinned revision in the image (EMBEDDING_BASE / EMBEDDING_MODEL_DIR: see its build.sh)
 fi
 # load an image into the cluster; a Docker with the containerd image store saves all platforms and kind's import fails
@@ -167,7 +178,7 @@ ensure_image() { # ensure_image IMAGE [NODE-NAME]
   load_image "$want"
 }
 log "loading images into $CLUSTER"
-for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-embedding:dev idp-pg-backup:dev; do
+for img in idp-cmi:dev idp-host:dev idp-host-fakemodel:dev idp-workspace:dev eer-runtime:dev idp-mcp:dev idp-sandbox:dev idp-sandbox-egress:dev idp-web:dev idp-mcp-bridge:dev idp-browser:dev idp-browser-proxy:dev idp-embedding:dev idp-pg-backup:dev idp-sandbox-office:dev; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "BLOCKED: image $img missing (run without SKIP_BUILD)" >&2; exit 2; }
   load_image "$img"
 done
@@ -209,6 +220,7 @@ kubectl delete ns "${NAMESPACES[@]}" --ignore-not-found --wait=true --timeout=30
 
 # ---------------------------------------------------------------- identity: one realm, one tenant, a CA
 TENANT="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+SYSTEM_TENANT="$(python3 -c 'import uuid; print(uuid.uuid4())')"   # KB3: the platform's own workload's tenant; the system gateway serves it only (idp-mcp D6)
 rm -rf "$L/tls" "$L/keycloak"; mkdir -p "$L/tls" "$L/keycloak"
 umask 077
 # the test CA is kept across runs (.local/kind-ca): a browser that trusts it once keeps working after every full.sh (the
@@ -225,8 +237,9 @@ openssl req -newkey rsa:2048 -nodes -subj "/CN=postgresql.databases.svc.cluster.
 PGSAN=""; for n in postgresql postgresql-rw postgresql-ro postgresql-r; do PGSAN+="DNS:$n,DNS:$n.databases,DNS:$n.databases.svc,DNS:$n.databases.svc.cluster.local,"; done
 printf 'subjectAltName=%sDNS:localhost\nextendedKeyUsage=serverAuth\n' "$PGSAN" > "$L/tls/pg-san.ext"
 openssl x509 -req -in "$L/tls/pg.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 30 -extfile "$L/tls/pg-san.ext" -out "$L/tls/pg.crt" 2>/dev/null
-IDP_REALM_GATEWAY="$GATEWAY_URL" IDP_REALM_SHELL="$WS" python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
+IDP_REALM_GATEWAY="$GATEWAY_URL" IDP_REALM_SYSTEM_GATEWAY="$SYSGW_URL" IDP_REALM_SHELL="$WS" python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" "$SYSTEM_TENANT" >/dev/null
 secret_of() { python3 -c "import json,sys; d=json.load(open('$L/clients.json')); print(d['users'].get(sys.argv[1]) or d[sys.argv[1]])" "$1"; }
+SYSTEM_SUBJECT="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['idp-cmi-ingest'])")"   # the `sub` of the CMI's ingest tokens (a fixed id in the realm)
 token_json() { python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
 KC=(curl -sf --noproxy '*' --cacert "$L/tls/ca.crt")
 user_token() { "${KC[@]}" "$ISSUER/protocol/openid-connect/token" -d grant_type=password -d client_id=e2e-cli -d "client_secret=$(secret_of e2e-cli)" -d "username=$1" -d "password=$(secret_of "$1")" | token_json; }
@@ -386,12 +399,15 @@ if [[ -n "${SANDBOX_RUNTIME_CLASS:-}" ]]; then   # e.g. gvisor (idp-sandbox/test
   - target: {kind: Deployment, name: idp-sandbox, namespace: idp-sandbox}
     patch: |-
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_SANDBOX_RUNTIME_CLASS, value: "$SANDBOX_RUNTIME_CLASS"}}
+  - target: {kind: Deployment, name: idp-sandbox-ingest, namespace: idp-sandbox-ingest}   # KB3: the ingest sandbox's runs are isolated the same way
+    patch: |-
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: IDP_SANDBOX_RUNTIME_CLASS, value: "$SANDBOX_RUNTIME_CLASS"}}
 YAML
 fi
 if go run sigs.k8s.io/kustomize/kustomize/v5@v5.7.1 build "$L/overlay" > "$L/platform.yaml" 2>"$L/kustomize.err"; then :; else
   kubectl kustomize "$L/overlay" > "$L/platform.yaml" || { cat "$L/kustomize.err" >&2; echo "BLOCKED: kustomize" >&2; exit 2; }
 fi
-sed -i "s#203.0.113.40#$BACKUP_GW#g; s#19510#$KB_PORT#g" "$L/platform.yaml"
+sed -i "s#203.0.113.40#$BACKUP_GW#g; s#19510#$KB_PORT#g; s#203.0.113.99#$APIIP#g; s#__SYSTEM_TENANT__#$SYSTEM_TENANT#g; s#__SYSTEM_SUBJECT__#$SYSTEM_SUBJECT#g" "$L/platform.yaml"
 if [[ "$MODEL" == live ]]; then
   # the HOST's provider is the host's model through the forwarder, and the HOST's namespace may reach that address
   python3 - "$L/platform.yaml" "$MODEL_BASE" "$KIND_GW" "$LIVE_MODEL" <<'PY'
@@ -537,6 +553,7 @@ log "secrets"
 mksecret() { local ns="$1" name="$2"; shift 2; kubectl -n "$ns" create secret generic "$name" "$@" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; }
 for c in idp-cmi idp-host idp-workspace; do kubectl apply -f "$c/deploy/kubernetes/secrets.example.yaml" >/dev/null; kubectl -n "$c" create configmap platform-tenant --from-literal=tenant-id="$TENANT" >/dev/null; done
 kubectl -n idp-mcp create configmap platform-tenant --from-literal=tenant-id="$TENANT" >/dev/null
+kubectl -n idp-mcp create configmap system-tenant --from-literal=tenant-id="$SYSTEM_TENANT" >/dev/null   # KB3: seeded at the registry by the Job kind-tenant-system
 kubectl -n idp-workspace create configmap assistant-app --from-file=deploy/apps/assistant/index.html \
   --from-file=deploy/apps/assistant/app.js --from-file=deploy/apps/assistant/style.css >/dev/null
 dbsecret() { # dbsecret NAMESPACE SECRET DATABASE OWNER-LOGIN SERVICE-LOGIN APP-PASSWORD
@@ -610,6 +627,15 @@ mksecret idp-browser idp-browser-proxy-admin-key --from-literal=admin.key="$(ope
 for ns_ in web-origin web-attacker web-render-origin web-canary; do kubectl -n "$ns_" create configmap web-origin-script --from-file=web_origin.py=deploy/compose/web_origin.py >/dev/null; done
 # idp-sandbox: the key its service signs a run's egress credential with and its proxy verifies it with (D21)
 mksecret idp-sandbox idp-sandbox-egress-key --from-literal=egress.key="$(openssl rand -hex 32)"
+# KB3 (idp-cmi D62, D67, D70): the key that signs and verifies the CMI's file-endpoint tickets, the secret of the CMI's workload client, the key the SYSTEM gateway signs the caller it forwards with
+# (its own pair: the ingest sandbox trusts it, the interactive sandbox does not) and its public half for the ingest sandbox (a ConfigMap: it is not a secret). New every run.
+mksecret idp-cmi idp-cmi-ingest-ticket --from-literal=ticket.key="$(openssl rand -base64 48 | tr -d "\n")"
+mksecret idp-cmi idp-cmi-ingest-client --from-literal=client-secret="$(secret_of idp-cmi-ingest)"
+openssl ecparam -name prime256v1 -genkey -noout -out "$L/caller-system.key" 2>/dev/null
+openssl ec -in "$L/caller-system.key" -pubout -out "$L/caller-system.pub" 2>/dev/null
+mksecret idp-mcp idp-mcp-gateway-system-caller-key --from-file=caller.key="$L/caller-system.key"
+kubectl -n idp-sandbox-ingest create configmap idp-sandbox-ingest-gateway-caller-keys --from-file=caller.pub="$L/caller-system.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+printf 'clients:\n  idp-cmi-ingest: {kind: platform}\n' > "$L/gateway-system-clients.yaml"   # what the system gateway's clients ConfigMap says (deploy/kubernetes/full/ingest.yaml): PATH P2 reads it
 # idp-host: its key, the model/CMI credentials, the delegation client secret (the HOST's own identity at the CMI is its Keycloak service account)
 mksecret idp-host idp-host-credential-key --from-literal=key="$(openssl rand -hex 32)"
 # the HOST's own client secret for the CMI: it mints and refreshes its own tokens (idp-host D36), so that
@@ -656,7 +682,7 @@ kubectl -n idp-mcp-bridge rollout restart deploy/idp-mcp-bridge >/dev/null   # n
 for ns in idp-cmi idp-host idp-workspace idp-eer; do
   for d in $(kubectl -n "$ns" get deploy -o name); do kubectl -n "$ns" rollout status "$d" --timeout=300s >/dev/null || { echo "BLOCKED: $ns/$d" >&2; exit 2; }; done
 done
-for d in idp-mcp/idp-mcp-registry idp-sandbox/idp-sandbox idp-sandbox/idp-sandbox-egress egress-origin/origin idp-web/idp-web idp-mcp-bridge/idp-mcp-bridge thirdparty/thirdparty web-origin/origin web-attacker/attacker web-render-origin/origin web-canary/canary idp-browser/idp-browser idp-browser/idp-browser-proxy idp-host/fakemodel temporal/temporal; do kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=300s >/dev/null; done
+for d in idp-mcp/idp-mcp-registry idp-sandbox/idp-sandbox idp-sandbox-ingest/idp-sandbox-ingest idp-sandbox/idp-sandbox-egress egress-origin/origin idp-web/idp-web idp-mcp-bridge/idp-mcp-bridge thirdparty/thirdparty web-origin/origin web-attacker/attacker web-render-origin/origin web-canary/canary idp-browser/idp-browser idp-browser/idp-browser-proxy idp-host/fakemodel temporal/temporal; do kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=300s >/dev/null; done
 
 pf idp-workspace idp-workspace 17560:8560; pf idp-host idp-host 17450:8450; pf idp-cmi idp-cmi 17550:8550
 pf idp-eer eer-api 17180:8080; pf idp-mcp idp-mcp-registry 17250:8250
@@ -682,6 +708,18 @@ python3 -I deploy/compose/mcp_setup.py "$REG" "$GW_ID" "$MADMIN" "$MOPERATOR" "$
 # the gateway is Ready only once a release is deployed (mcp_setup.py above)
 kubectl -n idp-mcp rollout status deploy/idp-mcp-gateway-edge-1 --timeout=300s >/dev/null
 pf idp-mcp idp-mcp-gateway-edge-1 17320:3220
+# KB3: the SYSTEM gateway (its tenant is the system tenant, seeded at the registry by the Job kind-tenant-system) and its one target, the ingest sandbox; the people who register, review and
+# deploy are the same three accounts as above, in that tenant (four eyes: operator, reviewer and administrator are different subjects)
+mcp_token_system() { kubectl -n idp-mcp exec deploy/idp-mcp-registry -- /usr/local/bin/registry-service dev-token "$SYSTEM_TENANT" "$1" "$2" | tail -1; }
+SMADMIN="$(mcp_token_system carol admin)"; SMOPERATOR="$(mcp_token_system alice operator)"; SMREVIEWER="$(mcp_token_system bob reviewer)"
+SGW="$(call 201 POST "$REG/api/v1/gateways" "$SMADMIN" '{"name":"system-1","authMode":"jwt","jwt":{"issuer":"'"$ISSUER"'","resource":"'"$SYSGW_URL"'","jwksUrl":"http://'"$KCS"':7080/realms/idp/protocol/openid-connect/certs","tenantClaim":"tenant_id","rolesClaim":"roles"}}')"
+SGW_ID="$(echo "$SGW" | field "['gateway']['gatewayId']")"; SGW_TOKEN="$(echo "$SGW" | field "['token']")"
+mksecret idp-mcp idp-mcp-gateway-system --from-literal=gateway-id="$SGW_ID" --from-literal=token="$SGW_TOKEN"
+kubectl -n idp-mcp rollout restart deploy/idp-mcp-gateway-system >/dev/null   # its pod has waited for this Secret since the components were applied: the kubelet's retry backs off for minutes, so start a new pod now
+python3 -I deploy/compose/mcp_setup_ingest.py "$REG" "$SGW_ID" "$SMADMIN" "$SMOPERATOR" "$SMREVIEWER" cmi-ingest "$INGEST_URL" >/dev/null \
+  || { kubectl -n idp-mcp logs deploy/idp-mcp-registry --tail 20; kubectl -n idp-mcp logs deploy/idp-mcp-gateway-system --tail 20; kubectl -n idp-sandbox-ingest logs deploy/idp-sandbox-ingest --tail 20; echo "BLOCKED: the idp-mcp setup of the system gateway failed" >&2; exit 2; }
+kubectl -n idp-mcp rollout status deploy/idp-mcp-gateway-system --timeout=300s >/dev/null
+pf idp-mcp idp-mcp-gateway-system 17321:3221
 for url in "http://127.0.0.1:17320/healthz" "$CMI/healthz" "$HOST/healthz" "$WS/healthz" "$EER/health/ready"; do
   for _ in $(seq 1 120); do curl -sf --noproxy '*' -o /dev/null "$url" && break; sleep 0.5; done
   curl -sf --noproxy '*' -o /dev/null "$url" || { echo "BLOCKED: $url" >&2; exit 2; }
@@ -1566,13 +1604,56 @@ source deploy/compose/path_p0.sh
 # path above; P1 stops it (scale to 0: its pod is gone, the CMI's embedding calls are refused), uploads, and starts it again ----
 p1_embedding_stop() { kubectl -n idp-embedding scale deploy/idp-embedding --replicas=0 >/dev/null; kubectl -n idp-embedding wait --for=delete pod -l app.kubernetes.io/name=idp-embedding --timeout=120s >/dev/null; }
 p1_embedding_start() { kubectl -n idp-embedding scale deploy/idp-embedding --replicas=1 >/dev/null; kubectl -n idp-embedding rollout status deploy/idp-embedding --timeout=600s >/dev/null || { kubectl -n idp-embedding describe pod | tail -12 >&2; echo "FAIL: PATH P1: the embedding service did not become ready" >&2; exit 1; }; }
-p1_metrics() { local p; for p in $(kubectl -n idp-cmi get pod -l app.kubernetes.io/component=cmi -o jsonpath='{.items[*].metadata.name}'); do kubectl get --raw "/api/v1/namespaces/idp-cmi/pods/$p:9565/proxy/metrics"; done; }   # both replicas
+p1_metrics() { local p; for p in $(kubectl -n idp-cmi get pod -l app.kubernetes.io/component=cmi -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | grep -v '^p2probe$'); do kubectl get --raw "/api/v1/namespaces/idp-cmi/pods/$p:9565/proxy/metrics"; done; }   # both replicas
 p1_query_stop() { kubectl -n idp-embedding scale deploy/idp-embedding-query --replicas=0 >/dev/null; kubectl -n idp-embedding wait --for=delete pod -l app.kubernetes.io/name=idp-embedding-query --timeout=120s >/dev/null; }
 p1_query_start() { kubectl -n idp-embedding scale deploy/idp-embedding-query --replicas=1 >/dev/null; kubectl -n idp-embedding rollout status deploy/idp-embedding-query --timeout=600s >/dev/null || { kubectl -n idp-embedding describe pod | tail -12 >&2; echo "FAIL: PATH P1: the query embedding service did not become ready" >&2; exit 1; }; }
 p1_sql() { kubectl -n databases exec -c postgres "$(pgtarget)" -- psql -U postgres -d idp_cmi -Atc "$1"; }
 source deploy/compose/path_p1.sh
 
+# ---- PATH P2: the conversion of knowledge originals (KB3; idp-cmi D61 to D70, idp-sandbox D25); the steps are in deploy/compose/path_p2.sh, which deploy/compose/e2e.sh sources too. It runs after P0 (which erased
+# bob) and P1, as carol: a member who owns her documents, whom it erases as a subject at the end. The ingest sandbox is scaled to 0 and back by it (once). The reach checks are this script's own: probe pods stand
+# where the NetworkPolicies look (labelled as HOST, the Workspace, idp-web, EER, the ingest sandbox, the CMI, a run) and try the pod addresses of the CMI's file endpoint and of the system gateway; they are
+# never ready, so that no Service sends them traffic ----
+P2_SYS_AUD="$SYSGW_URL" P2_SYS_URL=http://127.0.0.1:17321/mcp P2_EDGE_AUD="$GATEWAY_URL" P2_EDGE_URL=http://127.0.0.1:17320/mcp P2_SYSGW_ISOLATED=1
+p2_sandbox_stop() { kubectl -n idp-sandbox-ingest scale deploy/idp-sandbox-ingest --replicas=0 >/dev/null; kubectl -n idp-sandbox-ingest wait --for=delete pod -l app.kubernetes.io/name=idp-sandbox-ingest --timeout=120s >/dev/null; }
+p2_sandbox_start() { kubectl -n idp-sandbox-ingest scale deploy/idp-sandbox-ingest --replicas=1 >/dev/null; kubectl -n idp-sandbox-ingest rollout status deploy/idp-sandbox-ingest --timeout=300s >/dev/null || { kubectl -n idp-sandbox-ingest describe pod | tail -12 >&2; echo "FAIL: PATH P2: the ingest sandbox did not become ready" >&2; exit 1; }; sleep 3; }
+p2_probe_pod() { # p2_probe_pod NAMESPACE LABEL-YAML: a python pod that only sleeps, labelled as asked, restricted like its namespace, never ready
+  kubectl apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Pod
+metadata: {name: p2probe, namespace: $1, labels: {$2}}
+spec:
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
+      imagePullPolicy: IfNotPresent
+      command: [python, -c, "import time; time.sleep(1800)"]
+      readinessProbe: {exec: {command: ["false"]}, periodSeconds: 5}
+      resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 100m, memory: 64Mi}}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+YAML
+}
+P2_PROBES=("idp-host|app.kubernetes.io/component: host" "idp-workspace|app.kubernetes.io/component: workspace" "idp-web|app.kubernetes.io/component: web" "idp-eer|app.kubernetes.io/component: api"
+           "idp-sandbox-ingest|app.kubernetes.io/component: sandbox-ingest" "idp-cmi|app.kubernetes.io/component: cmi" "idp-sandbox-ingest-runs|idp.sandbox/role: run")
+for pr in "${P2_PROBES[@]}"; do p2_probe_pod "${pr%%|*}" "${pr#*|}"; done
+for pr in "${P2_PROBES[@]}"; do kubectl -n "${pr%%|*}" wait --for=jsonpath='{.status.phase}'=Running pod/p2probe --timeout=180s >/dev/null || { kubectl -n "${pr%%|*}" describe pod p2probe | tail -8 >&2; echo "BLOCKED: the probe pod in ${pr%%|*}" >&2; exit 2; }; done
+P2_CMI_IP="$(kubectl -n idp-cmi get pod -l app.kubernetes.io/component=cmi --field-selector=status.phase=Running -o json | python3 -c 'import json,sys; print([p for p in json.load(sys.stdin)["items"] if p["metadata"]["name"] != "p2probe"][0]["status"]["podIP"])')"
+P2_SYSGW_IP="$(kubectl -n idp-mcp get pod -l app.kubernetes.io/component=gateway-system -o jsonpath='{.items[0].status.podIP}')"
+p2_reach() {   # FROM TARGET
+  local ns h p
+  case "$1" in host) ns=idp-host;; workspace) ns=idp-workspace;; web) ns=idp-web;; eer) ns=idp-eer;; ingest-sandbox) ns=idp-sandbox-ingest;; cmi) ns=idp-cmi;; runs) ns=idp-sandbox-ingest-runs;; *) return 1;; esac
+  case "$2" in file-endpoint) h="$P2_CMI_IP" p=8551;; system-gateway) h="$P2_SYSGW_IP" p=3221;; *) return 1;; esac
+  kubectl -n "$ns" exec -i p2probe -- python - connect "$h" "$p" < deploy/compose/p2_probe.py >/dev/null 2>&1
+}
+p2_forged_post() { kubectl -n idp-sandbox-ingest exec -i p2probe -- python - forged http://idp-cmi-ingest.idp-cmi.svc.cluster.local:8551 write < deploy/compose/p2_probe.py; }
+P2_NET_WHAT="probe pods labelled as the pods the policies name, in their namespaces (HOST, Workspace, idp-web and EER on the member side; the ingest sandbox; the CMI; a run pod), against the pod addresses of the CMI's file endpoint (8551) and of the system gateway (3221)"
+source deploy/compose/path_p2.sh
+for pr in "${P2_PROBES[@]}"; do kubectl -n "${pr%%|*}" delete pod p2probe --wait=false >/dev/null || true; done
+
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
+ALICE="$(user_token alice)"   # PATH P2 may have run longer than a token lives (it waits for the projection queue to drain)
 if ! command -v uv >/dev/null; then
   echo "NOT_RUN: PATH C needs uv (EER's Intelligence runs from its locked environment)"
   exit 0

@@ -32,6 +32,11 @@
 #         database), his run calls its tool through HOST -> gateway -> bridge and the third party gets bob's token and nothing of TELOS; alice, who
 #         has not connected, gets idp.host/authorization.required and the third party is not called; an expired token is refreshed once; a wrong iss
 #         stores nothing; bob disconnects and the third party sees the revocation; no secret the third party issued is anywhere it must not be
+# PATH P0/P1 (knowledge bases and embeddings, KB1/KB2: deploy/compose/path_p0.sh, path_p1.sh) and PATH P2 (KB3, the conversion of originals: deploy/compose/path_p2.sh): the CMI converts PDF and Office
+#         originals to searchable text in a second idp-sandbox instance (the ingest sandbox) that it reaches through a gateway of its own, the system gateway, with the workload identity
+#         idp-cmi-ingest; uploads of each type are located (page, heading path, slide, sheet!range), a version being converted stays invisible while the previous one is current, a big sheet is
+#         truncated with a notice, a scan fails with the no-text code and can be retried, a subject erasure removes the text, the jobs and the tickets, and HOST's, a member's and a probe's tokens
+#         cannot call the ingest tools; a forged ticket posted to the file endpoint is refused
 # (RFC 8693, issued to the client idp-host), the gateway forwards the verified caller to idp-sandbox, which runs the code in an isolated
 # container in a workspace that belongs to bob. The gateway's invocation record names bob and the HOST.
 #
@@ -182,6 +187,8 @@ cleanup() {
     "${C[@]}" down -v --remove-orphans >/dev/null 2>&1
     docker ps -aq --filter label=idp.sandbox=platform | xargs -r docker rm -fv >/dev/null 2>&1
     docker volume ls -q --filter label=idp.sandbox=platform | xargs -r docker volume rm -f >/dev/null 2>&1
+    docker ps -aq --filter label=idp.sandbox=ingest | xargs -r docker rm -fv >/dev/null 2>&1   # the ingest sandbox's runs (KB3)
+    docker volume ls -q --filter label=idp.sandbox=ingest | xargs -r docker volume rm -f >/dev/null 2>&1
   fi
   [[ "${GITHUB:-}" == live && "${KEEP:-0}" == 1 && $status -eq 0 ]] && echo "READY: the platform is up with the connection github: now run  bash deploy/compose/github_live.sh  (it tells you what to do in your browser)"
   return 0
@@ -190,6 +197,9 @@ trap cleanup EXIT
 
 # ---- identity: one realm, one tenant for every component ----
 TENANT="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+# KB3: the platform's own workload (the CMI's ingest identity) lives in a tenant of its own, the system tenant; the system gateway serves that tenant only (idp-mcp D6)
+SYSTEM_TENANT="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+SYSGW_URL=http://mcp-gateway-system:3320/mcp
 umask 022
 # an https issuer (idp-eer accepts no other): a CA and a server certificate for 127.0.0.1 and keycloak
 rm -rf "$L/tls"; mkdir -p "$L/tls"
@@ -199,7 +209,7 @@ printf 'subjectAltName=IP:127.0.0.1,DNS:keycloak,DNS:localhost\n' > "$L/tls/san.
 openssl x509 -req -in "$L/tls/server.csr" -CA "$L/tls/ca.crt" -CAkey "$L/tls/ca.key" -CAcreateserial -days 2 -extfile "$L/tls/san.ext" -out "$L/tls/server.crt" 2>/dev/null
 chmod 644 "$L/tls/server.key" "$L/tls/server.crt" "$L/tls/ca.crt"   # read by the Keycloak container user; a throw-away dev CA
 rm -rf "$L/keycloak"; mkdir -p "$L/keycloak"
-python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" >/dev/null
+IDP_REALM_SYSTEM_GATEWAY="$SYSGW_URL" python3 deploy/keycloak/realm.py "$L/keycloak" "$TENANT" "$L/clients.json" "$SYSTEM_TENANT" >/dev/null
 # the HOST's own client secret for the CMI: it mints and refreshes its own tokens (idp-host D36)
 python3 -c "import json; print(json.load(open('$L/clients.json'))['idp-host-svc'])" > "$L/cmi-client.secret"
 MODEL_BASE=http://fakemodel:18080/v1 AGENT_MODEL=fake-1
@@ -334,6 +344,18 @@ clients:
 hostOnlyTools: ["web__*", "thirdparty__*", "thirdparty-pre__*", "github__*"]
 Y
 chmod 644 "$L/gateway-clients.yaml"
+# KB3 (idp-cmi D62, D67, D70): the key that signs and verifies the file endpoint's tickets, the secret of the CMI's workload client, the key the system gateway signs the caller it
+# forwards with (a pair of its own: the ingest sandbox trusts it and no other, the interactive sandbox does not trust it), and the system gateway's clients file: the CMI's client
+# and nothing else. `ingest__*` is not in hostOnlyTools (the CMI is not the HOST); the access control is "one role, one client, one tenant".
+openssl rand -base64 48 | tr -d "\n" > "$L/ingest-ticket.key"   # base64, not hex: the CMI refuses a key with few distinct bytes
+python3 -c "import json; print(json.load(open('$L/clients.json'))['idp-cmi-ingest'], end='')" > "$L/cmi-ingest.secret"
+openssl ecparam -name prime256v1 -genkey -noout -out "$L/caller-system.key" 2>/dev/null
+openssl ec -in "$L/caller-system.key" -pubout -out "$L/caller-system.pub" 2>/dev/null
+cat > "$L/gateway-system-clients.yaml" <<'Y'
+clients:
+  idp-cmi-ingest: {kind: platform}
+Y
+chmod 644 "$L/ingest-ticket.key" "$L/cmi-ingest.secret" "$L/caller-system.key" "$L/caller-system.pub" "$L/gateway-system-clients.yaml"
 # the sandbox's egress proxy (idp-sandbox D13, D21): the key the sandbox signs a run's credential with and the proxy verifies it
 # with, and the allow-lists. This run's tenant may reach PATH L's origin; everyone else nothing.
 openssl rand -hex 32 > "$L/egress.key"
@@ -447,7 +469,8 @@ printf '%s' "$IDP_KB_S3_ACCESS_KEY" > "$L/kb-s3.access"; printf '%s' "$IDP_KB_S3
 # the embedding service (knowledge-base plan KB2): its API key (the CMI's embedding section names the same file) and idp-cmi's recommended settings for
 # Qwen3-Embedding-0.6B (ADR-0001 section 17, D37): the instruction prefix of the evaluation, floor 0.40, memory floor 0.20, lexical blend 0.05
 openssl rand -hex 24 | tr -d '\n' > "$L/embedding.key"; chmod 644 "$L/embedding.key"
-cat > "$L/cmi.yaml" <<'YAML'
+SYSTEM_SUBJECT="$(python3 -c "import json; print(json.load(open('$L/clients.json'))['ids']['idp-cmi-ingest'])")"
+cat > "$L/cmi.yaml" <<YAML
 embedding:
   baseUrl: http://embedding:8700/v1
   model: qwen3-embedding-0.6b
@@ -461,6 +484,21 @@ embedding:
     baseUrl: http://embedding-query:8700/v1
     apiKeyFile: /etc/idp/embedding.key
     timeout: 30s
+knowledge:
+  conversion:   # KB3 (idp-cmi D61 to D70): the originals of PDF, Word, PowerPoint and Excel are converted in the ingest sandbox, through the system gateway
+    enabled: true
+    gatewayUrl: $SYSGW_URL
+    tokenUrl: http://keycloak:7080/realms/idp/protocol/openid-connect/token
+    clientId: idp-cmi-ingest
+    clientSecretFile: /etc/idp/cmi-ingest.secret
+    workloadTenant: $SYSTEM_TENANT
+    workloadSubject: $SYSTEM_SUBJECT   # the `sub` of the client's tokens: the subject the gateway asserts to the sandbox (deploy/keycloak/realm.py)
+    endpointUrl: http://cmi:8551                      # IDP_SANDBOX_FILES_URL of the ingest sandbox, exactly
+    concurrency: 4
+    sandboxConcurrency: 8                             # IDP_SANDBOX_MAX_CONCURRENT of the ingest sandbox
+    runSeconds: 300                                   # IDP_SANDBOX_TIMEOUT_S of the ingest sandbox
+    callTimeout: 390s                                 # above the system gateway's IDP_CALL_TIMEOUT (330 s)
+    interval: 2s                                      # the acceptance does not wait for the default 5 s poll
 YAML
 chmod 644 "$L/cmi.yaml"
 "${C[@]}" up -d knowledge-s3
@@ -511,7 +549,9 @@ field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 "${C[@]}" run --rm -T bridge-admin ensure-login idp_bridge_svc >/dev/null
 got="$("${C[@]}" run --rm -T mcp-admin seed-tenant acme "$TENANT" | sed -n 's/^TENANT_ID=//p')"
 [[ "$got" == "$TENANT" ]] || { echo "BLOCKED: mcp tenant $got != $TENANT" >&2; exit 2; }
-"${C[@]}" up -d mcp-registry sandbox egress-origin web web-origin web-attacker web-render-origin web-canary browser browser-proxy thirdparty bridge   # the sandbox brings its egress proxy with it
+got="$("${C[@]}" run --rm -T mcp-admin seed-tenant system "$SYSTEM_TENANT" | sed -n 's/^TENANT_ID=//p')"   # KB3: the system tenant, whose one gateway serves the CMI's ingest identity
+[[ "$got" == "$SYSTEM_TENANT" ]] || { echo "BLOCKED: mcp system tenant $got != $SYSTEM_TENANT" >&2; exit 2; }
+"${C[@]}" up -d mcp-registry sandbox sandbox-ingest egress-origin web web-origin web-attacker web-render-origin web-canary browser browser-proxy thirdparty bridge   # the sandbox brings its egress proxy with it
 for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:8250/api/v1/health && break; sleep 0.5; done
 mcp_token() { "${C[@]}" run --rm -T mcp-admin dev-token "$TENANT" "$1" "$2" | tail -1; }
 MADMIN="$(mcp_token carol admin)"; MOPERATOR="$(mcp_token alice operator)"; MREVIEWER="$(mcp_token bob reviewer)"
@@ -524,6 +564,19 @@ for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:33
 for _ in $(seq 1 60); do "${C[@]}" logs --no-log-prefix web 2>&1 | grep -q '"msg":"idp-web listening' && break; sleep 0.5; done
 python3 -I deploy/compose/mcp_setup.py http://127.0.0.1:8250 "$GW_ID" "$MADMIN" "$MOPERATOR" "$MREVIEWER" host-user http://sandbox:8570/mcp http://web:8580/mcp >/dev/null \
   || { "${C[@]}" logs --tail 30 mcp-registry mcp-gateway sandbox web; echo "BLOCKED: the idp-mcp setup failed" >&2; exit 2; }
+
+# KB3: the system gateway (one gateway per tenant: its tenant is the system tenant) and its one target, the ingest sandbox. The registry tokens are the system tenant's: the people who
+# register, review and deploy are the same three accounts as above, in that tenant (four eyes: operator, reviewer and administrator are different subjects)
+mcp_token_system() { "${C[@]}" run --rm -T mcp-admin dev-token "$SYSTEM_TENANT" "$1" "$2" | tail -1; }
+SMADMIN="$(mcp_token_system carol admin)"; SMOPERATOR="$(mcp_token_system alice operator)"; SMREVIEWER="$(mcp_token_system bob reviewer)"
+SGW="$(call 201 POST http://127.0.0.1:8250/api/v1/gateways "$SMADMIN" '{"name":"system-1","authMode":"jwt","jwt":{"issuer":"'"$ISSUER"'","resource":"'"$SYSGW_URL"'","jwksUrl":"http://keycloak:7080/realms/idp/protocol/openid-connect/certs","tenantClaim":"tenant_id","rolesClaim":"roles"}}')"
+SGW_ID="$(echo "$SGW" | field "['gateway']['gatewayId']")"; SGW_TOKEN="$(echo "$SGW" | field "['token']")"
+printf 'IDP_SYSGW_ID=%s\nIDP_SYSGW_TOKEN=%s\n' "$SGW_ID" "$SGW_TOKEN" >> "$ENVF"
+set -a; source "$ENVF"; set +a
+"${C[@]}" up -d mcp-gateway-system
+for _ in $(seq 1 60); do curl -sf --noproxy '*' -o /dev/null http://127.0.0.1:3321/healthz && break; sleep 0.5; done
+python3 -I deploy/compose/mcp_setup_ingest.py http://127.0.0.1:8250 "$SGW_ID" "$SMADMIN" "$SMOPERATOR" "$SMREVIEWER" cmi-ingest http://sandbox-ingest:8570/mcp >/dev/null \
+  || { "${C[@]}" logs --tail 30 mcp-registry mcp-gateway-system sandbox-ingest; echo "BLOCKED: the idp-mcp setup of the system gateway failed" >&2; exit 2; }
 
 "${C[@]}" up -d embedding embedding-query cmi host host-worker workspace eer-api eer-worker eer-projector
 for url in "$CMI/healthz" "$HOST/healthz" "$WS/healthz" "$EER/health/ready" http://127.0.0.1:18181/health/ready http://127.0.0.1:18182/health/ready; do
@@ -1447,7 +1500,31 @@ p1_query_start() {
 p1_sql() { "${C[@]}" exec -T postgres psql -U postgres -d idp_cmi -Atc "$1"; }
 source deploy/compose/path_p1.sh
 
+# ---- PATH P2: the conversion of knowledge originals (KB3; idp-cmi D61 to D70, idp-sandbox D25); the steps are in deploy/compose/path_p2.sh, which tests/kind/full.sh sources too. It runs after P0 (which erased
+# bob) and P1, as carol: a member who owns her documents, whom it erases as a subject at the end. The ingest sandbox is stopped and started by it (once) ----
+P2_SYS_AUD="$SYSGW_URL" P2_SYS_URL=http://127.0.0.1:3321/mcp P2_EDGE_AUD=http://mcp-gateway:3320/mcp P2_EDGE_URL=http://127.0.0.1:3320/mcp
+P2PROJ="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$("${C[@]}" ps -q cmi)")"
+P2_PYIMG=ghcr.io/idp-xyz/mirror:public.ecr.aws__docker__library__python__3.12-slim
+p2_sandbox_stop() { "${C[@]}" stop sandbox-ingest >/dev/null; }
+p2_sandbox_start() {
+  "${C[@]}" start sandbox-ingest >/dev/null
+  for _ in $(seq 1 60); do [[ "$(docker inspect -f '{{.State.Running}}' "$("${C[@]}" ps -q sandbox-ingest)" 2>/dev/null)" == true ]] && break; sleep 1; done
+  sleep 3
+}
+p2_probe() { local net="$1"; shift; docker run -i --rm --network "${P2PROJ}_$net" "$P2_PYIMG" python - "$@" < deploy/compose/p2_probe.py; }   # a container on one compose network, as that network sees the CMI
+p2_reach() {   # FROM TARGET: compose narrows the CMI's file endpoint (it listens on its ingestnet address only) and cannot narrow the system gateway (P2_SYSGW_ISOLATED stays unset)
+  local nets n h
+  case "$1" in ingest-sandbox) nets=(ingestnet);; host|workspace|web|eer) nets=(edge upstream data);; *) return 1;; esac
+  [[ "$2" == file-endpoint ]] || return 1
+  for n in "${nets[@]}"; do for h in cmi 10.253.77.2; do p2_probe "$n" connect "$h" 8551 && return 0; done; done
+  return 1
+}
+p2_forged_post() { p2_probe ingestnet forged http://cmi:8551 write; }
+P2_NET_WHAT="probe containers on the compose networks (the ingest sandbox's network ingestnet; edge, upstream and data, where HOST, the Workspace, idp-web and EER are; the file endpoint listens on 10.253.77.2 only; the system gateway is published and on edge in compose, which compose cannot narrow: PATH P2e's audience check and tests/kind/full.sh's NetworkPolicies cover it)"
+source deploy/compose/path_p2.sh
+
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----
+ALICE="$(user_token alice)"   # PATH P2 may have run longer than a token lives (it waits for the projection queue to drain)
 if ! command -v uv >/dev/null; then
   echo "NOT_RUN: PATH C needs uv (EER's Intelligence runs from its locked environment)"
   exit 0
