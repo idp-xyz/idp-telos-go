@@ -237,6 +237,15 @@ paths:
     kindBudgetSeconds: 90
     budgetSeconds: 90
     script: deploy/compose/path_p3.sh
+  - id: P4
+    pass: [P4a, P4b, P4c]
+    components: [idp-host, idp-web, idp-cmi, idp-mcp]
+    needs: []
+    uses: [dave]
+    budgetSeconds: 60
+    script: deploy/compose/path_p4.sh
+    files: [deploy/compose/cite_check.py]
+    notes: unified citation numbering (idp-host D70 to D85). Compose only (no manifest, policy or sandbox runtime). Makes three web searches of the tenant's three a day and zeroes the count before and after
   - id: C
     pass: [C]
     components: [idp-eer, idp-cmi]

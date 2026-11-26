@@ -41,6 +41,9 @@
 #         call and the citation numbers continue, the CMI sees dave and not HOST's service; nobody reads another member's personal base through the tools (alice, ws-admin, included); a run with an external model has the confidential passage
 #         withheld (context.withheld); a follow-up question is rewritten before the first retrieval (the CMI is asked the rewritten one; with the rewrite off no model call is made for it); no run keeps the member's CMI token after it ends;
 #         context.sources limits read and find; erasing a document redacts the packages that read and find made of it, an empty find too. Uses the model double's know:, know-dig:, know-read:, call: flows and its rewrite
+# PATH P4 (deploy/compose/path_p4.sh, cite_check.py): HOST is the only citation numbering authority (idp-host D70 to D85, contract 1.13.0). One run with a knowledge search and a web search: contiguous HOST numbers, sources (web, webN) and
+#         knowledgeSources, both cited, an invented number unverified, a bracketed number in the knowledge text neutralised; a follow-up run of the thread goes on from the counter; a run that delegates twice: no duplicate numbers, the
+#         parent citing a child's number is not flagged, the sub-agents' credential_ref is the root's while they wait and nothing is held after, citation_counters.next is one past the highest. Uses the model double's mixed:, mixed-cite:, fan:, web: flows
 # (RFC 8693, issued to the client idp-host), the gateway forwards the verified caller to idp-sandbox, which runs the code in an isolated
 # container in a workspace that belongs to bob. The gateway's invocation record names bob and the HOST.
 #
@@ -522,7 +525,7 @@ knowledge:
     clientId: idp-cmi-ingest
     clientSecretFile: /etc/idp/cmi-ingest.secret
     workloadTenant: $SYSTEM_TENANT
-    workloadSubject: $SYSTEM_SUBJECT   # the `sub` of the client's tokens: the subject the gateway asserts to the sandbox (deploy/keycloak/realm.py)
+    workloadSubject: $SYSTEM_SUBJECT   # the "sub" claim of the client's tokens: the subject the gateway asserts to the sandbox (deploy/keycloak/realm.py)
     endpointUrl: http://cmi:8551                      # IDP_SANDBOX_FILES_URL of the ingest sandbox, exactly
     concurrency: 4
     sandboxConcurrency: 8                             # IDP_SANDBOX_MAX_CONCURRENT of the ingest sandbox
@@ -1365,12 +1368,12 @@ echo "PASS: PATH M4 — PDF reading: bob's run read $WEB_TARIFF and the page mar
 path_end M4; else path_skip M4; fi
 
 if want M5; then path_start M5
-# ---- PATH M5: the run's sources and the check of its citations (idp-host ADR-0001 D49, contract idp.telos.host 1.11.0) ----
+# ---- PATH M5: the run's sources and the check of its citations (idp-host ADR-0001 D49; D70 to D85, contract idp.telos.host 1.13.0: HOST numbers the sources, idp-web's number is webN) ----
 # What bob would be shown, read as he reads it: the run and its events through the Workspace's relay (as PATH N reads them) and the answer in
 # his inbox. (1) A run that searches and reads the article: its sources hold the article's address with a read time and the digest of the
-# text the model was given, the number its answer cites is that source and is marked cited, nothing is unverified, and the run's events
-# carry one idp.host/run.sources before RUN_FINISHED. (2) "web-cite:" is the same flow whose answer also cites 987, a number no source of
-# bob's can have (the model double's InventedCitation; idp-web numbers per caller and bob's count is in the tens): unverifiedCitations is
+# text idp-web gave, the number its answer cites is that source and is marked cited, nothing is unverified, every source has idp-web's own
+# number as webN and the model read HOST's (the tool results on the stream), and the run's events carry one idp.host/run.sources before RUN_FINISHED. (2) "web-cite:" is the same flow whose answer also cites 987, a number no source of
+# bob's thread can have (the model double's InventedCitation; HOST's counter of a thread starts at 1 and this thread has a handful): unverifiedCitations is
 # exactly [987], and the answer reached the inbox as the model wrote it, because the HOST marks and does not block. (3) The order assistant has
 # no web tools: asked a question with a bracketed number, its answer repeats it and the run has neither sources nor unverifiedCitations and no
 # event, because there is nothing to check an answer of such a run against.
@@ -1620,6 +1623,16 @@ else
   source deploy/compose/path_p3.sh
 fi
 path_end P3; else path_skip P3; fi
+
+if want P4; then path_start P4
+# ---- PATH P4: unified citation numbering (idp-host ADR-0001 D70 to D85, contract idp.telos.host 1.13.0; idp-web D34); the steps are in deploy/compose/path_p4.sh, checks in cite_check.py. It uses the model double's mixed:, mixed-cite:,
+# fan: and web: flows and the web tools through the gateway (the fixture search provider, three searches of the day: the count is zeroed before and after); with MODEL=live it is NOT_RUN ----
+if [[ "$MODEL" == live ]]; then
+  echo "NOT_RUN: PATH P4 uses the model double's mixed and fan flows (MODEL=fake)"
+else
+  source deploy/compose/path_p4.sh
+fi
+path_end P4; else path_skip P4; fi
 
 if want C; then path_start C
 # ---- PATH C: EER Intelligence draws Decision context from the platform's CMI and leaves memory ----

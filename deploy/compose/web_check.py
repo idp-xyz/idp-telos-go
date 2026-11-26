@@ -248,6 +248,13 @@ def m5_article(run, address):
     for x in sources:
         if not all(k in x for k in ('n', 'title', 'url', 'cited')) or not isinstance(x['cited'], bool):
             fail('sources', f'a source lacks a field: {x}')
+        # contract 1.13.0 (idp-host D70, D85): n is HOST's number, webN is idp-web's, kept for the check only; sources holds web sources only
+        if not isinstance(x.get('webN'), int) or x['webN'] < 1:
+            fail('sources', f'a web source has no webN (idp-web\'s own number, 1.13.0): {x}')
+        if 'kind' in x:
+            fail('sources', f'a source carries a kind (the list is web only since 1.13.0): {x}')
+    if run.get('knowledgeSources'):
+        fail('sources', f'a run without knowledge tools has knowledgeSources: {json.dumps(run["knowledgeSources"])[:300]}')
     hit = [x for x in sources if x['url'] == address]
     if len(hit) != 1:
         fail('sources', f'want one source with the article\'s address {address}, got {[x["url"] for x in sources]}')
@@ -255,6 +262,27 @@ def m5_article(run, address):
     if not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)', x.get('fetchedAt') or '') or not re.fullmatch(r'[0-9a-f]{64}', x.get('sha256') or ''):
         fail('sources', f'the article was read, so it has a fetchedAt and a 64-hex sha256: {x}')
     return x
+
+
+def m5_model_text(run, events):
+    """What the model was given (the tool results on the run's stream) numbers the web sources with HOST's numbers: the header of every
+    result block is the n of the source with that address, so idp-web's own numbers (webN) are never the label of a source the model reads."""
+    heads = {}
+    for e in events:
+        if e.get('type') != 'TOOL_CALL_RESULT':
+            continue
+        for n, url in re.findall(r'(?m)^\[(\d+)\] [^\n]*\naddress: (\S+)', e.get('content') or ''):
+            heads[url] = int(n)
+    if not heads:
+        fail('model', 'no search result block with a number and an address is on the stream: the check of the model text has nothing to read')
+    by_url = {x['url']: x for x in run['sources']}
+    for url, n in heads.items():
+        src = by_url.get(url)
+        if src is None:
+            fail('model', f'the model was given {url} as [{n}] and the run has no source with that address')
+        if src['n'] != n:
+            fail('model', f'the model read {url} as [{n}] but the source is n {src["n"]} (webN {src["webN"]}): a number other than HOST\'s reached the model')
+    return len(heads), sum(1 for u in heads if by_url[u]['webN'] != by_url[u]['n'])
 
 
 def m5_item_sources(run, events, item, answer):
@@ -292,18 +320,21 @@ def m5_sources(address):
     x = m5_article(run, address)
     marks = {int(n) for n in re.findall(r'\[(\d+)\]', answer)}
     if x['n'] not in marks or x['cited'] is not True:
-        fail('cited', f'the answer cites {sorted(marks)}; the article is source {x["n"]} with cited {x["cited"]} (PATH M asserts the answer says [1]: bob\'s number for the article is not 1 if these differ)')
+        fail('cited', f'the answer cites {sorted(marks)}; the article is source {x["n"]} with cited {x["cited"]} (PATH M asserts the answer says [1]: the first source of a run\'s thread is HOST\'s number 1, whatever idp-web\'s own number of it is)')
     wrong = [y['n'] for y in run['sources'] if y['cited'] != (y['n'] in marks)]
     if wrong:
         fail('cited', f'sources whose cited flag does not follow the answer ({sorted(marks)}): {wrong}')
     if run.get('unverifiedCitations'):
         fail('unverified', f'the answer cites numbers that are sources, yet unverifiedCitations is {run["unverifiedCitations"]}')
     v = m5_sources_event(run, events)
+    seen, differ = m5_model_text(run, events)
+    if run.get('unlistedCitations'):
+        fail('unlisted', f'every number the answer cites is a listed source, yet unlistedCitations is {run["unlistedCitations"]}')
     got = m5_item_sources(run, events, item, answer)
     if 'unverifiedCitations' in item:
         fail('item', f'nothing is unverified, so the item has no unverifiedCitations (absent, not empty): {item["unverifiedCitations"]}')
     print(f'inbox item: the same {len(got)} sources in its own field, no unverifiedCitations, the summary is the answer; sources: {len(run["sources"])} ({", ".join(str(y["n"]) for y in run["sources"])}); the article is [{x["n"]}] cited, read {x["fetchedAt"]}, sha256 {x["sha256"][:12]}...; '
-          f'no unverified number; one idp.host/run.sources before RUN_FINISHED (dropped {v.get("droppedInvalid")}/{v.get("droppedOverLimit")}, conflicts {v.get("conflicts")})')
+          f'every source has idp-web\'s number as webN ({differ} of the {seen} the model read differ from HOST\'s n, and the model read HOST\'s); no knowledgeSources; no unverified number; one idp.host/run.sources before RUN_FINISHED (dropped {v.get("droppedInvalid")}/{v.get("droppedOverLimit")}, conflicts {v.get("conflicts")})')
 
 
 def m5_cite(address, invented):
@@ -321,6 +352,7 @@ def m5_cite(address, invented):
     v = m5_sources_event(run, events)
     if v.get('unverifiedCitations') != [n]:
         fail('event', f'the event does not carry the unverified number: {v.get("unverifiedCitations")}')
+    m5_model_text(run, events)
     got = m5_item_sources(run, events, item, answer)
     if item.get('unverifiedCitations') != [n]:
         fail('item', f'want the inbox item\'s unverifiedCitations exactly [{n}], got {item.get("unverifiedCitations")}')

@@ -91,11 +91,18 @@ for s in (s1,s2):
     nxt=s[0][1]['firstIndex']
     for n,v in s:
         assert v['firstIndex']==nxt,('the numbers do not continue',s)
-        nxt+=v.get('numbered',v.get('returned'))
+        nxt+=v.get('numbered',v.get('itemCount',v.get('returned')))   # idp-host D81: a passage the thread numbered already (the same document and place) keeps its number, so the count of new numbers is itemCount, not what the CMI returned
 assert s1[2][1].get('documentId')==doc and s1[2][1].get('text')==phrase,s1[2]
 assert s2[2][1].get('documentId')==doc and s2[2][1].get('locator')=={'page':2},s2[2]
+# D81 (a): the read of page 2 returns the passage the search gave; it keeps the number the search gave it, and takes no new one for it
+import re
+blocks=lambda t: re.findall(r'(?m)^\[(\d+)\] [^\n]*\ndocument: (\S+?);[^\n]*\nwhere: ([^\n]+)',t)
+was={(d,w):int(n) for n,d,w in blocks(e2['results'][0])}
+again=[(int(n),was[(d,w)]) for n,d,w in blocks(e2['results'][1]) if (d,w) in was]
+assert again and all(a==b for a,b in again),('a passage seen again took a new number',again,was)
+assert s2[2][1]['itemCount']<s2[2][1]['returned'],('the read gave numbers to what the search had numbered',s2[2][1])
 nums=[int(x) for x in __import__('re').findall(r'\[(\d+)\]',e1['text'])]
-assert nums and min(nums)>=s1[1][1]['firstIndex'] and max(nums)<nxt,('the answer cites numbers that were not given',e1['text'],s1)
+assert nums and min(nums)>=s1[0][1]['firstIndex'] and max(nums)<nxt,('the answer cites numbers that were not given',e1['text'],s1)
 print('ok')
 PY
 PKG_FIND="$(p3_x "$EA1" "[c['value']['packageId'] for c in d['customs'] if c['name']=='idp.host/context.package'][-1]")"
@@ -111,7 +118,7 @@ it=pf['package']['items']; assert it and it[0]['match']=='exact' and it[0].get('
 it=pr['package']['items']; assert any(i['locator'].get('page')==2 and w2 in i['excerpt'] for i in it),it   # the chunks around it (the neighbours, in document order) come with it
 print('ok')
 PY
-echo "PASS: PATH P3a — dave's runs ($RA1, $RA2): the first context package at the start, then one idp.host/context.package event per tool call (knowledge__search then knowledge__find of the phrase; knowledge__search then knowledge__read of page 2), the citation numbers continue from the start's ($(p3_x "$EA1" "[c['value']['firstIndex'] for c in d['customs'] if c['name'] in ('idp.host/context.resolved','idp.host/context.package')]")) and the answer cites numbers that were given; the CMI has the three packages as requested by dave ($DAVE_ID), not by HOST's service; the find is match exact with its hits on page 1, the read has page 2 (and its neighbours)"
+echo "PASS: PATH P3a — dave's runs ($RA1, $RA2): the first context package at the start, then one idp.host/context.package event per tool call (knowledge__search then knowledge__find of the phrase; knowledge__search then knowledge__read of page 2), the citation numbers continue from the start's ($(p3_x "$EA1" "[c['value']['firstIndex'] for c in d['customs'] if c['name'] in ('idp.host/context.resolved','idp.host/context.package')]")) and the answer cites numbers that were given, and the page-2 passage the read returns again keeps the number the search gave it (itemCount < returned, D81); the CMI has the three packages as requested by dave ($DAVE_ID), not by HOST's service; the find is match exact with its hits on page 1, the read has page 2 (and its neighbours)"
 
 p3_fresh
 # (b) a member cannot read another member's personal base through the tools; an administrator cannot either (HOST never names the owner); the administrator naming the owner at the CMI can, and it is audited

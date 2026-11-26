@@ -216,6 +216,11 @@ if HOST in schemas:
         ('run_with_sources_only', HOST, 'AgentRun', 0, S(sources=[{'n': 2, 'title': 'Customs times', 'url': 'https://example.org/customs', 'fetchedAt': '2026-11-03T13:41:07Z', 'sha256': 'ab' * 32, 'cited': True}])),
         # 1.7.0 (CMI D24)
         ('release_context_on_stale_fail', HOST, 'AgentRelease', 0, P('definition.context.onStale', 'fail')),
+        # 1.13.0 (D70-D85): HOST numbers every source of a thread; web sources keep their idp-web number as webN, knowledge sources have a list of their own
+        ('run_with_web_n', HOST, 'AgentRun', 0, S(sources=[{'n': 4, 'title': 'Customs times', 'url': 'https://example.org/customs', 'webN': 37, 'fetchedAt': '2026-11-03T13:41:07Z', 'sha256': 'ab' * 32, 'cited': True}])),
+        ('run_with_knowledge_sources', HOST, 'AgentRun', 0, S(knowledgeSources=[{'n': 1, 'title': 'Dock rota', 'documentId': 'doc-1', 'where': 'page 2', 'source': 'handbook', 'cited': True}, {'n': 2, 'title': 'Ledger', 'documentId': 'doc-2', 'cited': False}])),
+        ('run_with_unlisted_1000', HOST, 'AgentRun', 0, S(unlistedCitations=[1000, 999999])),
+        ('run_with_both_lists_and_unlisted', HOST, 'AgentRun', 0, S(sources=[{'n': 3, 'title': 't', 'url': 'https://example.org/x', 'webN': 12, 'cited': True}], knowledgeSources=[{'n': 1, 'title': 'Dock rota', 'documentId': 'doc-1', 'cited': True}], unlistedCitations=[2, 5], unverifiedCitations=[987])),
         # 1.12.0 (D65, D66): the knowledge tools and the question rewrite
         ('release_context_knowledge_tools', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__search', 'knowledge__read', 'knowledge__find']})),
         ('release_context_one_knowledge_tool', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__find']})),
@@ -223,6 +228,14 @@ if HOST in schemas:
         ('release_context_rewrite_off', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'rewrite': 'off'})),
     ]
     NEGATIVE += [
+        ('host_run_source_web_n_zero', HOST, 'AgentRun', 0, S(sources=[{'n': 1, 'title': 't', 'url': 'https://example.org/x', 'webN': 0, 'cited': False}])),
+        ('host_run_source_kind_field', HOST, 'AgentRun', 0, S(sources=[{'n': 1, 'title': 't', 'url': 'https://example.org/x', 'kind': 'knowledge', 'cited': False}])),
+        ('host_run_knowledge_source_without_document', HOST, 'AgentRun', 0, S(knowledgeSources=[{'n': 1, 'title': 't', 'cited': False}])),
+        ('host_run_knowledge_source_text_field', HOST, 'AgentRun', 0, S(knowledgeSources=[{'n': 1, 'title': 't', 'documentId': 'doc-1', 'cited': False, 'excerpt': 'the passage'}])),
+        ('host_run_knowledge_source_101_items', HOST, 'AgentRun', 0, S(knowledgeSources=[{'n': i, 'title': 't', 'documentId': 'doc-1', 'cited': False} for i in range(1, 102)])),
+        ('host_run_unlisted_101_items', HOST, 'AgentRun', 0, S(unlistedCitations=list(range(1, 102)))),
+        ('host_run_unlisted_citation_1000000', HOST, 'AgentRun', 0, S(unlistedCitations=[1000000])),
+        ('host_run_unlisted_citation_twice', HOST, 'AgentRun', 0, S(unlistedCitations=[2, 2])),
         ('release_context_unknown_knowledge_tool', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__delete']})),
         ('release_context_knowledge_tool_twice', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__find', 'knowledge__find']})),
         ('release_context_four_knowledge_tools', HOST, 'AgentRelease', 0, P('definition.context', {'cmi': True, 'tools': ['knowledge__search', 'knowledge__read', 'knowledge__find', 'knowledge__search']})),
@@ -257,7 +270,7 @@ if HOST in schemas:
         ('host_run_source_ftp_address', HOST, 'AgentRun', 0, S(sources=[{'n': 1, 'title': 't', 'url': 'ftp://example.org/x', 'cited': False}])),
         ('host_run_source_101_items', HOST, 'AgentRun', 0, S(sources=[{'n': i, 'title': 't', 'url': 'https://example.org/x', 'cited': False} for i in range(1, 102)])),
         ('host_run_source_excerpt_field', HOST, 'AgentRun', 0, S(sources=[{'n': 1, 'title': 't', 'url': 'https://example.org/x', 'cited': False, 'excerpt': 'page text'}])),
-        ('host_run_unverified_year', HOST, 'AgentRun', 0, S(unverifiedCitations=[2026])),
+        ('host_run_unverified_1000000', HOST, 'AgentRun', 0, S(unverifiedCitations=[1000000])),
         ('host_run_empty_owner', HOST, 'AgentRun', 0, S(owner='')),
         # RunOptions: mirrors the option cases of the same test (the API answers these with 422)
         ('host_options_unknown_key', HOST, 'RunOptions', 0, S(**{'idp.host/unknown': 1})),
