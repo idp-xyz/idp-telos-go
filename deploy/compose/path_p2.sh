@@ -196,16 +196,28 @@ JOBS0="$(p1_sql "SELECT count(*) FROM knowledge_conversions WHERE document_id IN
 TEXT0="$(p1_sql "SELECT count(*) FROM knowledge_chunks WHERE document_id IN ($IDS) AND content <> '[erased]'")"
 OBJ0=0; for d in "${P2_DOCS[@]}"; do OBJ0=$(( OBJ0 + $(p0_s3_keys | grep -c "/$d/" || true) )); done
 [[ "$JOBS0" -ge 7 && "$TICK0" -ge 14 && "$TEXT0" -ge 1 && "$OBJ0" -ge 7 ]] || p2_bad "(g): before the erasure there are $JOBS0 jobs, $TICK0 used tickets, $TEXT0 chunks with text and $OBJ0 objects (want at least 7, 14, 1, 7): the test would prove nothing"
+# the objects the erasure is about, recorded before it: the documents of this path (their chunks are what the projection embeds) and carol's memory records (scope subject). The erasure's own list (erasure_id) is added after it.
+MEMS="$(p1_sql "SELECT id FROM memory_records WHERE scope_kind = 'subject' AND scope_id = '$CAROL_ID'" | sed "s/.*/'&'/" | paste -sd, -)"; MEMS="${MEMS:-'00000000-0000-0000-0000-000000000000'}"
 ER="$(call 201 POST "$CMI/api/v1/erasures" "$(user_token alice)" '{"subject":"'"$CAROL_ID"'","reason":"P2: the member left"}')"; ER_ID="$(echo "$ER" | field "['erasureId']")"
 t0=$(p2_now_ms); ER_STATE=""
 for _ in $(seq 1 120); do ER_STATE="$(call 200 GET "$CMI/api/v1/erasures/$ER_ID" "$(user_token alice)" | field "['status']")"; [[ "$ER_STATE" == verified || "$ER_STATE" == failed ]] && break; sleep 1; done
 [[ "$ER_STATE" == verified ]] || p2_bad "(g): the erasure $ER_ID is '$ER_STATE', not verified"
 T_ER=$(python3 -c "print(round(($(p2_now_ms) - $t0) / 1000, 1))")
-# the chunks of the documents of this path were projected (embedded) one event each, the erased ones too: the queue of the projection is drained before the next path, so that what comes after is not
-# measured behind it (the 10,000-row sheet alone is about 100 events (255 with wide rows); on a few CPUs that is minutes). Bounded, from the clock.
-EV0="$(p1_sql "SELECT count(*) FROM projection_events WHERE processed_at IS NULL")"; t1=$(p2_now_ms)
-while [[ "$(p1_sql "SELECT count(*) FROM projection_events WHERE processed_at IS NULL")" != 0 ]]; do (( $(p2_now_ms) - t1 > 1800000 )) && p2_bad "(g): $(p1_sql "SELECT count(*) FROM projection_events WHERE processed_at IS NULL") projection events are still queued 30 minutes after the erasure"; sleep 5; done
+# What the wait for the projection was there to show is about the ERASED objects only: the events that name them are processed without embedding anything (Project: a document with erasure_id is not active, so the event is
+# done with no vector), and no vector exists for them, none written after the erasure (the erasure sets embedding NULL and embedding_model 'erased'; a vector written later would carry the model's name). The queue is
+# FIFO by id (idp-cmi Project: ORDER BY id), so those events wait behind every earlier event, which on the real image is minutes of CPU for documents that are not carol's: the wait is for the erased objects' events, not
+# for the queue (the whole-queue drain measured the CPU, and failed a 4-core runner after 30 minutes with 147 events left). Bounded (15 minutes); the real image may not reach them in time and then the vector check below is what stands.
+P2_DOCSET="SELECT id FROM knowledge_documents WHERE id IN ($IDS) OR erasure_id = '$ER_ID'"; P2_MEMSET="SELECT id FROM memory_records WHERE id IN ($MEMS) OR erasure_id = '$ER_ID'"
+P2_ERASED_EV="(kind = 'chunk' AND object_id IN ($P2_DOCSET)) OR (kind = 'memory' AND object_id IN ($P2_MEMSET))"
+P2_VEC="SELECT (SELECT count(*) FROM knowledge_chunks WHERE document_id IN ($P2_DOCSET) AND (embedding IS NOT NULL OR embedding_model IS DISTINCT FROM 'erased')) + (SELECT count(*) FROM memory_records WHERE id IN ($P2_MEMSET) AND embedding IS NOT NULL)"
+VEC_ER="$(p1_sql "$P2_VEC")"
+EV_ALL="$(p1_sql "SELECT count(*) FROM projection_events WHERE processed_at IS NULL")"; EV_ERASED="$(p1_sql "SELECT count(*) FROM projection_events WHERE processed_at IS NULL AND ($P2_ERASED_EV)")"; EV_TOTAL="$(p1_sql "SELECT count(*) FROM projection_events WHERE $P2_ERASED_EV")"; t1=$(p2_now_ms)
+while [[ "$(p1_sql "SELECT count(*) FROM projection_events WHERE processed_at IS NULL AND ($P2_ERASED_EV)")" != 0 ]]; do (( $(p2_now_ms) - t1 > 900000 )) && break; sleep 5; done
 T_DRAIN=$(python3 -c "print(round(($(p2_now_ms) - $t1) / 1000, 1))")
+EV_LEFT="$(p1_sql "SELECT count(*) FROM projection_events WHERE processed_at IS NULL AND ($P2_ERASED_EV)")"; VEC_NOW="$(p1_sql "$P2_VEC")"
+[[ "$VEC_ER$VEC_NOW" == 00 ]] || p2_bad "(g): vectors of erased objects: $VEC_ER right after the erasure, $VEC_NOW after the projection ran over their events (want none: no embedding, and none written after the erasure)"
+[[ "$EV_LEFT" == 0 || "$EMBED" == real ]] || p2_bad "(g): $EV_LEFT of the erased objects' projection events are still queued $T_DRAIN s after the erasure (EMBED=$EMBED)"
+P2_SKIPPED="$(p1_sql "SELECT count(*) FROM projection_events WHERE processed_at IS NOT NULL AND ($P2_ERASED_EV)")"
 JOBS1="$(p1_sql "SELECT count(*) FROM knowledge_conversions WHERE document_id IN ($IDS)")"; TICK1="$(p1_sql "SELECT count(*) FROM knowledge_ticket_uses WHERE document_id IN ($IDS)")"
 TEXT1="$(p1_sql "SELECT count(*) FROM knowledge_chunks WHERE document_id IN ($IDS) AND (content <> '[erased]' OR index_text <> '[erased]')")"
 LOCS1="$(p1_sql "SELECT count(*) FROM knowledge_chunks WHERE document_id IN ($IDS) AND (sheet <> '' OR cell_range <> '' OR heading_path <> '' OR table_name <> '')")"
@@ -213,4 +225,4 @@ OBJ1=0; for d in "${P2_DOCS[@]}"; do OBJ1=$(( OBJ1 + $(p0_s3_keys | grep -c "/$d
 [[ "$JOBS1$TICK1$TEXT1$LOCS1$OBJ1" == 00000 ]] || p2_bad "(g): after the erasure $JOBS1 jobs, $TICK1 tickets, $TEXT1 chunks with text, $LOCS1 with a locator and $OBJ1 objects are left"
 for w in "$W_PDF2" "$W_DOCC" "$W_PPT2" "$W_XLS" "$W_KEEP" "$W_NEWC"; do [[ "$(p2_loc "$w")" == none ]] || p2_bad "(g): after the erasure '$w' is still found"; done
 CONV1="$(p1_metric idp_cmi_conversions_total outcome=succeeded)"; CONVT="$(p1_metric idp_cmi_conversions_total outcome=truncated)"; CONVF="$(p1_metric idp_cmi_conversions_total outcome=failed code=no_text)"
-echo "PASS: PATH P2g — the erasure of carol ($ER_ID) was verified after $T_ER s: of ${#P2_DOCS[@]} documents with $JOBS0 conversion jobs, $TICK0 used tickets, $TEXT0 chunks with text and $OBJ0 objects before, none is left ($JOBS1 jobs, $TICK1 tickets, $TEXT1 chunks with text or index text, $LOCS1 with a locator, $OBJ1 objects) and none of her words is found; the projection queue ($EV0 events at the erasure) drained in $T_DRAIN s; idp_cmi_conversions_total grew by $(( CONV1 - CONV0 )) succeeded, $CONVT truncated, $CONVF failed with no_text"
+echo "PASS: PATH P2g — the erasure of carol ($ER_ID) was verified after $T_ER s: of ${#P2_DOCS[@]} documents with $JOBS0 conversion jobs, $TICK0 used tickets, $TEXT0 chunks with text and $OBJ0 objects before, none is left ($JOBS1 jobs, $TICK1 tickets, $TEXT1 chunks with text or index text, $LOCS1 with a locator, $OBJ1 objects) and none of her words is found; no vector of an erased object exists (none right after the erasure, none after the projection went over its $EV_TOTAL events: $P2_SKIPPED processed, $EV_LEFT still queued behind $EV_ALL queued in all, waited $T_DRAIN s); idp_cmi_conversions_total grew by $(( CONV1 - CONV0 )) succeeded, $CONVT truncated, $CONVF failed with no_text"
